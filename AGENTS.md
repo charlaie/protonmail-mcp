@@ -1,1 +1,2 @@
 - Use PNPM as package maanger
+- Never log to stdout on MCP server
