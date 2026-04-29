@@ -1,43 +1,21 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+#!/usr/bin/env node
+
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
 
-// Create server instance
-const server = new McpServer({
-  name: "protonmail-mcp",
-  version: "1.0.0",
-});
-
-server.registerTool(
-    "send-email",
-    {
-        description: "Send an email to a recipient",
-        inputSchema: z.object({
-            recipient: z.email(),
-            subject: z.string(),
-            body: z.string(),
-        }),
-    },
-    async ({ recipient, subject, body }) => {
-        console.error(`Sending email to ${recipient} with subject ${subject} and body ${body}`);
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: "email sent successfully",
-                }
-            ]
-        }
-    }
-)
+import { loadBridgeConfig } from "./bridge/config.js";
+import { createServer } from "./mcp/server.js";
+import { safeErrorMessage } from "./shared/errors.js";
 
 async function main() {
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error("Protonmail MCP Server running on stdio");
-  }
-  
-  main().catch((error) => {
-    console.error("Fatal error in main():", error);
-    process.exit(1);
-  });
+	loadBridgeConfig();
+
+	const server = createServer();
+	const transport = new StdioServerTransport();
+	await server.connect(transport);
+	console.error("Protonmail MCP Server running on stdio");
+}
+
+main().catch((error) => {
+	console.error("Fatal error in main():", safeErrorMessage(error));
+	process.exit(1);
+});
