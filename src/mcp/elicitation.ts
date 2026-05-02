@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import type { SendEmailInput } from "./schemas.js";
 import { safeErrorMessage } from "../shared/errors.js";
+import type { SendEmailInput } from "./schemas.js";
 
 function truncate(value: string, maxLength: number): string {
 	if (value.length <= maxLength) {
@@ -11,6 +11,7 @@ function truncate(value: string, maxLength: number): string {
 	return `${value.slice(0, maxLength)}...`;
 }
 
+/** Ask the user for approval to send an email. */
 export async function requireSendApproval(
 	server: McpServer,
 	input: SendEmailInput,

@@ -11,6 +11,8 @@ import {
 } from "./serializers.js";
 import type { SearchMessagesInput } from "../mcp/schemas.js";
 
+type MessageLookupInput = { mailbox: string; uid: number };
+
 function createImapClient(config: BridgeConfig): ImapFlow {
 	return new ImapFlow({
 		host: config.host,
@@ -44,7 +46,7 @@ async function withImap<T>(
 	}
 }
 
-export async function listMailboxes(config: BridgeConfig) {
+async function listMailboxes(config: BridgeConfig) {
 	const mailboxes = await withImap(config, async (client) => {
 		return client.list({
 			statusQuery: {
@@ -58,7 +60,7 @@ export async function listMailboxes(config: BridgeConfig) {
 	return mailboxes.map((mailbox: ListResponse) => mailboxSummary(mailbox));
 }
 
-export async function searchMessages(
+async function searchMessages(
 	config: BridgeConfig,
 	input: SearchMessagesInput,
 ) {
@@ -97,10 +99,7 @@ export async function searchMessages(
 	});
 }
 
-export async function getMessage(
-	config: BridgeConfig,
-	input: { mailbox: string; uid: number },
-) {
+async function getMessage(config: BridgeConfig, input: MessageLookupInput) {
 	return withImap(config, async (client) => {
 		await client.mailboxOpen(input.mailbox, { readOnly: true });
 		const fetched = await client.fetchOne(
@@ -139,9 +138,9 @@ export async function getMessage(
 	});
 }
 
-export async function getMessageSummary(
+async function getMessageSummary(
 	config: BridgeConfig,
-	input: { mailbox: string; uid: number },
+	input: MessageLookupInput,
 ) {
 	return withImap(config, async (client) => {
 		await client.mailboxOpen(input.mailbox, { readOnly: true });
@@ -159,4 +158,15 @@ export async function getMessageSummary(
 
 		return fetched ? messageSummary(fetched) : null;
 	});
+}
+
+export function createImapService(config: BridgeConfig) {
+	return {
+		listMailboxes: () => listMailboxes(config),
+		searchMessages: (input: SearchMessagesInput) =>
+			searchMessages(config, input),
+		getMessage: (input: MessageLookupInput) => getMessage(config, input),
+		getMessageSummary: (input: MessageLookupInput) =>
+			getMessageSummary(config, input),
+	};
 }

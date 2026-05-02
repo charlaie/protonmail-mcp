@@ -1,9 +1,9 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
-import { ReadPolicySchema } from "./schema.js";
 import type { ReadPolicy } from "./schema.js";
+import { ReadPolicySchema } from "./schema.js";
 
 export function getPolicyFilePath() {
 	return (

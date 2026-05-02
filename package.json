@@ -10,7 +10,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc && chmod 755 build/index.js && chmod 755 build/policy/cli.js",
-    "policy:check": "pnpm build && node build/policy/cli.js",
+    "policy:check": "pnpm build && node build/policy/test.js",
     "setup": "pnpm build && node build/index.js setup",
     "policy": "pnpm build && node build/index.js policy",
     "reset-policy": "pnpm build && node build/index.js reset-policy",

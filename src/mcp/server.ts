@@ -2,12 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { loadBridgeConfig } from "../bridge/config.js";
-import {
-	getMessage,
-	getMessageSummary,
-	listMailboxes,
-	searchMessages,
-} from "../bridge/imap.js";
+import type { BridgeConfig } from "../bridge/config.js";
+import { createImapService } from "../bridge/imap.js";
 import { sendEmail } from "../bridge/smtp.js";
 import {
 	canReadMailbox,
@@ -17,13 +13,15 @@ import {
 } from "../policy/enforcement.js";
 import { loadReadPolicy } from "../policy/store.js";
 import { safeErrorMessage } from "../shared/errors.js";
-import { jsonResponse, textResponse } from "../shared/responses.js";
 import { requireSendApproval } from "./elicitation.js";
+import { jsonResponse, textResponse } from "./responses.js";
 import {
 	GetMessageSchema,
 	SearchMessagesSchema,
 	SendEmailSchema,
 } from "./schemas.js";
+
+type ImapService = ReturnType<typeof createImapService>;
 
 export function createServer() {
 	const server = new McpServer({
@@ -31,12 +29,18 @@ export function createServer() {
 		version: "1.0.0",
 	});
 
-	registerTools(server);
+	const bridgeConfig = loadBridgeConfig();
+	const imap = createImapService(bridgeConfig);
+	registerTools(server, bridgeConfig, imap);
 
 	return server;
 }
 
-function registerTools(server: McpServer) {
+function registerTools(
+	server: McpServer,
+	bridgeConfig: BridgeConfig,
+	imap: ImapService,
+) {
 	server.registerTool(
 		"send_email",
 		{
@@ -54,7 +58,7 @@ function registerTools(server: McpServer) {
 					);
 				}
 
-				const result = await sendEmail(loadBridgeConfig(), input);
+				const result = await sendEmail(bridgeConfig, input);
 				return jsonResponse(result);
 			} catch (error) {
 				return textResponse(`Email not sent: ${safeErrorMessage(error)}`);
@@ -71,7 +75,7 @@ function registerTools(server: McpServer) {
 		},
 		async () => {
 			try {
-				const mailboxes = await listMailboxes(loadBridgeConfig());
+				const mailboxes = await imap.listMailboxes();
 				return jsonResponse(mailboxes);
 			} catch (error) {
 				return textResponse(
@@ -104,7 +108,7 @@ function registerTools(server: McpServer) {
 					});
 				}
 
-				const messages = await searchMessages(loadBridgeConfig(), input);
+				const messages = await imap.searchMessages(input);
 				return jsonResponse({
 					status: "ok",
 					messages: filterAllowedMessages(policy, input.mailbox, messages),
@@ -138,8 +142,7 @@ function registerTools(server: McpServer) {
 					);
 				}
 
-				const config = loadBridgeConfig();
-				const summary = await getMessageSummary(config, input);
+				const summary = await imap.getMessageSummary(input);
 
 				if (!summary) {
 					return textResponse(
@@ -147,13 +150,15 @@ function registerTools(server: McpServer) {
 					);
 				}
 
-				if (!canReadMessage(policy, { mailbox: input.mailbox, message: summary })) {
+				if (
+					!canReadMessage(policy, { mailbox: input.mailbox, message: summary })
+				) {
 					return textResponse(
 						"Message not returned. Sender is not allowed by the read policy.",
 					);
 				}
 
-				const message = await getMessage(config, input);
+				const message = await imap.getMessage(input);
 
 				if (!message) {
 					return textResponse(

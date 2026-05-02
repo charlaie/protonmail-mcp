@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
+import { loadEnvFile } from "node:process";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import { loadDotEnv } from "./cli/env.js";
 import {
 	runPolicyCommand,
 	runResetPolicyCommand,
 	runSetupCommand,
-} from "./cli/policy.js";
+} from "./policy/cli.js";
 import { loadBridgeConfig } from "./bridge/config.js";
-import { getMessage, listMailboxes, searchMessages } from "./bridge/imap.js";
+import { createImapService } from "./bridge/imap.js";
 import { sendEmail } from "./bridge/smtp.js";
 import { createServer } from "./mcp/server.js";
 import { safeErrorMessage } from "./shared/errors.js";
@@ -32,9 +32,25 @@ function printJson(value: unknown) {
 	console.log(JSON.stringify(value, null, 2));
 }
 
-async function runMcpServer() {
-	loadBridgeConfig();
+function loadEnvFileIfPresent(path = ".env") {
+	try {
+		loadEnvFile(path);
+	} catch (error) {
+		// ignore error if file not exists
+		if (
+			error &&
+			typeof error === "object" &&
+			"code" in error &&
+			error.code === "ENOENT"
+		) {
+			return;
+		}
 
+		throw error;
+	}
+}
+
+async function runMcpServer() {
 	const server = createServer();
 	const transport = new StdioServerTransport();
 	await server.connect(transport);
@@ -43,14 +59,15 @@ async function runMcpServer() {
 
 async function runBridgeCommand(command: string, args: string[]) {
 	const config = loadBridgeConfig();
+	const imap = createImapService(config);
 
 	switch (command) {
 		case "bridge:list":
-			printJson(await listMailboxes(config));
+			printJson(await imap.listMailboxes());
 			return;
 		case "bridge:search":
 			printJson(
-				await searchMessages(config, {
+				await imap.searchMessages({
 					mailbox: "INBOX",
 					query: args.join(" ").trim() || undefined,
 					limit: 10,
@@ -67,7 +84,7 @@ async function runBridgeCommand(command: string, args: string[]) {
 				);
 			}
 
-			printJson(await getMessage(config, { mailbox, uid }));
+			printJson(await imap.getMessage({ mailbox, uid }));
 			return;
 		}
 		case "bridge:send-test": {
@@ -99,7 +116,7 @@ async function main() {
 		return;
 	}
 
-	await loadDotEnv();
+	loadEnvFileIfPresent();
 
 	switch (command) {
 		case "setup":

@@ -14,6 +14,7 @@ const ConfigSchema = z.object({
 
 export type BridgeConfig = z.infer<typeof ConfigSchema>;
 
+/** Load bridge config from environment variables. */
 export function loadBridgeConfig(): BridgeConfig {
 	return ConfigSchema.parse({
 		user: process.env.PROTONMAIL_BRIDGE_USER,
