@@ -12,7 +12,9 @@ const DomainSchema = z
 export const ReadPolicySchema = z.object({
 	version: z.literal(1),
 	allowedMailboxes: z.array(z.string().min(1)).min(1),
-	allowedSenderEmails: z.array(z.email().transform((value) => value.toLowerCase())),
+	allowedSenderEmails: z.array(
+		z.email().transform((value) => value.toLowerCase()),
+	),
 	allowedSenderDomains: z.array(DomainSchema),
 	createdAt: z.iso.datetime(),
 	updatedAt: z.iso.datetime(),
@@ -29,7 +31,9 @@ export function createReadPolicy(input: {
 
 	return ReadPolicySchema.parse({
 		version: 1,
-		allowedMailboxes: [...new Set(input.allowedMailboxes.map((value) => value.trim()))],
+		allowedMailboxes: [
+			...new Set(input.allowedMailboxes.map((value) => value.trim())),
+		],
 		allowedSenderEmails: [
 			...new Set(
 				(input.allowedSenderEmails ?? []).map((value) =>

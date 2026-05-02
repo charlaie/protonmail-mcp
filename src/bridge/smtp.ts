@@ -1,5 +1,5 @@
-import nodemailer from "nodemailer";
 import type { SendMailOptions } from "nodemailer";
+import nodemailer from "nodemailer";
 
 import type { SendEmailInput } from "../mcp/schemas.js";
 import type { BridgeConfig } from "./config.js";

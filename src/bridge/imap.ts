@@ -1,7 +1,7 @@
-import { ImapFlow } from "imapflow";
 import type { FetchMessageObject, ListResponse } from "imapflow";
+import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-
+import type { SearchMessagesInput } from "../mcp/schemas.js";
 import type { BridgeConfig } from "./config.js";
 import { buildSearchQuery } from "./search.js";
 import {
@@ -9,7 +9,6 @@ import {
 	messageSummary,
 	parsedAddressText,
 } from "./serializers.js";
-import type { SearchMessagesInput } from "../mcp/schemas.js";
 
 type MessageLookupInput = { mailbox: string; uid: number };
 

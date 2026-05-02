@@ -2,16 +2,15 @@
 
 import { loadEnvFile } from "node:process";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-
+import { loadBridgeConfig } from "./bridge/config.js";
+import { createImapService } from "./bridge/imap.js";
+import { sendEmail } from "./bridge/smtp.js";
+import { createServer } from "./mcp/server.js";
 import {
 	runPolicyCommand,
 	runResetPolicyCommand,
 	runSetupCommand,
 } from "./policy/cli.js";
-import { loadBridgeConfig } from "./bridge/config.js";
-import { createImapService } from "./bridge/imap.js";
-import { sendEmail } from "./bridge/smtp.js";
-import { createServer } from "./mcp/server.js";
 import { safeErrorMessage } from "./shared/errors.js";
 
 function usage() {
@@ -65,15 +64,18 @@ async function runBridgeCommand(command: string, args: string[]) {
 		case "bridge:list":
 			printJson(await imap.listMailboxes());
 			return;
-		case "bridge:search":
+		case "bridge:search": {
+			const mailbox = args[0];
+			const query = args.length > 1 ? args[1] : undefined;
 			printJson(
 				await imap.searchMessages({
-					mailbox: "INBOX",
-					query: args.join(" ").trim() || undefined,
+					mailbox: mailbox,
+					query: query,
 					limit: 10,
 				}),
 			);
 			return;
+		}
 		case "bridge:read": {
 			const mailbox = args[0];
 			const uid = Number(args[1]);

@@ -21,7 +21,10 @@ export function parsedAddressText(
 	}
 
 	if (Array.isArray(addresses)) {
-		return addresses.map((address) => address.text).filter(Boolean).join(", ");
+		return addresses
+			.map((address) => address.text)
+			.filter(Boolean)
+			.join(", ");
 	}
 
 	return addresses.text;

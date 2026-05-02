@@ -26,8 +26,7 @@ export const SendEmailSchema = z.object({
 const MailboxSchema = z
 	.string()
 	.min(1)
-	.default("INBOX")
-	.describe("IMAP mailbox/folder path to read from. Defaults to INBOX.");
+	.describe("IMAP mailbox/folder path to read from.");
 const DateStringSchema = z.iso
 	.date()
 	.describe("Calendar date in YYYY-MM-DD format.");
@@ -70,10 +69,7 @@ export const SearchMessagesSchema = z.object({
 });
 
 export const GetMessageSchema = z.object({
-	mailbox: z
-		.string()
-		.min(1)
-		.describe("IMAP mailbox/folder path containing the message."),
+	mailbox: MailboxSchema,
 	uid: z
 		.number()
 		.int()

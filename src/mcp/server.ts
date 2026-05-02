@@ -1,8 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
-import { loadBridgeConfig } from "../bridge/config.js";
 import type { BridgeConfig } from "../bridge/config.js";
+import { loadBridgeConfig } from "../bridge/config.js";
 import { createImapService } from "../bridge/imap.js";
 import { sendEmail } from "../bridge/smtp.js";
 import {
@@ -70,13 +69,21 @@ function registerTools(
 		"list_mailboxes",
 		{
 			description:
-				"List Proton Bridge IMAP mailboxes/folders. Use this before searching if the target mailbox path is unknown.",
+				"List Proton Bridge IMAP mailboxes/folders. Use this before searching if the target mailbox path is unknown. Each mailbox includes allowedByReadPolicy: true only when the current read policy allows searching and reading that exact mailbox path; false means the mailbox exists but search_messages and get_message will not return messages from it.",
 			inputSchema: z.object({}),
 		},
 		async () => {
 			try {
+				const policy = await loadReadPolicy();
 				const mailboxes = await imap.listMailboxes();
-				return jsonResponse(mailboxes);
+				return jsonResponse(
+					mailboxes.map((mailbox) => ({
+						...mailbox,
+						allowedByReadPolicy: policy
+							? canReadMailbox(policy, mailbox.path)
+							: false,
+					})),
+				);
 			} catch (error) {
 				return textResponse(
 					`Unable to list mailboxes: ${safeErrorMessage(error)}`,
