@@ -138,3 +138,25 @@ export async function getMessage(
 		};
 	});
 }
+
+export async function getMessageSummary(
+	config: BridgeConfig,
+	input: { mailbox: string; uid: number },
+) {
+	return withImap(config, async (client) => {
+		await client.mailboxOpen(input.mailbox, { readOnly: true });
+		const fetched = await client.fetchOne(
+			String(input.uid),
+			{
+				uid: true,
+				envelope: true,
+				flags: true,
+				internalDate: true,
+				size: true,
+			},
+			{ uid: true },
+		);
+
+		return fetched ? messageSummary(fetched) : null;
+	});
+}

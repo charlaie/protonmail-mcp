@@ -44,6 +44,8 @@ export function messageSummary(message: FetchMessageObject) {
 	};
 }
 
+export type MessageSummary = ReturnType<typeof messageSummary>;
+
 export function mailboxSummary(mailbox: ListResponse) {
 	return {
 		path: mailbox.path,
