@@ -12,6 +12,21 @@ import {
 
 type MessageLookupInput = { mailbox: string; uid: number };
 
+function messageReceivedTime(message: FetchMessageObject) {
+	const date = message.internalDate ?? message.envelope?.date;
+
+	if (date instanceof Date) {
+		return date.getTime();
+	}
+
+	if (typeof date === "string" || typeof date === "number") {
+		const timestamp = new Date(date).getTime();
+		return Number.isFinite(timestamp) ? timestamp : 0;
+	}
+
+	return 0;
+}
+
 function createImapClient(config: BridgeConfig): ImapFlow {
 	return new ImapFlow({
 		host: config.host,
@@ -70,13 +85,12 @@ async function searchMessages(
 			uid: true,
 		});
 
-		if (!searchResult) {
+		if (!searchResult || searchResult.length === 0) {
 			return [];
 		}
 
-		const uids = searchResult.slice(-input.limit).reverse();
 		const fetched = await client.fetchAll(
-			uids,
+			searchResult,
 			{
 				uid: true,
 				envelope: true,
@@ -87,14 +101,16 @@ async function searchMessages(
 			{ uid: true },
 		);
 
-		const byUid = new Map(
-			fetched.map((message: FetchMessageObject) => [message.uid, message]),
-		);
-
-		return uids.flatMap((uid) => {
-			const message = byUid.get(uid);
-			return message ? [messageSummary(message)] : [];
-		});
+		// UID is mailbox insert order, doesn't necessarily reflect mail date
+		// Sort on internalDate to get mmost recent
+		return fetched
+			.sort(
+				(a: FetchMessageObject, b: FetchMessageObject) =>
+					messageReceivedTime(b) - messageReceivedTime(a) ||
+					(b.uid ?? 0) - (a.uid ?? 0),
+			)
+			.slice(0, input.limit)
+			.map((message: FetchMessageObject) => messageSummary(message));
 	});
 }
 

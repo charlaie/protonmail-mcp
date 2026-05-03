@@ -147,6 +147,7 @@ async function main() {
 }
 
 main().catch((error) => {
+	console.error(error);
 	console.error("Fatal error in main():", safeErrorMessage(error));
 	process.exit(1);
 });
