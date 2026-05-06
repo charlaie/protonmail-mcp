@@ -1,8 +1,8 @@
 {
 	"name": "protonmail-mcp",
 	"version": "1.0.0",
-	"description": "",
-	"main": "index.js",
+	"description": "MCP server for Proton Mail through the local Proton Mail Bridge.",
+	"main": "./build/index.js",
 	"type": "module",
 	"bin": {
 		"protonmail-mcp": "./build/index.js"
@@ -10,7 +10,8 @@
 	"scripts": {
 		"check": "biome check --write",
 		"test": "echo \"Error: no test specified\" && exit 1",
-		"build": "tsc && chmod 755 build/index.js && chmod 755 build/policy/cli.js",
+		"prepack": "pnpm build",
+		"build": "node -e \"fs.rmSync('build', { recursive: true, force: true })\" && tsc && chmod 755 build/index.js && chmod 755 build/policy/cli.js",
 		"policy:check": "pnpm build && node build/policy/test.js",
 		"setup": "pnpm build && node build/index.js setup",
 		"policy": "pnpm build && node build/index.js policy",
@@ -23,9 +24,24 @@
 	"files": [
 		"build"
 	],
-	"keywords": [],
-	"author": "",
-	"license": "ISC",
+	"keywords": [
+		"mcp",
+		"model-context-protocol",
+		"protonmail",
+		"proton-mail",
+		"proton-bridge",
+		"email"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+ssh://git@github.com/charlaie/protonmail-mcp.git"
+	},
+	"bugs": {
+		"url": "https://github.com/charlaie/protonmail-mcp/issues"
+	},
+	"homepage": "https://github.com/charlaie/protonmail-mcp#readme",
+	"author": "charlaie",
+	"license": "MIT",
 	"packageManager": "pnpm@10.33.2",
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.29.0",
