@@ -77,5 +77,38 @@ export const GetMessageSchema = z.object({
 		.describe("IMAP UID of the message, usually returned by search_messages."),
 });
 
+export const GetThreadSchema = z.object({
+	mailbox: MailboxSchema.describe(
+		"Mailbox/folder path containing the anchor message.",
+	),
+	uid: z
+		.number()
+		.int()
+		.positive()
+		.describe("IMAP UID of the anchor message to expand into a thread."),
+	mailboxes: z
+		.array(MailboxSchema)
+		.min(1)
+		.max(25)
+		.optional()
+		.describe(
+			"Optional mailbox/folder paths to search for related messages. If omitted, searches every mailbox allowed by the read policy.",
+		),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(100)
+		.default(50)
+		.describe("Maximum number of related messages to return."),
+	includeText: z
+		.boolean()
+		.default(true)
+		.describe(
+			"Whether to include parsed plain-text bodies for returned messages.",
+		),
+});
+
 export type SendEmailInput = z.infer<typeof SendEmailSchema>;
 export type SearchMessagesInput = z.infer<typeof SearchMessagesSchema>;
+export type GetThreadInput = z.infer<typeof GetThreadSchema>;

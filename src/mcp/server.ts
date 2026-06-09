@@ -16,6 +16,7 @@ import { requireSendApproval } from "./elicitation.js";
 import { jsonResponse, textResponse } from "./responses.js";
 import {
 	GetMessageSchema,
+	GetThreadSchema,
 	SearchMessagesSchema,
 	SendEmailSchema,
 } from "./schemas.js";
@@ -178,6 +179,105 @@ function registerTools(
 				return textResponse(
 					`Unable to get message: ${safeErrorMessage(error)}`,
 				);
+			}
+		},
+	);
+
+	server.registerTool(
+		"get_thread",
+		{
+			description:
+				"Best-effort reconstruction of an email reply chain from one anchor message. Uses standard Message-ID, References, and In-Reply-To headers across read-policy-allowed Proton Bridge IMAP mailboxes. This is not a native Proton or Gmail-style conversation ID.",
+			inputSchema: GetThreadSchema,
+		},
+		async (input) => {
+			try {
+				const policy = await loadReadPolicy();
+
+				if (!policy) {
+					return textResponse(READ_POLICY_NOT_CONFIGURED);
+				}
+
+				if (!canReadMailbox(policy, input.mailbox)) {
+					return textResponse(
+						`Thread not returned. Anchor mailbox ${input.mailbox} is not allowed by the read policy.`,
+					);
+				}
+
+				const requestedMailboxes = input.mailboxes ?? policy.allowedMailboxes;
+				const mailboxes = requestedMailboxes.filter((mailbox) =>
+					canReadMailbox(policy, mailbox),
+				);
+
+				if (mailboxes.length === 0) {
+					return jsonResponse({
+						status: "blocked_by_read_policy",
+						messages: [],
+						reason: "No requested mailboxes are allowed by the read policy.",
+					});
+				}
+
+				const summary = await imap.getMessageSummary(input);
+
+				if (!summary) {
+					return textResponse(
+						`Message UID ${input.uid} was not found in mailbox ${input.mailbox}.`,
+					);
+				}
+
+				if (
+					!canReadMessage(policy, { mailbox: input.mailbox, message: summary })
+				) {
+					return textResponse(
+						"Thread not returned. Anchor message sender is not allowed by the read policy.",
+					);
+				}
+
+				const thread = await imap.getThread({
+					...input,
+					mailboxes,
+				});
+
+				if (!thread) {
+					return textResponse(
+						`Message UID ${input.uid} was not found in mailbox ${input.mailbox}.`,
+					);
+				}
+
+				const allowedMessages = thread.messages.filter((message) =>
+					canReadMessage(policy, {
+						mailbox: message.mailbox,
+						message,
+					}),
+				);
+
+				const messages = input.includeText
+					? await Promise.all(
+							allowedMessages.map(async (message) => {
+								const fullMessage = await imap.getMessage({
+									mailbox: message.mailbox,
+									uid: message.uid,
+								});
+
+								return fullMessage
+									? {
+											...fullMessage,
+											mailbox: message.mailbox,
+											threadKey: message.threadKey,
+										}
+									: message;
+							}),
+						)
+					: allowedMessages;
+
+				return jsonResponse({
+					status: "ok",
+					threadKey: thread.threadKey,
+					reconstruction: "best_effort_message_headers",
+					messages,
+				});
+			} catch (error) {
+				return textResponse(`Unable to get thread: ${safeErrorMessage(error)}`);
 			}
 		},
 	);
