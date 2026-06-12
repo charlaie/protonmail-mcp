@@ -1,6 +1,6 @@
 # protonmail-mcp
 
-An MCP server for using Proton Mail through the local Proton Mail Bridge. It exposes tools to list mailboxes, search message metadata, read allowed plain-text messages, and send plain-text email after user approval.
+An MCP server for using Proton Mail through the local Proton Mail Bridge. It exposes tools to list mailboxes, search message metadata, read allowed plain-text messages, create and edit plain-text drafts, and send plain-text email after user approval.
 
 ## Requirements
 
@@ -56,6 +56,8 @@ pnpm setup
 
 The setup command lists Bridge mailboxes and asks which mailboxes the model may search and read. You can also restrict reads by sender email or sender domain.
 
+Draft tools also require the Drafts mailbox to be selected during setup. If Drafts is not allowed, draft tools return a policy error explaining how to enable access.
+
 Useful policy commands:
 
 ```sh
@@ -97,4 +99,6 @@ If your MCP client starts servers from the repository directory, you can also us
 - `list_mailboxes`: lists Proton Bridge IMAP mailboxes and whether each is allowed by the read policy.
 - `search_messages`: searches allowed mailboxes and returns message summaries only.
 - `get_message`: reads one allowed message by mailbox and UID as parsed plain text. HTML and attachments are not returned.
+- `create_draft`: creates a plain-text draft in the Drafts mailbox and returns its IMAP UID when Bridge provides one.
+- `edit_draft`: replaces an existing Drafts message by UID. IMAP does not edit message bodies in place, so this creates a replacement draft, deletes the old draft, and returns the new UID.
 - `send_email`: sends a plain-text email through Proton Bridge SMTP. The server requests mandatory user approval before delivery.

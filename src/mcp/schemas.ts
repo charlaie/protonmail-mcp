@@ -23,6 +23,33 @@ export const SendEmailSchema = z.object({
 		),
 });
 
+const DraftContentSchema = z.object({
+	to: EmailListSchema.optional().describe("Optional primary recipients."),
+	cc: EmailListSchema.optional().describe("Optional CC recipients."),
+	bcc: EmailListSchema.optional().describe("Optional BCC recipients."),
+	subject: z
+		.string()
+		.max(998)
+		.default("")
+		.describe("Draft subject line. May be blank for an unfinished draft."),
+	text: z
+		.string()
+		.min(1)
+		.describe(
+			"Plain-text draft body. HTML and attachments are not supported by this tool.",
+		),
+});
+
+export const CreateDraftSchema = DraftContentSchema;
+
+export const EditDraftSchema = DraftContentSchema.extend({
+	uid: z
+		.number()
+		.int()
+		.positive()
+		.describe("IMAP UID of the existing draft message to replace."),
+});
+
 const MailboxSchema = z
 	.string()
 	.min(1)
@@ -110,5 +137,7 @@ export const GetThreadSchema = z.object({
 });
 
 export type SendEmailInput = z.infer<typeof SendEmailSchema>;
+export type CreateDraftInput = z.infer<typeof CreateDraftSchema>;
+export type EditDraftInput = z.infer<typeof EditDraftSchema>;
 export type SearchMessagesInput = z.infer<typeof SearchMessagesSchema>;
 export type GetThreadInput = z.infer<typeof GetThreadSchema>;

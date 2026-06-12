@@ -2,7 +2,13 @@ import { htmlToText } from "html-to-text";
 import type { FetchMessageObject, ListResponse } from "imapflow";
 import { ImapFlow } from "imapflow";
 import { type ParsedMail, simpleParser } from "mailparser";
-import type { GetThreadInput, SearchMessagesInput } from "../mcp/schemas.js";
+import nodemailer, { type SendMailOptions } from "nodemailer";
+import type {
+	CreateDraftInput,
+	EditDraftInput,
+	GetThreadInput,
+	SearchMessagesInput,
+} from "../mcp/schemas.js";
 import type { BridgeConfig } from "./config.js";
 import { buildSearchQuery } from "./search.js";
 import {
@@ -13,6 +19,8 @@ import {
 
 type MessageLookupInput = { mailbox: string; uid: number };
 type ThreadLookupInput = GetThreadInput & { mailboxes: string[] };
+type CreateDraftLookupInput = CreateDraftInput & { mailbox: string };
+type EditDraftLookupInput = EditDraftInput & { mailbox: string };
 
 const THREAD_HEADER_FIELDS = ["Message-ID", "References", "In-Reply-To"];
 
@@ -284,6 +292,148 @@ async function getMessageSummary(
 	});
 }
 
+async function composeDraftMessage(
+	config: BridgeConfig,
+	input: CreateDraftInput,
+) {
+	const transport = nodemailer.createTransport({
+		streamTransport: true,
+		buffer: true,
+		newline: "windows",
+	});
+	const message: SendMailOptions = {
+		from: config.user,
+		to: input.to,
+		cc: input.cc,
+		bcc: input.bcc,
+		subject: input.subject,
+		text: input.text,
+	};
+	const info = await transport.sendMail(message);
+
+	if (!Buffer.isBuffer(info.message)) {
+		throw new Error("Unable to compose draft message as a buffer.");
+	}
+
+	return {
+		content: info.message,
+		messageId: info.messageId,
+	};
+}
+
+function serializeAppendResult(
+	result: Awaited<ReturnType<ImapFlow["append"]>>,
+) {
+	if (!result) {
+		return undefined;
+	}
+
+	return {
+		destination: result.destination,
+		uid: result.uid,
+		uidValidity: result.uidValidity?.toString(),
+		seq: result.seq,
+	};
+}
+
+async function createDraft(
+	config: BridgeConfig,
+	input: CreateDraftLookupInput,
+) {
+	return withImap(config, async (client) => {
+		await client.mailboxOpen(input.mailbox);
+		const draft = await composeDraftMessage(config, input);
+		const appendResult = await client.append(
+			input.mailbox,
+			draft.content,
+			["\\Seen"],
+			new Date(),
+		);
+		const createdDraft = serializeAppendResult(appendResult);
+
+		if (!createdDraft) {
+			throw new Error(`Draft was not appended to mailbox ${input.mailbox}.`);
+		}
+
+		return {
+			status: "created",
+			mailbox: input.mailbox,
+			uid: createdDraft.uid,
+			uidValidity: createdDraft.uidValidity,
+			seq: createdDraft.seq,
+			messageId: draft.messageId,
+		};
+	});
+}
+
+async function editDraft(config: BridgeConfig, input: EditDraftLookupInput) {
+	return withImap(config, async (client) => {
+		await client.mailboxOpen(input.mailbox);
+
+		if (!client.capabilities.has("UIDPLUS")) {
+			return {
+				status: "blocked_uidplus_required",
+				mailbox: input.mailbox,
+				oldUid: input.uid,
+				reason:
+					"Draft editing requires IMAP UIDPLUS so the old draft can be expunged precisely by UID.",
+			};
+		}
+
+		const existingDraft = await client.fetchOne(
+			input.uid,
+			{
+				uid: true,
+				envelope: true,
+				flags: true,
+				internalDate: true,
+				size: true,
+			},
+			{ uid: true },
+		);
+
+		if (!existingDraft) {
+			return {
+				status: "not_found",
+				mailbox: input.mailbox,
+				oldUid: input.uid,
+				reason: `Draft UID ${input.uid} was not found in mailbox ${input.mailbox}.`,
+			};
+		}
+
+		const draft = await composeDraftMessage(config, input);
+		const appendResult = await client.append(
+			input.mailbox,
+			draft.content,
+			["\\Seen"],
+			new Date(),
+		);
+		const replacementDraft = serializeAppendResult(appendResult);
+
+		if (!replacementDraft) {
+			throw new Error(
+				`Replacement draft was not appended to mailbox ${input.mailbox}.`,
+			);
+		}
+
+		const oldDraftDeleted = await client.messageDelete(input.uid, {
+			uid: true,
+		});
+
+		return {
+			status: oldDraftDeleted
+				? "updated"
+				: "replacement_created_old_delete_failed",
+			mailbox: input.mailbox,
+			oldUid: input.uid,
+			newUid: replacementDraft.uid,
+			newUidValidity: replacementDraft.uidValidity,
+			newSeq: replacementDraft.seq,
+			messageId: draft.messageId,
+		};
+	});
+}
+
 async function fetchThreadMessages(
 	client: ImapFlow,
 	mailbox: string,
@@ -433,6 +583,8 @@ export function createImapService(config: BridgeConfig) {
 		getMessage: (input: MessageLookupInput) => getMessage(config, input),
 		getMessageSummary: (input: MessageLookupInput) =>
 			getMessageSummary(config, input),
+		createDraft: (input: CreateDraftLookupInput) => createDraft(config, input),
+		editDraft: (input: EditDraftLookupInput) => editDraft(config, input),
 		getThread: (input: ThreadLookupInput) => getThread(config, input),
 	};
 }

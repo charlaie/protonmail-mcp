@@ -15,6 +15,8 @@ import { safeErrorMessage } from "../shared/errors.js";
 import { requireSendApproval } from "./elicitation.js";
 import { jsonResponse, textResponse } from "./responses.js";
 import {
+	CreateDraftSchema,
+	EditDraftSchema,
 	GetMessageSchema,
 	GetThreadSchema,
 	SearchMessagesSchema,
@@ -22,6 +24,55 @@ import {
 } from "./schemas.js";
 
 type ImapService = ReturnType<typeof createImapService>;
+type Mailbox = Awaited<ReturnType<ImapService["listMailboxes"]>>[number];
+
+function findDraftsMailbox(mailboxes: Mailbox[]) {
+	return (
+		mailboxes.find((mailbox) => mailbox.specialUse === "\\Drafts") ??
+		mailboxes.find((mailbox) => mailbox.flags.includes("\\Drafts")) ??
+		mailboxes.find((mailbox) => mailbox.path === "Drafts")
+	);
+}
+
+async function requireDraftsMailboxAccess(imap: ImapService) {
+	const policy = await loadReadPolicy();
+
+	if (!policy) {
+		return {
+			ok: false as const,
+			response: textResponse(
+				"Draft access is not configured. Ask the user to run `protonmail-mcp setup` in a terminal and include the Drafts mailbox so this MCP server may create and edit drafts.",
+			),
+		};
+	}
+
+	const draftsMailbox = findDraftsMailbox(await imap.listMailboxes());
+
+	if (!draftsMailbox) {
+		return {
+			ok: false as const,
+			response: textResponse(
+				"Drafts mailbox was not found. Proton Bridge did not expose a mailbox marked as Drafts; use list_mailboxes to inspect available mailboxes.",
+			),
+		};
+	}
+
+	if (!canReadMailbox(policy, draftsMailbox.path)) {
+		return {
+			ok: false as const,
+			response: jsonResponse({
+				status: "blocked_by_read_policy",
+				mailbox: draftsMailbox.path,
+				reason: `Draft support needs access to the ${draftsMailbox.path} mailbox. Run protonmail-mcp setup and include ${draftsMailbox.path} in the allowed mailboxes.`,
+			}),
+		};
+	}
+
+	return {
+		ok: true as const,
+		mailbox: draftsMailbox.path,
+	};
+}
 
 export function createServer() {
 	const server = new McpServer({
@@ -89,6 +140,58 @@ function registerTools(
 				return textResponse(
 					`Unable to list mailboxes: ${safeErrorMessage(error)}`,
 				);
+			}
+		},
+	);
+
+	server.registerTool(
+		"create_draft",
+		{
+			description:
+				"Create a plain-text email draft in the Proton Bridge Drafts mailbox. Requires the Drafts mailbox to be allowed by the local read policy. This never sends email; it only saves a draft and returns its IMAP UID when available.",
+			inputSchema: CreateDraftSchema,
+		},
+		async (input) => {
+			try {
+				const access = await requireDraftsMailboxAccess(imap);
+
+				if (!access.ok) {
+					return access.response;
+				}
+
+				const result = await imap.createDraft({
+					...input,
+					mailbox: access.mailbox,
+				});
+				return jsonResponse(result);
+			} catch (error) {
+				return textResponse(`Draft not created: ${safeErrorMessage(error)}`);
+			}
+		},
+	);
+
+	server.registerTool(
+		"edit_draft",
+		{
+			description:
+				"Replace an existing plain-text draft in the Proton Bridge Drafts mailbox by IMAP UID. IMAP cannot edit message bodies in place, so this creates a replacement draft, deletes the old draft, and returns the new UID. Requires the Drafts mailbox to be allowed by the local read policy.",
+			inputSchema: EditDraftSchema,
+		},
+		async (input) => {
+			try {
+				const access = await requireDraftsMailboxAccess(imap);
+
+				if (!access.ok) {
+					return access.response;
+				}
+
+				const result = await imap.editDraft({
+					...input,
+					mailbox: access.mailbox,
+				});
+				return jsonResponse(result);
+			} catch (error) {
+				return textResponse(`Draft not edited: ${safeErrorMessage(error)}`);
 			}
 		},
 	);
