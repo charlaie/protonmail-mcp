@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { loadEnvFile } from "node:process";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { loadBridgeConfig } from "./bridge/config.js";
 import { createImapService } from "./bridge/imap.js";
 import { sendEmail } from "./bridge/smtp.js";
@@ -49,10 +49,12 @@ function loadEnvFileIfPresent(path = ".env") {
 	}
 }
 
-async function runMcpServer() {
-	const server = createServer();
-	const transport = new StdioServerTransport();
-	await server.connect(transport);
+function runMcpServer() {
+	serveStdio(() => createServer(), {
+		onerror: (error) => {
+			console.error(`MCP transport error: ${safeErrorMessage(error)}`);
+		},
+	});
 	console.error("Protonmail MCP Server running on stdio");
 }
 
@@ -114,7 +116,7 @@ async function main() {
 	const [command, ...args] = process.argv.slice(2);
 
 	if (!command) {
-		await runMcpServer();
+		runMcpServer();
 		return;
 	}
 

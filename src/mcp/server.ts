@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { BridgeConfig } from "../bridge/config.js";
 import { loadBridgeConfig } from "../bridge/config.js";
@@ -95,18 +95,23 @@ function registerTools(
 	server.registerTool(
 		"send_email",
 		{
+			title: "Send email",
 			description:
 				"Send a plain-text email through Proton Bridge SMTP. Use only when the user explicitly asks to send an email and the full recipient list, subject, and body are known. The server will request mandatory user approval before delivery; if approval is declined or unavailable, no email is sent.",
 			inputSchema: SendEmailSchema,
+			annotations: {
+				readOnlyHint: false,
+				destructiveHint: true,
+				idempotentHint: false,
+				openWorldHint: true,
+			},
 		},
-		async (input) => {
+		async (input, ctx) => {
 			try {
-				const approved = await requireSendApproval(server, input);
+				const approval = requireSendApproval(input, ctx);
 
-				if (!approved) {
-					return textResponse(
-						"Email not sent. User approval was not received.",
-					);
+				if (approval.kind !== "approved") {
+					return approval.response;
 				}
 
 				const result = await sendEmail(bridgeConfig, input);
@@ -120,9 +125,16 @@ function registerTools(
 	server.registerTool(
 		"list_mailboxes",
 		{
+			title: "List mailboxes",
 			description:
 				"List Proton Bridge IMAP mailboxes/folders. Use this before searching if the target mailbox path is unknown. Each mailbox includes allowedByReadPolicy: true only when the current read policy allows searching and reading that exact mailbox path; false means the mailbox exists but search_messages and get_message will not return messages from it.",
 			inputSchema: z.object({}),
+			annotations: {
+				readOnlyHint: true,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: true,
+			},
 		},
 		async () => {
 			try {
@@ -147,9 +159,16 @@ function registerTools(
 	server.registerTool(
 		"create_draft",
 		{
+			title: "Create draft",
 			description:
 				"Create a plain-text email draft in the Proton Bridge Drafts mailbox. Requires the Drafts mailbox to be allowed by the local read policy. This never sends email; it only saves a draft and returns its IMAP UID when available.",
 			inputSchema: CreateDraftSchema,
+			annotations: {
+				readOnlyHint: false,
+				destructiveHint: false,
+				idempotentHint: false,
+				openWorldHint: true,
+			},
 		},
 		async (input) => {
 			try {
@@ -173,9 +192,16 @@ function registerTools(
 	server.registerTool(
 		"edit_draft",
 		{
+			title: "Edit draft",
 			description:
 				"Replace an existing plain-text draft in the Proton Bridge Drafts mailbox by IMAP UID. IMAP cannot edit message bodies in place, so this creates a replacement draft, deletes the old draft, and returns the new UID. Requires the Drafts mailbox to be allowed by the local read policy.",
 			inputSchema: EditDraftSchema,
+			annotations: {
+				readOnlyHint: false,
+				destructiveHint: true,
+				idempotentHint: false,
+				openWorldHint: true,
+			},
 		},
 		async (input) => {
 			try {
@@ -199,9 +225,16 @@ function registerTools(
 	server.registerTool(
 		"search_messages",
 		{
+			title: "Search messages",
 			description:
 				"Search read-only Proton Bridge IMAP message metadata. Requires the user to configure read policy with `protonmail-mcp setup` first. Returns summaries only, not full message bodies, and filters results by the configured read policy.",
 			inputSchema: SearchMessagesSchema,
+			annotations: {
+				readOnlyHint: true,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: true,
+			},
 		},
 		async (input) => {
 			try {
@@ -235,9 +268,16 @@ function registerTools(
 	server.registerTool(
 		"get_message",
 		{
+			title: "Get message",
 			description:
 				"Read one Proton Bridge IMAP message by mailbox and UID as parsed plain text. Requires the user to configure read policy with `protonmail-mcp setup` first. Use a UID returned by search_messages. Does not return HTML or attachment contents.",
 			inputSchema: GetMessageSchema,
+			annotations: {
+				readOnlyHint: true,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: true,
+			},
 		},
 		async (input) => {
 			try {
@@ -289,9 +329,16 @@ function registerTools(
 	server.registerTool(
 		"get_thread",
 		{
+			title: "Get thread",
 			description:
 				"Best-effort reconstruction of an email reply chain from one anchor message. Uses standard Message-ID, References, and In-Reply-To headers across read-policy-allowed Proton Bridge IMAP mailboxes. This is not a native Proton or Gmail-style conversation ID.",
 			inputSchema: GetThreadSchema,
+			annotations: {
+				readOnlyHint: true,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: true,
+			},
 		},
 		async (input) => {
 			try {
