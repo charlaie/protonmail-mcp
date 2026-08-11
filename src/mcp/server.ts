@@ -12,7 +12,10 @@ import {
 } from "../policy/enforcement.js";
 import { loadReadPolicy } from "../policy/store.js";
 import { safeErrorMessage } from "../shared/errors.js";
-import { requireSendApproval } from "./elicitation.js";
+import {
+	createSendApprovalController,
+	type SendApprovalController,
+} from "./elicitation.js";
 import { jsonResponse, textResponse } from "./responses.js";
 import {
 	CreateDraftSchema,
@@ -75,14 +78,22 @@ async function requireDraftsMailboxAccess(imap: ImapService) {
 }
 
 export function createServer() {
-	const server = new McpServer({
-		name: "protonmail-mcp",
-		version: "1.0.0",
-	});
+	const sendApproval = createSendApprovalController();
+	const server = new McpServer(
+		{
+			name: "protonmail-mcp",
+			version: "1.0.0",
+		},
+		{
+			requestState: {
+				verify: sendApproval.verifyRequestState,
+			},
+		},
+	);
 
 	const bridgeConfig = loadBridgeConfig();
 	const imap = createImapService(bridgeConfig);
-	registerTools(server, bridgeConfig, imap);
+	registerTools(server, bridgeConfig, imap, sendApproval);
 
 	return server;
 }
@@ -91,6 +102,7 @@ function registerTools(
 	server: McpServer,
 	bridgeConfig: BridgeConfig,
 	imap: ImapService,
+	sendApproval: SendApprovalController,
 ) {
 	server.registerTool(
 		"send_email",
@@ -108,7 +120,7 @@ function registerTools(
 		},
 		async (input, ctx) => {
 			try {
-				const approval = requireSendApproval(input, ctx);
+				const approval = await sendApproval.requireApproval(input, ctx);
 
 				if (approval.kind !== "approved") {
 					return approval.response;
