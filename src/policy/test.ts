@@ -3,28 +3,29 @@
 import { strict as assert } from "node:assert";
 
 import type { MessageSummary } from "../bridge/serializers.js";
-import {
-	canReadMailbox,
-	canReadMessage,
-	filterAllowedMessages,
-} from "./enforcement.js";
+import { messageSummary } from "../bridge/serializers.js";
+import { canReadMailbox, canReadMessage } from "./enforcement.js";
 import { createReadPolicy } from "./schema.js";
 
 function fixtureMessage(from: string[]): MessageSummary {
-	return {
-		uid: 1,
-		subject: "Test",
-		from,
-		to: [],
-		cc: [],
-		date: new Date(0).toISOString(),
-		flags: [],
-		size: 100,
-	};
+	return messageSummary(
+		{
+			uid: 1,
+			seq: 1,
+			size: 100,
+			envelope: {
+				from: from.map((address) => ({
+					address: address.match(/<([^>]+)>$/)?.[1] ?? address,
+				})),
+			},
+		},
+		"7",
+	);
 }
 
 function runPolicyChecks() {
 	const policy = createReadPolicy({
+		bridgeUser: "bridge@example.com",
 		allowedMailboxes: ["INBOX"],
 		allowedSenderEmails: ["trusted@example.com"],
 		allowedSenderDomains: ["partner.test"],
@@ -53,11 +54,12 @@ function runPolicyChecks() {
 		}),
 		false,
 	);
-	assert.deepEqual(
-		filterAllowedMessages(policy, "Archive", [
-			fixtureMessage(["trusted@example.com"]),
-		]),
-		[],
+	assert.equal(
+		canReadMessage(policy, {
+			mailbox: "Archive",
+			message: fixtureMessage(["trusted@example.com"]),
+		}),
+		false,
 	);
 }
 

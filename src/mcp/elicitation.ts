@@ -9,43 +9,34 @@ import {
 	type ServerContext,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { textResponse } from "./responses.js";
-import type { SendEmailInput } from "./schemas.js";
+import type { SendEmailInput } from "../bridge/schemas.js";
+import { errorResponse } from "./responses.js";
 
 const ApproveSendSchema = z.object({
 	approve_send: z
 		.boolean()
 		.default(false)
 		.describe(
-			"Approve this only if the recipients, subject, and body preview are correct. Approval immediately sends the email.",
+			"Approve this only if the recipients, subject, and full body are correct. Approval immediately sends the email.",
 		)
 		.meta({ title: "Send email now" }),
 });
 
-function truncate(value: string, maxLength: number): string {
-	if (value.length <= maxLength) {
-		return value;
-	}
-
-	return `${value.slice(0, maxLength)}...`;
-}
-
-function approvalMessage(input: SendEmailInput): string {
-	const preview = truncate(input.text.replace(/\s+/g, " ").trim(), 800);
-
+function approvalMessage(input: SendEmailInput, sender: string): string {
 	return [
 		"Approve sending this Proton Mail email?",
+		`From: ${sender}`,
 		`To: ${input.to.join(", ")}`,
 		input.cc?.length ? `Cc: ${input.cc.join(", ")}` : undefined,
 		input.bcc?.length ? `Bcc: ${input.bcc.join(", ")}` : undefined,
 		`Subject: ${input.subject}`,
-		`Body preview: ${preview}`,
+		`Body:\n${input.text}`,
 	]
 		.filter(Boolean)
 		.join("\n");
 }
 
-const approvalDeniedResponse = textResponse(
+const approvalDeniedResponse = errorResponse(
 	"Email not sent. User approval was not received.",
 );
 
@@ -61,7 +52,7 @@ type SendApprovalState = z.infer<typeof SendApprovalStateSchema>;
 
 type SendApprovalDecision =
 	| { kind: "approved" }
-	| { kind: "denied"; response: ReturnType<typeof textResponse> }
+	| { kind: "denied"; response: ReturnType<typeof errorResponse> }
 	| { kind: "input_required"; response: InputRequiredResult };
 
 export type SendApprovalController = {
@@ -87,7 +78,9 @@ function inputHash(input: SendEmailInput): string {
 }
 
 /** Create an MRTR send-approval guard shared by 2025 and 2026-era clients. */
-export function createSendApprovalController(): SendApprovalController {
+export function createSendApprovalController(
+	sender: string,
+): SendApprovalController {
 	const codec = createRequestStateCodec<SendApprovalState>({
 		key: randomBytes(32),
 		ttlSeconds: APPROVAL_TTL_SECONDS,
@@ -99,7 +92,7 @@ export function createSendApprovalController(): SendApprovalController {
 		const now = Date.now();
 
 		for (const [nonce, expiresAt] of pendingNonces) {
-			if (expiresAt < now) {
+			if (expiresAt <= now) {
 				pendingNonces.delete(nonce);
 			}
 		}
@@ -111,6 +104,11 @@ export function createSendApprovalController(): SendApprovalController {
 		input: SendEmailInput,
 		ctx: ServerContext,
 	): Promise<SendApprovalDecision> {
+		consumeState(undefined);
+		if (pendingNonces.size >= 1000)
+			throw new Error(
+				"Too many pending send approvals. Wait ten minutes for unused approvals to expire.",
+			);
 		const nonce = randomUUID();
 		pendingNonces.set(nonce, Date.now() + APPROVAL_TTL_SECONDS * 1000);
 
@@ -119,7 +117,7 @@ export function createSendApprovalController(): SendApprovalController {
 			response: inputRequired({
 				inputRequests: {
 					approve_send: inputRequired.elicit({
-						message: approvalMessage(input),
+						message: approvalMessage(input, sender),
 						requestedSchema: ApproveSendSchema,
 					}),
 				},

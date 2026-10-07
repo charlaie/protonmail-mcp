@@ -5,6 +5,24 @@ import type {
 } from "imapflow";
 import type { AddressObject } from "mailparser";
 
+export function validDate(value: unknown): Date | undefined {
+	const date =
+		value instanceof Date
+			? value
+			: typeof value === "string"
+				? new Date(value)
+				: undefined;
+	return date && Number.isFinite(date.getTime()) ? date : undefined;
+}
+
+export function messageReceivedTime(message: FetchMessageObject) {
+	return (
+		(
+			validDate(message.internalDate) ?? validDate(message.envelope?.date)
+		)?.getTime() ?? 0
+	);
+}
+
 function formatAddresses(addresses?: MessageAddressObject[]): string[] {
 	return (
 		addresses?.map(({ name, address }) =>
@@ -30,18 +48,23 @@ export function parsedAddressText(
 	return addresses.text;
 }
 
-export function messageSummary(message: FetchMessageObject) {
+export function messageSummary(
+	message: FetchMessageObject,
+	uidValidity: string,
+) {
 	return {
 		uid: message.uid,
+		uidValidity,
 		subject: message.envelope?.subject ?? "",
 		from: formatAddresses(message.envelope?.from),
+		senderEmails: (message.envelope?.from ?? []).flatMap(({ address }) =>
+			address ? [address.trim().toLowerCase()] : [],
+		),
 		to: formatAddresses(message.envelope?.to),
 		cc: formatAddresses(message.envelope?.cc),
-		date:
-			message.envelope?.date?.toISOString() ??
-			(message.internalDate instanceof Date
-				? message.internalDate.toISOString()
-				: message.internalDate),
+		date: (
+			validDate(message.envelope?.date) ?? validDate(message.internalDate)
+		)?.toISOString(),
 		flags: [...(message.flags ?? [])],
 		size: message.size,
 	};

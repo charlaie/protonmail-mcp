@@ -4,20 +4,6 @@ import type { ReadPolicy } from "./schema.js";
 export const READ_POLICY_NOT_CONFIGURED =
 	"Read policy is not configured. Ask the user to run `protonmail-mcp setup` in a terminal so they can choose which mailboxes and senders this MCP server may read.";
 
-function normalizeEmail(value: string) {
-	return value.trim().toLowerCase();
-}
-
-function senderEmails(message: MessageSummary) {
-	return message.from
-		.map((value) => {
-			// extract email from within <> if in contact format
-			const match = value.match(/<([^>]+)>$/);
-			return normalizeEmail(match?.[1] ?? value);
-		})
-		.filter(Boolean);
-}
-
 function senderDomain(email: string) {
 	return email.includes("@") ? email.split("@").at(-1) : undefined;
 }
@@ -25,7 +11,9 @@ function senderDomain(email: string) {
 export function summarizeReadPolicy(policy: ReadPolicy) {
 	return {
 		policyFileConfigured: true,
+		requiresSetup: policy.version === 1,
 		version: policy.version,
+		bridgeUser: policy.version === 2 ? policy.bridgeUser : undefined,
 		allowedMailboxes: policy.allowedMailboxes,
 		allowedSenderEmails: policy.allowedSenderEmails,
 		allowedSenderDomains: policy.allowedSenderDomains,
@@ -36,6 +24,15 @@ export function summarizeReadPolicy(policy: ReadPolicy) {
 
 export function canReadMailbox(policy: ReadPolicy, mailbox: string) {
 	return policy.allowedMailboxes.includes(mailbox);
+}
+
+export function readPolicyStatus(
+	policy: ReadPolicy | null,
+	bridgeUser: string,
+) {
+	if (!policy) return "not_configured";
+	if (policy.version === 1) return "legacy_policy";
+	return policy.bridgeUser === bridgeUser ? "ok" : "account_mismatch";
 }
 
 export function canReadMessage(
@@ -53,7 +50,7 @@ export function canReadMessage(
 		return true;
 	}
 
-	const emails = senderEmails(input.message);
+	const emails = input.message.senderEmails;
 	return emails.some((email) => {
 		if (policy.allowedSenderEmails.includes(email)) {
 			return true;
@@ -62,18 +59,4 @@ export function canReadMessage(
 		const domain = senderDomain(email);
 		return domain ? policy.allowedSenderDomains.includes(domain) : false;
 	});
-}
-
-export function filterAllowedMessages<T extends MessageSummary>(
-	policy: ReadPolicy,
-	mailbox: string,
-	messages: T[],
-) {
-	if (!canReadMailbox(policy, mailbox)) {
-		return [];
-	}
-
-	return messages.filter((message) =>
-		canReadMessage(policy, { mailbox, message }),
-	);
 }

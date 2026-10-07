@@ -1,8 +1,7 @@
 import type { SendMailOptions } from "nodemailer";
 import nodemailer from "nodemailer";
-
-import type { SendEmailInput } from "../mcp/schemas.js";
 import type { BridgeConfig } from "./config.js";
+import type { SendEmailInput } from "./schemas.js";
 
 function createSmtpTransport(config: BridgeConfig) {
 	return nodemailer.createTransport({
@@ -17,6 +16,9 @@ function createSmtpTransport(config: BridgeConfig) {
 			rejectUnauthorized: config.tlsRejectUnauthorized,
 		},
 		requireTLS: true,
+		connectionTimeout: 10_000,
+		greetingTimeout: 10_000,
+		socketTimeout: 30_000,
 	});
 }
 
@@ -34,7 +36,7 @@ export async function sendEmail(config: BridgeConfig, input: SendEmailInput) {
 	try {
 		const info = await transport.sendMail(message);
 		return {
-			status: "sent",
+			status: info.rejected.length > 0 ? "partially_sent" : "sent",
 			messageId: info.messageId,
 			accepted: info.accepted,
 			rejected: info.rejected,

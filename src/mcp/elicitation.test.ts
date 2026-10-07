@@ -2,8 +2,8 @@
 
 import { strict as assert } from "node:assert";
 import type { ServerContext } from "@modelcontextprotocol/server";
+import type { SendEmailInput } from "../bridge/schemas.js";
 import { createSendApprovalController } from "./elicitation.js";
-import type { SendEmailInput } from "./schemas.js";
 
 const approvedInputResponses = {
 	approve_send: {
@@ -26,11 +26,11 @@ function context(options?: {
 }
 
 async function runSendApprovalChecks() {
-	const controller = createSendApprovalController();
+	const controller = createSendApprovalController("sender@example.com");
 	const original: SendEmailInput = {
 		to: ["recipient@example.com"],
 		subject: "Original subject",
-		text: "Original body",
+		text: `First paragraph\n\n${"x".repeat(1000)}\nFinal paragraph`,
 	};
 	const changed: SendEmailInput = {
 		...original,
@@ -45,8 +45,13 @@ async function runSendApprovalChecks() {
 
 	const changedFlow = await controller.requireApproval(original, context());
 	assert.equal(changedFlow.kind, "input_required");
-	assert.equal(typeof changedFlow.response.requestState, "string");
-	const changedState = changedFlow.response.requestState as string;
+	const changedState = changedFlow.response.requestState;
+	assert.ok(typeof changedState === "string");
+	const serializedPrompt = JSON.stringify(changedFlow.response.inputRequests);
+	assert.ok(serializedPrompt.includes("sender@example.com"));
+	assert.ok(
+		serializedPrompt.includes(JSON.stringify(original.text).slice(1, -1)),
+	);
 	const decodedChangedState = await controller.verifyRequestState(
 		changedState,
 		context(),
@@ -62,8 +67,8 @@ async function runSendApprovalChecks() {
 
 	const approvedFlow = await controller.requireApproval(original, context());
 	assert.equal(approvedFlow.kind, "input_required");
-	assert.equal(typeof approvedFlow.response.requestState, "string");
-	const approvedState = approvedFlow.response.requestState as string;
+	const approvedState = approvedFlow.response.requestState;
+	assert.ok(typeof approvedState === "string");
 	const decodedApprovedState = await controller.verifyRequestState(
 		approvedState,
 		context(),
@@ -93,6 +98,30 @@ async function runSendApprovalChecks() {
 		controller.verifyRequestState(tamperedState, context()),
 		/mac/,
 	);
+
+	const expiredFlow = await controller.requireApproval(original, context());
+	assert.equal(expiredFlow.kind, "input_required");
+	const expiredToken = expiredFlow.response.requestState;
+	assert.ok(typeof expiredToken === "string");
+	const expiredState = await controller.verifyRequestState(
+		expiredToken,
+		context(),
+	);
+	const originalNow = Date.now;
+	const expiredTime = Date.now() + 11 * 60 * 1000;
+	try {
+		Date.now = () => expiredTime;
+		const expired = await controller.requireApproval(
+			original,
+			context({
+				inputResponses: approvedInputResponses,
+				requestState: expiredState,
+			}),
+		);
+		assert.equal(expired.kind, "denied");
+	} finally {
+		Date.now = originalNow;
+	}
 }
 
 await runSendApprovalChecks();

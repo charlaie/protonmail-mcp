@@ -4,6 +4,11 @@ import { loadEnvFile } from "node:process";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { loadBridgeConfig } from "./bridge/config.js";
 import { createImapService } from "./bridge/imap.js";
+import {
+	GetMessageSchema,
+	SearchMessagesSchema,
+	SendEmailSchema,
+} from "./bridge/schemas.js";
 import { sendEmail } from "./bridge/smtp.js";
 import { createServer } from "./mcp/server.js";
 import {
@@ -21,8 +26,8 @@ function usage() {
 		"  protonmail-mcp policy           Show local read policy",
 		"  protonmail-mcp reset-policy     Reset local read policy",
 		"  protonmail-mcp bridge:list      Test Bridge IMAP mailbox listing",
-		"  protonmail-mcp bridge:search [query]",
-		"  protonmail-mcp bridge:read <mailbox> <uid>",
+		"  protonmail-mcp bridge:search <mailbox> [query]",
+		"  protonmail-mcp bridge:read <mailbox> <uid> <uidValidity>",
 		"  protonmail-mcp bridge:send-test <recipient>",
 	].join("\n");
 }
@@ -67,43 +72,41 @@ async function runBridgeCommand(command: string, args: string[]) {
 			printJson(await imap.listMailboxes());
 			return;
 		case "bridge:search": {
-			const mailbox = args[0];
-			const query = args.length > 1 ? args[1] : undefined;
-			printJson(
-				await imap.searchMessages({
-					mailbox: mailbox,
-					query: query,
-					limit: 10,
-				}),
-			);
+			const input = SearchMessagesSchema.parse({
+				mailbox: args[0],
+				query: args.length > 1 ? args.slice(1).join(" ") : undefined,
+				limit: 10,
+			});
+			printJson(await imap.searchMessages(input));
 			return;
 		}
 		case "bridge:read": {
-			const mailbox = args[0];
-			const uid = Number(args[1]);
-
-			if (!mailbox || !Number.isInteger(uid) || uid <= 0) {
+			const input = GetMessageSchema.parse({
+				mailbox: args[0],
+				uid: /^\d+$/.test(args[1] ?? "") ? Number(args[1]) : undefined,
+				uidValidity: args[2],
+			});
+			const result = await imap.getMessage(input);
+			if (result.kind === "unavailable") throw new Error(result.reason);
+			if (result.kind === "denied")
+				throw new Error("Message access was denied.");
+			if (result.kind !== "found")
 				throw new Error(
-					"bridge:read requires <mailbox> and positive integer <uid>.",
+					`Message UID ${input.uid} was not found in ${input.mailbox}.`,
 				);
-			}
-
-			printJson(await imap.getMessage({ mailbox, uid }));
+			printJson(result.value);
 			return;
 		}
 		case "bridge:send-test": {
-			const recipient = args[0];
-
-			if (!recipient) {
-				throw new Error("bridge:send-test requires <recipient>.");
-			}
-
 			printJson(
-				await sendEmail(config, {
-					to: [recipient],
-					subject: "Proton Bridge MCP test",
-					text: "This is a direct Proton Bridge SMTP test from protonmail-mcp.",
-				}),
+				await sendEmail(
+					config,
+					SendEmailSchema.parse({
+						to: args[0],
+						subject: "Proton Bridge MCP test",
+						text: "This is a direct Proton Bridge SMTP test from protonmail-mcp.",
+					}),
+				),
 			);
 			return;
 		}
@@ -114,13 +117,16 @@ async function runBridgeCommand(command: string, args: string[]) {
 
 async function main() {
 	const [command, ...args] = process.argv.slice(2);
+	if (command === "help" || command === "--help" || command === "-h") {
+		console.log(usage());
+		return;
+	}
+	loadEnvFileIfPresent();
 
 	if (!command) {
 		runMcpServer();
 		return;
 	}
-
-	loadEnvFileIfPresent();
 
 	switch (command) {
 		case "setup":
@@ -138,18 +144,12 @@ async function main() {
 		case "bridge:send-test":
 			await runBridgeCommand(command, args);
 			return;
-		case "help":
-		case "--help":
-		case "-h":
-			console.log(usage());
-			return;
 		default:
 			throw new Error(usage());
 	}
 }
 
 main().catch((error) => {
-	console.error(error);
-	console.error("Fatal error in main():", safeErrorMessage(error));
+	console.error(safeErrorMessage(error));
 	process.exit(1);
 });

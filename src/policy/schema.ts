@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const DomainSchema = z
+export const DomainSchema = z
 	.string()
 	.min(1)
 	.regex(
@@ -9,8 +9,7 @@ const DomainSchema = z
 	)
 	.transform((value) => value.toLowerCase());
 
-export const ReadPolicySchema = z.object({
-	version: z.literal(1),
+const PolicyFields = {
 	allowedMailboxes: z.array(z.string().min(1)).min(1),
 	allowedSenderEmails: z.array(
 		z.email().transform((value) => value.toLowerCase()),
@@ -18,19 +17,32 @@ export const ReadPolicySchema = z.object({
 	allowedSenderDomains: z.array(DomainSchema),
 	createdAt: z.iso.datetime(),
 	updatedAt: z.iso.datetime(),
+};
+
+const AccountReadPolicySchema = z.object({
+	...PolicyFields,
+	version: z.literal(2),
+	bridgeUser: z.string().min(1),
 });
+
+export const ReadPolicySchema = z.discriminatedUnion("version", [
+	z.object({ ...PolicyFields, version: z.literal(1) }),
+	AccountReadPolicySchema,
+]);
 
 export type ReadPolicy = z.infer<typeof ReadPolicySchema>;
 
 export function createReadPolicy(input: {
+	bridgeUser: string;
 	allowedMailboxes: string[];
 	allowedSenderEmails?: string[];
 	allowedSenderDomains?: string[];
-}): ReadPolicy {
+}) {
 	const now = new Date().toISOString();
 
-	return ReadPolicySchema.parse({
-		version: 1,
+	return AccountReadPolicySchema.parse({
+		version: 2,
+		bridgeUser: input.bridgeUser,
 		allowedMailboxes: [
 			...new Set(input.allowedMailboxes.map((value) => value.trim())),
 		],

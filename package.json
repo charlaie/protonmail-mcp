@@ -4,14 +4,17 @@
 	"description": "MCP server for Proton Mail through the local Proton Mail Bridge.",
 	"main": "./build/index.js",
 	"type": "module",
+	"engines": {
+		"node": ">=22.16.0"
+	},
 	"bin": {
 		"protonmail-mcp": "./build/index.js"
 	},
 	"scripts": {
 		"check": "biome check --write",
-		"test": "pnpm build && node build/mcp/elicitation.test.js",
+		"test": "pnpm build && node --test build/**/*.test.js && node build/policy/test.js",
 		"prepack": "pnpm build",
-		"build": "node -e \"fs.rmSync('build', { recursive: true, force: true })\" && tsc && chmod 755 build/index.js && chmod 755 build/policy/cli.js",
+		"build": "node -e \"fs.rmSync('build', { recursive: true, force: true })\" && tsc && chmod 755 build/index.js",
 		"policy:check": "pnpm build && node build/policy/test.js",
 		"setup": "pnpm build && node build/index.js setup",
 		"policy": "pnpm build && node build/index.js policy",
