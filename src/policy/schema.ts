@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+	type AttachmentExtension,
+	AttachmentExtensionSchema,
+} from "../attachments/formats.js";
 
 export const DomainSchema = z
 	.string()
@@ -23,6 +27,7 @@ const AccountReadPolicySchema = z.object({
 	...PolicyFields,
 	version: z.literal(2),
 	bridgeUser: z.string().min(1),
+	allowedAttachmentExtensions: z.array(AttachmentExtensionSchema).default([]),
 });
 
 export const ReadPolicySchema = z.discriminatedUnion("version", [
@@ -37,12 +42,16 @@ export function createReadPolicy(input: {
 	allowedMailboxes: string[];
 	allowedSenderEmails?: string[];
 	allowedSenderDomains?: string[];
+	allowedAttachmentExtensions?: AttachmentExtension[];
 }) {
 	const now = new Date().toISOString();
 
 	return AccountReadPolicySchema.parse({
 		version: 2,
 		bridgeUser: input.bridgeUser,
+		allowedAttachmentExtensions: [
+			...new Set(input.allowedAttachmentExtensions ?? []),
+		],
 		allowedMailboxes: [
 			...new Set(input.allowedMailboxes.map((value) => value.trim())),
 		],

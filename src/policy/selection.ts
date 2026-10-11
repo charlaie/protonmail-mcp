@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AttachmentExtensionSchema } from "../attachments/formats.js";
 import { DomainSchema } from "./schema.js";
 
 export function splitCsv(value: string) {
@@ -27,4 +28,14 @@ export function parseSenderEmails(answer: string) {
 }
 export function parseSenderDomains(answer: string) {
 	return z.array(DomainSchema).parse(splitCsv(answer));
+}
+
+export function parseAttachmentExtensions(answer: string) {
+	return [
+		...new Set(
+			z
+				.array(AttachmentExtensionSchema)
+				.parse(splitCsv(answer).map((extension) => extension.toLowerCase())),
+		),
+	];
 }

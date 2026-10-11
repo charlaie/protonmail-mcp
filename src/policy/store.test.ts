@@ -12,9 +12,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createImapService } from "../bridge/imap.js";
-import { FakeImap, testConfig } from "../bridge/test-fixtures.js";
-import { createReadPolicy } from "./schema.js";
 import {
+	FakeImap,
+	fixtureMessage,
+	testConfig,
+} from "../bridge/test-fixtures.js";
+import { createReadPolicy, ReadPolicySchema } from "./schema.js";
+import {
+	parseAttachmentExtensions,
 	parseMailboxSelection,
 	parseSenderDomains,
 	parseSenderEmails,
@@ -93,4 +98,94 @@ test("setup rejects invalid selections and sender entries without broadening acc
 	assert.throws(() => parseSenderDomains("https://example.com"));
 	assert.deepEqual(parseSenderEmails(""), []);
 	assert.deepEqual(parseSenderDomains("PARTNER.TEST"), ["partner.test"]);
+	assert.deepEqual(parseAttachmentExtensions(".PDF, .txt, .pdf"), [
+		".pdf",
+		".txt",
+	]);
+	assert.deepEqual(parseAttachmentExtensions(""), []);
+	for (const answer of ["*", ".exe", ".zip", "pdf", ".docx"])
+		assert.throws(() => parseAttachmentExtensions(answer));
+});
+
+test("attachment access defaults closed and remains behind account, mailbox, and sender policy", async (t) => {
+	const directory = await mkdtemp(
+		join(tmpdir(), "protonmail-attachment-policy-"),
+	);
+	const originalPath = process.env.PROTONMAIL_MCP_POLICY_FILE;
+	process.env.PROTONMAIL_MCP_POLICY_FILE = join(directory, "policy.json");
+	t.after(async () => {
+		if (originalPath === undefined)
+			delete process.env.PROTONMAIL_MCP_POLICY_FILE;
+		else process.env.PROTONMAIL_MCP_POLICY_FILE = originalPath;
+		await rm(directory, { recursive: true, force: true });
+	});
+	const policy = createReadPolicy({
+		bridgeUser: testConfig.user,
+		allowedMailboxes: ["INBOX"],
+		allowedSenderEmails: ["trusted@example.com"],
+	});
+	const { allowedAttachmentExtensions: _, ...oldPolicy } = policy;
+	const parsed = ReadPolicySchema.parse(oldPolicy);
+	assert.ok(parsed.version === 2);
+	assert.deepEqual(parsed.allowedAttachmentExtensions, []);
+	assert.equal(
+		ReadPolicySchema.safeParse({
+			...policy,
+			allowedAttachmentExtensions: [".exe"],
+		}).success,
+		false,
+	);
+	await saveReadPolicy(policy);
+	const client = new FakeImap();
+	const message = fixtureMessage(1);
+	message.bodyStructure = {
+		type: "multipart/mixed",
+		childNodes: [
+			{
+				part: "2",
+				type: "text/plain",
+				size: 7,
+				disposition: "attachment",
+				dispositionParameters: { filename: "note.txt" },
+			},
+		],
+	};
+	client.mailboxes.set("INBOX", [message]);
+	client.attachmentContents.set("INBOX:1:2", {
+		content: Buffer.from("content"),
+		meta: { filename: "note.txt", contentType: "text/plain" },
+	});
+	const imap = createImapService(testConfig, async (operation) =>
+		operation(client),
+	);
+	let reads = await createReadService(imap, testConfig.user);
+	const input = {
+		mailbox: "INBOX",
+		uid: 1,
+		uidValidity: "7",
+		attachmentId: "2",
+	};
+	assert.equal(
+		(await reads.listAttachments(input)).attachments[0]?.inspection.kind,
+		"blocked",
+	);
+	await assert.rejects(reads.getAttachment(input), /not allowed/);
+	assert.equal(client.downloads.length, 0);
+	await saveReadPolicy({ ...policy, allowedAttachmentExtensions: [".txt"] });
+	reads = await createReadService(imap, testConfig.user);
+	assert.equal((await reads.getAttachment(input)).status, "ok");
+	assert.equal(client.downloads.length, 1);
+	await assert.rejects(
+		reads.getAttachment({ ...input, mailbox: "Archive" }),
+		/Mailbox/,
+	);
+	assert.ok(message.envelope);
+	message.envelope.from = [{ address: "untrusted@example.com" }];
+	await assert.rejects(reads.listAttachments(input), /sender/);
+	await assert.rejects(reads.getAttachment(input), /sender/);
+	assert.equal(client.downloads.length, 1);
+	await assert.rejects(
+		createReadService(imap, "different@example.com"),
+		/not bound/,
+	);
 });

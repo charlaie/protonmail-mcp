@@ -1,5 +1,6 @@
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface, type Interface } from "node:readline/promises";
+import { AttachmentExtensionSchema } from "../attachments/formats.js";
 
 import { loadBridgeConfig } from "../bridge/config.js";
 import { createImapService } from "../bridge/imap.js";
@@ -7,6 +8,7 @@ import { safeErrorMessage } from "../shared/errors.js";
 import { summarizeReadPolicy } from "./enforcement.js";
 import { createReadPolicy } from "./schema.js";
 import {
+	parseAttachmentExtensions,
 	parseMailboxSelection,
 	parseSenderDomains,
 	parseSenderEmails,
@@ -88,12 +90,18 @@ export async function runSetupCommand() {
 			"Allowed sender domains, comma-separated. Blank leaves this list empty: ",
 			parseSenderDomains,
 		);
+		const allowedAttachmentExtensions = await ask(
+			rl,
+			`Allowed attachment extensions (${AttachmentExtensionSchema.options.join(", ")}), comma-separated. Blank disables attachment reads: `,
+			parseAttachmentExtensions,
+		);
 
 		const policy = createReadPolicy({
 			bridgeUser: config.user,
 			allowedMailboxes,
 			allowedSenderEmails,
 			allowedSenderDomains,
+			allowedAttachmentExtensions,
 		});
 
 		await saveReadPolicy(policy);

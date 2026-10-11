@@ -92,12 +92,33 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	);
 	const listed = await request("tools/list");
 	assert.ok(isSpecType.ListToolsResult(listed.result));
-	assert.equal(listed.result.tools.length, 7);
+	assert.equal(listed.result.tools.length, 9);
 	const getMessage = listed.result.tools.find(
 		(tool) => tool.name === "get_message",
 	);
 	assert.ok(getMessage);
 	assert.ok(getMessage.inputSchema.required?.includes("uidValidity"));
+	const getAttachment = listed.result.tools.find(
+		(tool) => tool.name === "get_attachment",
+	);
+	assert.ok(getAttachment);
+	assert.ok(getAttachment.inputSchema.required?.includes("uidValidity"));
+	assert.ok(getAttachment.inputSchema.required?.includes("attachmentId"));
+	assert.equal(getAttachment.annotations?.readOnlyHint, true);
+	for (const name of ["list_attachments", "get_attachment"]) {
+		const result = await request("tools/call", {
+			name,
+			arguments: {
+				mailbox: "INBOX",
+				uid: 1,
+				uidValidity: "7",
+				...(name === "get_attachment" ? { attachmentId: "2" } : {}),
+			},
+		});
+		assert.ok(isSpecType.CallToolResult(result.result));
+		assert.equal(result.result.isError, true);
+		assert.match(JSON.stringify(result.result.content), /setup/);
+	}
 	const denied = await request("tools/call", {
 		name: "search_messages",
 		arguments: { mailbox: "INBOX" },

@@ -1,3 +1,9 @@
+import type { AttachmentExtension } from "../attachments/formats.js";
+import {
+	type AttachmentReadOptions,
+	getAttachment,
+	listAttachments,
+} from "./attachments.js";
 import type { BridgeConfig } from "./config.js";
 import {
 	type CreateDraftLookupInput,
@@ -11,7 +17,11 @@ import {
 	readMessage,
 	searchMessages,
 } from "./messages.js";
-import type { GetMessageInput, SearchMessagesInput } from "./schemas.js";
+import type {
+	GetAttachmentInput,
+	GetMessageInput,
+	SearchMessagesInput,
+} from "./schemas.js";
 import { mailboxSummary } from "./serializers.js";
 import { createImapSession } from "./session.js";
 import { getThread, type ThreadLookupInput } from "./threads.js";
@@ -37,6 +47,16 @@ export function createImapService(
 			input: GetMessageInput,
 			accepts: MessageFilter = allowAllMessages,
 		) => run((client) => readMessage(client, input, accepts)),
+		listAttachments: (
+			input: GetMessageInput,
+			accepts: MessageFilter,
+			allowed: AttachmentExtension[],
+		) => run((client) => listAttachments(client, input, accepts, allowed)),
+		getAttachment: (
+			input: GetAttachmentInput,
+			accepts: MessageFilter,
+			options: AttachmentReadOptions,
+		) => run((client) => getAttachment(client, input, accepts, options)),
 		createDraft: (input: CreateDraftLookupInput) =>
 			run((client) => createDraft(client, config, input)),
 		editDraft: (input: EditDraftLookupInput) =>

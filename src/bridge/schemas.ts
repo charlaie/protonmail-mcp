@@ -110,6 +110,17 @@ export const GetMessageSchema = z.object({
 	),
 });
 
+export const ListAttachmentsSchema = GetMessageSchema;
+export const GetAttachmentSchema = GetMessageSchema.extend({
+	attachmentId: z
+		.string()
+		.max(100)
+		.regex(/^[1-9]\d*(?:\.[1-9]\d*)*$/)
+		.describe(
+			"Attachment ID returned by list_attachments for this exact message. Not a filename or filesystem path.",
+		),
+}).strict();
+
 export const GetThreadSchema = z.object({
 	uidValidity: UidValiditySchema,
 	mailbox: MailboxSchema.describe(
@@ -148,3 +159,4 @@ export type SearchMessagesInput = z.infer<typeof SearchMessagesSchema>;
 export type GetThreadInput = z.infer<typeof GetThreadSchema>;
 
 export type GetMessageInput = z.infer<typeof GetMessageSchema>;
+export type GetAttachmentInput = z.infer<typeof GetAttachmentSchema>;

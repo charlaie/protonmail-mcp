@@ -1,6 +1,7 @@
 import type { ImapService } from "../bridge/imap.js";
 import type { ReadResult } from "../bridge/messages.js";
 import type {
+	GetAttachmentInput,
 	GetMessageInput,
 	GetThreadInput,
 	SearchMessagesInput,
@@ -11,7 +12,7 @@ import {
 	READ_POLICY_NOT_CONFIGURED,
 	readPolicyStatus,
 } from "./enforcement.js";
-import { loadReadPolicy } from "./store.js";
+import { getPolicyFilePath, loadReadPolicy } from "./store.js";
 
 async function requireReadPolicy(bridgeUser: string) {
 	const policy = await loadReadPolicy();
@@ -25,6 +26,11 @@ async function requireReadPolicy(bridgeUser: string) {
 
 export async function createReadService(imap: ImapService, bridgeUser: string) {
 	const policy = await requireReadPolicy(bridgeUser);
+	const attachmentOptions = {
+		allowedExtensions:
+			policy.version === 2 ? policy.allowedAttachmentExtensions : [],
+		protectedFiles: [getPolicyFilePath()],
+	};
 	function requireMailbox(mailbox: string) {
 		if (!canReadMailbox(policy, mailbox))
 			throw new Error(
@@ -57,6 +63,24 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 		async getMessage(input: GetMessageInput) {
 			requireMailbox(input.mailbox);
 			return unwrap(await imap.getMessage(input, accepts), input);
+		},
+		async listAttachments(input: GetMessageInput) {
+			requireMailbox(input.mailbox);
+			return unwrap(
+				await imap.listAttachments(
+					input,
+					accepts,
+					attachmentOptions.allowedExtensions,
+				),
+				input,
+			);
+		},
+		async getAttachment(input: GetAttachmentInput) {
+			requireMailbox(input.mailbox);
+			return unwrap(
+				await imap.getAttachment(input, accepts, attachmentOptions),
+				input,
+			);
 		},
 		async getThread(input: GetThreadInput) {
 			requireMailbox(input.mailbox);

@@ -8,6 +8,7 @@ export type ImapClient = Pick<
 	| "search"
 	| "fetchAll"
 	| "fetchOne"
+	| "download"
 	| "append"
 	| "messageDelete"
 	| "capabilities"

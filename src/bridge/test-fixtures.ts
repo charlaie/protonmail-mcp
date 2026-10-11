@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { Readable } from "node:stream";
 import type {
 	FetchMessageObject,
 	FetchQueryObject,
@@ -67,6 +68,35 @@ export class FakeImap extends EventEmitter implements ImapClient {
 	searchFailure = false;
 	searches: SearchObject[] = [];
 	sourceFetches = 0;
+	downloads: {
+		uid: string;
+		part: string | undefined;
+		maxBytes: number | undefined;
+	}[] = [];
+	attachmentContents = new Map<
+		string,
+		{
+			content: Buffer;
+			meta: { filename: string; contentType: string; charset?: string };
+		}
+	>();
+	async download(
+		uid: string,
+		part?: string,
+		options?: { uid?: boolean; maxBytes?: number; chunkSize?: number },
+	) {
+		this.downloads.push({ uid, part, maxBytes: options?.maxBytes });
+		const attachment = this.attachmentContents.get(
+			`${this.selected}:${uid}:${part}`,
+		);
+		if (!attachment) throw new Error("Fixture attachment was not found.");
+		return {
+			meta: { ...attachment.meta, expectedSize: attachment.content.length },
+			content: Readable.from([
+				attachment.content.subarray(0, options?.maxBytes),
+			]),
+		};
+	}
 	fetchBatchSizes: number[] = [];
 	appends: { content: string | Buffer; flags: string[] }[] = [];
 	deleteFailure: "none" | "false" | "throw" | "event" = "none";

@@ -17,6 +17,8 @@ export function summarizeReadPolicy(policy: ReadPolicy) {
 		allowedMailboxes: policy.allowedMailboxes,
 		allowedSenderEmails: policy.allowedSenderEmails,
 		allowedSenderDomains: policy.allowedSenderDomains,
+		allowedAttachmentExtensions:
+			policy.version === 2 ? policy.allowedAttachmentExtensions : [],
 		createdAt: policy.createdAt,
 		updatedAt: policy.updatedAt,
 	};
