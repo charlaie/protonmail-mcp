@@ -104,6 +104,11 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	assert.ok(getAttachment);
 	assert.ok(getAttachment.inputSchema.required?.includes("uidValidity"));
 	assert.ok(getAttachment.inputSchema.required?.includes("attachmentId"));
+	assert.equal(getAttachment.inputSchema.required?.includes("format"), false);
+	assert.match(
+		JSON.stringify(getAttachment.inputSchema.properties?.format),
+		/raw/,
+	);
 	assert.equal(getAttachment.annotations?.readOnlyHint, true);
 	for (const name of ["list_attachments", "get_attachment"]) {
 		const result = await request("tools/call", {
@@ -126,6 +131,19 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	assert.ok(isSpecType.CallToolResult(denied.result));
 	assert.equal(denied.result.isError, true);
 	assert.ok(JSON.stringify(denied.result.content).includes("setup"));
+	const invalidFormat = await request("tools/call", {
+		name: "get_attachment",
+		arguments: {
+			mailbox: "INBOX",
+			uid: 1,
+			uidValidity: "7",
+			attachmentId: "2",
+			format: "base64",
+		},
+	});
+	assert.ok(isSpecType.CallToolResult(invalidFormat.result));
+	assert.equal(invalidFormat.result.isError, true);
+	assert.match(JSON.stringify(invalidFormat.result.content), /format/);
 	const invalid = spawnSync(process.execPath, [entry, "bridge:search"], {
 		cwd: directory,
 		env,

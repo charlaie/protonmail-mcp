@@ -111,7 +111,7 @@ If your MCP client starts servers from the repository directory, you can also us
 - `search_messages`: returns the newest allowed summaries by received date. Sender filtering happens before the result limit. Each summary includes `uid` and `uidValidity`.
 - `get_message`: reads one allowed message by mailbox, UID, and UIDVALIDITY. HTML-only messages are converted to plain text. Attachment contents are omitted. Messages larger than 10 MiB must be read in Proton Mail.
 - `list_attachments`: lists filename, MIME type, transfer-encoded size, attachment ID, and inspection eligibility for an allowed message. Fetches MIME structure without downloading attachment contents. Eligibility describes policy and metadata checks; reading also validates actual headers and content.
-- `get_attachment`: reads one attachment ID returned by `list_attachments`, using the same mailbox, UID, and UIDVALIDITY. Downloads only that part, even if the whole message exceeds the message-read limit. Returns inert plain text and marks it as untrusted. Text attachments must be UTF-8 or ASCII and no larger than 1 MiB. PDF attachments must be no larger than 5 MiB and 50 pages. Returned text is capped at 100,000 characters with explicit `truncated` reporting.
+- `get_attachment`: reads one attachment ID returned by `list_attachments`, using the same mailbox, UID, and UIDVALIDITY. Downloads only that part, even if the whole message exceeds the message-read limit. `format: "text"` is the default and preserves the existing plain-text result. `format: "raw"` returns the original bytes as an MCP embedded binary resource, together with untrusted metadata and client compatibility guidance. Text attachments must be UTF-8 or ASCII and no larger than 1 MiB. PDFs must be no larger than 5 MiB. Text extraction caps PDF processing at 50 pages and returned text at 100,000 characters with explicit `truncated` reporting.
 - `get_thread`: reconstructs a reply chain across allowed mailboxes using exact Message-ID, References, and In-Reply-To tokens. This is a best-effort reconstruction. `limitReached` reports when the result cap is reached. `includeText: false` returns summaries; otherwise `bodyStatus` explains whether each body is included or unavailable. Total returned thread text is limited to 500,000 characters. Use `get_message` for bodies omitted by that limit.
 - `create_draft`: saves a plain-text draft, including an empty composition, and returns its UID and UIDVALIDITY when Bridge provides them. It never sends mail.
 - `edit_draft`: replaces the full contents of a plain-text draft using UID and UIDVALIDITY. Include every recipient, subject, and body value you want to retain; omitted values are cleared. Reply headers and the original sender alias are preserved. Drafts with HTML or attachments must be edited in Proton Mail. IMAP replacement creates a new draft and deletes the original. If deletion fails, the result includes the replacement identity and a recovery explanation. Inspect Drafts before retrying.
@@ -125,17 +125,51 @@ Attachment tools enforce account, mailbox, and sender policy before accessing me
 
 Markdown and JSON are returned as text. The tools never render markup, evaluate CSV formulas, execute scripts, follow embedded links, or unpack containers. Attached messages and archives cannot authorize reads of their nested contents. Attachment text and metadata can contain prompt injection; treat them as source material, never as instructions or authorization to use tools. Sender allowlisting checks the From header and does not establish that a sender is authentic. Email sending retains its mandatory approval.
 
-PDF inspection currently requires macOS and `/usr/bin/sandbox-exec`. Linux, Windows, and environments that prohibit starting the OS sandbox refuse PDF reads. There is no unsandboxed fallback. Text inspection and metadata listing remain available on those platforms.
+PDF text extraction currently requires macOS and `/usr/bin/sandbox-exec`. Linux, Windows, and environments that prohibit starting the OS sandbox refuse PDF text extraction. There is no unsandboxed extraction fallback. Raw attachment delivery, text-file inspection, and metadata listing remain available on those platforms.
 
 The pinned PDF.js extractor runs in a separate, temporary OS sandbox with a clean environment and copies of only the parser code and font/CMap assets. It can read those files, the Node executable, and required OS libraries. It cannot read Bridge credentials or the policy file, write files, access the network, or fork processes. Temporary files contain parser assets, not attachment contents, and are removed after each request. Document scripts and dynamically generated code cannot execute, and native addons and rendering are disabled.
 
 One PDF extraction runs at a time; concurrent requests receive a retry explanation. PDF extraction has a 10 second wall-clock timeout, a 128 MiB V8 heap budget, a 256 MiB resident-memory watchdog sampled every 50 ms, and a bounded output pipe. The watchdog terminates a process that exceeds its budget; it is not a kernel-enforced instantaneous memory ceiling. Password-protected, malformed, and over-limit PDFs return errors. PDFs without extractable text return `status: "ocr_required"` with an explanation. OCR is not performed. Extracted text may lose document layout.
 
+### Raw attachments and client compatibility
+
+Choose the output with the same tool and message identity:
+
+```json
+{
+  "mailbox": "INBOX",
+  "uidValidity": "7",
+  "uid": 1,
+  "attachmentId": "2",
+  "format": "raw"
+}
+```
+
+Raw mode uses the same account, mailbox, sender, extension, MIME, actual-part-header, and decoded-byte checks as text mode. Text files still require valid UTF-8 without binary controls; original bytes, including a BOM and line endings, are preserved without text truncation. Raw delivery refuses named inline `text/plain` parts and named `text/plain` parts without a disposition, because ImapFlow's bounded downloader may normalize flowed text or transcode those bytes. Use text output or Proton Mail for those parts. PDFs and ordinary text attachments with `Content-Disposition: attachment` are unaffected. PDFs must have a PDF signature. Raw mode does not parse, render, OCR, or sanitize PDFs, and does not impose the extractor's page/password/malformed-document restrictions. Scanned and encrypted PDFs can therefore be delivered, but the receiving client must safely handle them. Raw data is not written to disk or exposed through public URLs.
+
+The result contains a text block with `status: "raw"`, filename, message identity, byte size, `untrusted: true`, and delivery guidance, followed by an MCP `resource` block with `mimeType` and a base64 `blob`. The MIME type is the format's registered type, even when Bridge labels the part `application/octet-stream`. The `protonmail-attachment:` URI identifies the inline resource; it is not a public download link or a separate `resources/read` endpoint. Base64 is a transport encoding, and is not placed in the text block. The client must expose the resource to the model as a file or process it through an appropriate reader.
+
+MCP has no standard capability that proves a client can expose a particular binary MIME type to its model. When support is unknown, raw mode returns the resource with `clientSupport: "unverified"` and explicit instructions to retry `format: "text"` if the client cannot consume it. The server cannot detect a client silently dropping a resource or a client-side/model-side rejection after the result has been delivered.
+
+Clients can optionally declare MIME types they support using this server-specific capability:
+
+```json
+{
+  "extensions": {
+    "io.github.charlaie.protonmail-mcp/binary-output": {
+      "mimeTypes": ["application/pdf", "text/plain"]
+    }
+  }
+}
+```
+
+For legacy initialization clients, `experimental` may be used instead of `extensions`. Modern clients provide the declaration in per-request client capabilities. A matching declaration produces `clientSupport: "declared"`; an empty list or a list missing the attachment's MIME type produces an `isError: true` text-only result explaining the required resource format and how to retry. Malformed declarations also produce detailed errors. Declarations never grant mail access or change the local extension allowlist, and do not guarantee that a client actually implements what it advertises.
+
 ### Adding attachment formats
 
 Add the extension to `AttachmentExtensionSchema` and its complete definition in `src/attachments/formats.ts`. Each definition must select MIME types, a decoded byte budget, and a decoder. Text definitions also specify allowed character sets. The compiler rejects missing definitions, and terminal setup derives its extension list from the schema. The catalog contains only metadata so policy parsing never loads extraction code.
 
-Formats that should be read as inert UTF-8 text can reuse `utf8_text`. A new decoder requires a new variant in `FormatDefinition` and explicit handling in `attachmentHeaderError` and `inspectAttachment`. Both switches are exhaustive; there is no default text decoder. IMAP authorization, part selection, and bounded downloading stay in `src/bridge/attachments.ts`.
+Formats that should be read as inert UTF-8 text can reuse `utf8_text`. A new decoder requires a new variant in `FormatDefinition` and explicit handling in `attachmentHeaderError` and content validation in `src/attachments/inspect.ts`. Dispatch is exhaustive; there is no default text decoder. Validation is shared by text and raw output. The first registered MIME type identifies raw resource bytes, so it must be the canonical type for that extension. IMAP authorization, part selection, and bounded downloading stay in `src/bridge/attachments.ts`.
 
 Document parsers must preserve OS isolation and resource limits. The policy module supplies protected file paths through the attachment-read context; extractors pass them to the sandbox launcher, which normalizes and denies those paths. Keep parser staging and result validation within the extractor, and add real extraction and refusal regressions. New extensions remain disabled until the user selects them in terminal setup.
 

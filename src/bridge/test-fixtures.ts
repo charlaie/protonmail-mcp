@@ -77,7 +77,12 @@ export class FakeImap extends EventEmitter implements ImapClient {
 		string,
 		{
 			content: Buffer;
-			meta: { filename: string; contentType: string; charset?: string };
+			meta: {
+				filename: string;
+				contentType: string;
+				charset?: string;
+				disposition?: string;
+			};
 		}
 	>();
 	async download(

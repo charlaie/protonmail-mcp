@@ -112,6 +112,12 @@ export const GetMessageSchema = z.object({
 
 export const ListAttachmentsSchema = GetMessageSchema;
 export const GetAttachmentSchema = GetMessageSchema.extend({
+	format: z
+		.enum(["text", "raw"])
+		.default("text")
+		.describe(
+			'Output format. "text" extracts bounded plain text. "raw" returns the original attachment as an MCP embedded binary resource; the client must support its MIME type. Raw PDFs are signature-checked, not parsed or sanitized.',
+		),
 	attachmentId: z
 		.string()
 		.max(100)

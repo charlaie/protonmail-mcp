@@ -1,14 +1,23 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import type { AttachmentExtension } from "../attachments/formats.js";
-import { MAX_TEXT_BYTES } from "../attachments/limits.js";
+import { MAX_PDF_BYTES, MAX_TEXT_BYTES } from "../attachments/limits.js";
 import { getAttachment, listAttachments } from "./attachments.js";
 import { allowAllMessages } from "./messages.js";
 import { GetAttachmentSchema } from "./schemas.js";
 import { FakeImap, fixtureMessage } from "./test-fixtures.js";
 
 const identity = { mailbox: "INBOX", uid: 1, uidValidity: "7" };
-const input = { ...identity, attachmentId: "2" };
+const input = GetAttachmentSchema.parse({ ...identity, attachmentId: "2" });
+
+test("attachment output defaults to text and rejects unknown formats", () => {
+	assert.equal(input.format, "text");
+	for (const format of ["base64", "pdf", "", null, 1])
+		assert.equal(
+			GetAttachmentSchema.safeParse({ ...input, format }).success,
+			false,
+		);
+});
 
 function fixture(
 	options: {
@@ -42,7 +51,12 @@ function fixture(
 	client.mailboxes.set("INBOX", [message]);
 	client.attachmentContents.set("INBOX:1:2", {
 		content: bytes,
-		meta: { filename, contentType: type, charset: options.charset },
+		meta: {
+			filename,
+			contentType: type,
+			charset: options.charset,
+			disposition: "attachment",
+		},
 	});
 	return client;
 }
@@ -402,5 +416,129 @@ test("a standalone attachment uses IMAP part 1 without granting access to ordina
 			)
 		).kind,
 		"unavailable",
+	);
+});
+
+test("raw output preserves complete original bytes and selects the registered MIME type", async () => {
+	for (const [filename, mimeType, bytes] of [
+		[
+			"notes.txt",
+			"text/plain",
+			Buffer.from(`\ufeff${"é".repeat(100_001)}\r\n`),
+		],
+		[
+			"scan.pdf",
+			"application/pdf",
+			Buffer.concat([
+				Buffer.from("%PDF-1.7\n"),
+				Buffer.from([0, 255, 128, 10]),
+			]),
+		],
+	] satisfies [string, string, Buffer][]) {
+		const result = await getAttachment(
+			fixture({ filename, type: "application/octet-stream", bytes }),
+			{ ...input, format: "raw" },
+			allowAllMessages,
+			{
+				allowedExtensions: [".txt", ".pdf"],
+				protectedFiles: ["/does-not-exist/policy.json"],
+			},
+		);
+		assert.equal(result.kind, "found");
+		if (result.kind !== "found") continue;
+		assert.equal(result.value.status, "raw");
+		if (result.value.status !== "raw") continue;
+		assert.deepEqual(result.value.bytes, bytes);
+		assert.equal(result.value.mimeType, mimeType);
+		assert.equal(result.value.contentType, "application/octet-stream");
+		assert.equal(result.value.size, bytes.length);
+		assert.equal(result.value.untrusted, true);
+		assert.equal("text" in result.value, false);
+	}
+});
+
+test("raw output enforces the same identity, permission, metadata, and content checks", async () => {
+	const rawInput = GetAttachmentSchema.parse({ ...input, format: "raw" });
+	const options = {
+		allowedExtensions: [".pdf", ".txt"] satisfies AttachmentExtension[],
+		protectedFiles: [],
+	};
+	const client = fixture();
+	assert.equal(
+		(await getAttachment(client, rawInput, () => false, options)).kind,
+		"denied",
+	);
+	await assert.rejects(
+		getAttachment(
+			client,
+			{ ...rawInput, uidValidity: "8" },
+			allowAllMessages,
+			options,
+		),
+		/UIDVALIDITY/,
+	);
+	assert.equal(
+		(
+			await getAttachment(client, rawInput, allowAllMessages, {
+				...options,
+				allowedExtensions: [],
+			})
+		).kind,
+		"unavailable",
+	);
+	assert.equal(
+		(
+			await getAttachment(
+				client,
+				{ ...rawInput, attachmentId: "99" },
+				allowAllMessages,
+				options,
+			)
+		).kind,
+		"unavailable",
+	);
+	assert.equal(client.downloads.length, 0);
+	for (const badClient of [
+		fixture({ filename: "../scan.pdf" }),
+		fixture({ type: "text/html" }),
+		fixture({ charset: "utf-16" }),
+	]) {
+		assert.equal(
+			(await getAttachment(badClient, rawInput, allowAllMessages, options))
+				.kind,
+			"unavailable",
+		);
+		assert.equal(badClient.downloads.length, 0);
+	}
+	for (const [badClient, reason] of [
+		[
+			fixture({ filename: "fake.pdf", type: "application/pdf" }),
+			/PDF signature/,
+		],
+		[fixture({ bytes: Buffer.from([255]) }), /UTF-8/],
+		[fixture({ bytes: Buffer.from("\0") }), /control data/],
+		[
+			fixture({
+				filename: "large.pdf",
+				type: "application/pdf",
+				bytes: Buffer.alloc(MAX_PDF_BYTES + 1),
+				size: 100,
+			}),
+			/download limit/,
+		],
+	] satisfies [FakeImap, RegExp][]) {
+		await assert.rejects(
+			getAttachment(badClient, rawInput, allowAllMessages, options),
+			reason,
+		);
+	}
+	const changedHeaders = fixture();
+	changedHeaders.attachmentContents.set("INBOX:1:2", {
+		content: Buffer.from("data"),
+		meta: { filename: "file.exe", contentType: "application/octet-stream" },
+	});
+	await assert.rejects(
+		getAttachment(changedHeaders, rawInput, allowAllMessages, options),
+		/headers/,
 	);
 });

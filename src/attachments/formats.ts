@@ -12,7 +12,7 @@ export const AttachmentExtensionSchema = z.enum([
 export type AttachmentExtension = z.infer<typeof AttachmentExtensionSchema>;
 
 type FormatDefinition = {
-	mimeTypes: readonly string[];
+	mimeTypes: readonly [string, ...string[]];
 	maxBytes: number;
 } & (
 	| { decoder: "utf8_text"; charsets: readonly string[] }

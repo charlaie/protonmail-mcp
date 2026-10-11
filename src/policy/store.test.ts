@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createImapService } from "../bridge/imap.js";
+import { GetAttachmentSchema } from "../bridge/schemas.js";
 import {
 	FakeImap,
 	fixtureMessage,
@@ -159,12 +160,12 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		operation(client),
 	);
 	let reads = await createReadService(imap, testConfig.user);
-	const input = {
+	const input = GetAttachmentSchema.parse({
 		mailbox: "INBOX",
 		uid: 1,
 		uidValidity: "7",
 		attachmentId: "2",
-	};
+	});
 	assert.equal(
 		(await reads.listAttachments(input)).attachments[0]?.inspection.kind,
 		"blocked",

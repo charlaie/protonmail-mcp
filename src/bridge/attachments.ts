@@ -34,13 +34,13 @@ export type AttachmentReadOptions = ExtractionContext & {
 	allowedExtensions: readonly AttachmentExtension[];
 };
 
-type AttachmentIdentity = GetAttachmentInput & {
+type AttachmentIdentity = Omit<GetAttachmentInput, "format"> & {
 	filename: string | undefined;
 	contentType: string;
 	size: number;
 	untrusted: true;
 };
-type AttachmentContent = AttachmentIdentity & AttachmentInspection;
+export type AttachmentContent = AttachmentIdentity & AttachmentInspection;
 
 function collectAttachments(structure: MessageStructureObject): Attachment[] {
 	const attachments: Attachment[] = [];
@@ -237,6 +237,16 @@ export async function getAttachment(
 			throw new Error(
 				`Downloaded attachment headers do not match its allowed type.${headerError ? ` ${headerError}` : ""}`,
 			);
+		// ImapFlow may normalize flowed text and replace charset metadata for
+		// these inline text parts. Its bounded download cannot promise original bytes.
+		if (
+			input.format === "raw" &&
+			["text/plain", "text/html", "text/x-amp-html"].includes(contentType) &&
+			(!downloaded.meta.disposition || downloaded.meta.disposition === "inline")
+		)
+			throw new Error(
+				'Raw output is unavailable for this inline text part because the IMAP downloader may reformat or transcode its bytes. Retry get_attachment with format: "text", or download the original file in Proton Mail.',
+			);
 		const chunks: Buffer[] = [];
 		let size = 0;
 		for await (const chunk of downloaded.content) {
@@ -250,8 +260,9 @@ export async function getAttachment(
 			chunks.push(chunk);
 		}
 		const bytes = Buffer.concat(chunks, size);
+		const { format: outputFormat, ...messageIdentity } = input;
 		const identity = {
-			...input,
+			...messageIdentity,
 			filename: attachment.filename,
 			contentType,
 			size,
@@ -261,7 +272,12 @@ export async function getAttachment(
 			kind: "found",
 			value: {
 				...identity,
-				...(await inspectAttachment({ format, bytes, context: options })),
+				...(await inspectAttachment({
+					format,
+					bytes,
+					context: options,
+					outputFormat,
+				})),
 			},
 		};
 	} finally {
