@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
 	acceptedContent,
 	createRequestStateCodec,
@@ -9,7 +9,14 @@ import {
 	type ServerContext,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import type { SendEmailInput } from "../bridge/schemas.js";
+import { hashContent, type OutgoingMessage } from "../sending/model.js";
+import { MailError } from "../shared/mail-error.js";
+
+export type SendApprovalInput = {
+	operationId: string;
+	message: OutgoingMessage;
+};
+
 import { errorResponse } from "./responses.js";
 
 const ApproveSendSchema = z.object({
@@ -22,22 +29,35 @@ const ApproveSendSchema = z.object({
 		.meta({ title: "Send email now" }),
 });
 
-function approvalMessage(input: SendEmailInput, sender: string): string {
+function approvalMessage(input: SendApprovalInput): string {
+	const { message } = input;
 	return [
 		"Approve sending this Proton Mail email?",
-		`From: ${sender}`,
-		`To: ${input.to.join(", ")}`,
-		input.cc?.length ? `Cc: ${input.cc.join(", ")}` : undefined,
-		input.bcc?.length ? `Bcc: ${input.bcc.join(", ")}` : undefined,
-		`Subject: ${input.subject}`,
-		`Body:\n${input.text}`,
+		`Operation: ${input.operationId}`,
+		`From: ${message.from}`,
+		`To: ${message.to.join(", ")}`,
+		message.cc?.length ? `Cc: ${message.cc.join(", ")}` : undefined,
+		message.bcc?.length ? `Bcc: ${message.bcc.join(", ")}` : undefined,
+		`Subject: ${message.subject}`,
+		message.replyTo ? `Reply-To: ${message.replyTo}` : undefined,
+		message.inReplyTo.length
+			? `In-Reply-To: ${message.inReplyTo.join(" ")}`
+			: undefined,
+		message.references.length
+			? `References: ${message.references.join(" ")}`
+			: undefined,
+		`Body:\n${message.text}`,
 	]
 		.filter(Boolean)
 		.join("\n");
 }
 
 const approvalDeniedResponse = errorResponse(
-	"Email not sent. User approval was not received.",
+	new MailError(
+		"APPROVAL_DENIED",
+		"Email not sent. Approval was absent, expired, changed, or already consumed.",
+		"new_approval",
+	),
 );
 
 const APPROVAL_TTL_SECONDS = 10 * 60;
@@ -57,30 +77,18 @@ type SendApprovalDecision =
 
 export type SendApprovalController = {
 	requireApproval(
-		input: SendEmailInput,
+		input: SendApprovalInput,
 		ctx: ServerContext,
 	): Promise<SendApprovalDecision>;
 	verifyRequestState: RequestStateCodec<SendApprovalState>["verify"];
 };
 
-function inputHash(input: SendEmailInput): string {
-	return createHash("sha256")
-		.update(
-			JSON.stringify({
-				to: input.to,
-				cc: input.cc ?? [],
-				bcc: input.bcc ?? [],
-				subject: input.subject,
-				text: input.text,
-			}),
-		)
-		.digest("base64url");
+function inputHash(input: SendApprovalInput): string {
+	return hashContent(input);
 }
 
 /** Create an MRTR send-approval guard shared by 2025 and 2026-era clients. */
-export function createSendApprovalController(
-	sender: string,
-): SendApprovalController {
+export function createSendApprovalController(): SendApprovalController {
 	const codec = createRequestStateCodec<SendApprovalState>({
 		key: randomBytes(32),
 		ttlSeconds: APPROVAL_TTL_SECONDS,
@@ -101,7 +109,7 @@ export function createSendApprovalController(
 	}
 
 	async function requestApproval(
-		input: SendEmailInput,
+		input: SendApprovalInput,
 		ctx: ServerContext,
 	): Promise<SendApprovalDecision> {
 		consumeState(undefined);
@@ -117,7 +125,7 @@ export function createSendApprovalController(
 			response: inputRequired({
 				inputRequests: {
 					approve_send: inputRequired.elicit({
-						message: approvalMessage(input, sender),
+						message: approvalMessage(input),
 						requestedSchema: ApproveSendSchema,
 					}),
 				},

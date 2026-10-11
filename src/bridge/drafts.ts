@@ -1,18 +1,23 @@
 import type { ParsedMail } from "mailparser";
-import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import { safeErrorMessage } from "../shared/errors.js";
+import { MailError } from "../shared/mail-error.js";
 import type { BridgeConfig } from "./config.js";
-import { checkUidValidity } from "./messages.js";
+import { inspectDraft } from "./draft-content.js";
 import type { CreateDraftInput, EditDraftInput } from "./schemas.js";
 import type { ImapClient } from "./session.js";
 
-export type CreateDraftLookupInput = CreateDraftInput & { mailbox: string };
+export type CreateDraftLookupInput = CreateDraftInput & {
+	mailbox: string;
+	from?: string;
+	inReplyTo?: string[];
+	references?: string[];
+};
 export type EditDraftLookupInput = EditDraftInput & { mailbox: string };
 
 async function composeDraft(
 	config: BridgeConfig,
-	input: CreateDraftInput,
+	input: CreateDraftLookupInput,
 	original?: ParsedMail,
 ) {
 	const transport = nodemailer.createTransport({
@@ -22,15 +27,15 @@ async function composeDraft(
 	});
 	try {
 		const info = await transport.sendMail({
-			from: original?.from?.text ?? config.user,
+			from: original?.from?.text ?? input.from ?? config.user,
 			to: input.to,
 			cc: input.cc,
 			bcc: input.bcc,
 			subject: input.subject,
 			text: input.text,
 			messageId: original?.messageId,
-			inReplyTo: original?.inReplyTo,
-			references: original?.references,
+			inReplyTo: original?.inReplyTo ?? input.inReplyTo?.join(" "),
+			references: original?.references ?? input.references,
 			replyTo: original?.replyTo?.text,
 		});
 		if (!Buffer.isBuffer(info.message))
@@ -48,12 +53,22 @@ async function appendDraft(
 	original?: ParsedMail,
 ) {
 	const draft = await composeDraft(config, input, original);
-	const result = await client.append(
-		input.mailbox,
-		draft.content,
-		["\\Seen", "\\Draft"],
-		new Date(),
-	);
+	let result: Awaited<ReturnType<ImapClient["append"]>>;
+	try {
+		result = await client.append(
+			input.mailbox,
+			draft.content,
+			["\\Seen", "\\Draft"],
+			new Date(),
+		);
+	} catch (error) {
+		throw new MailError(
+			"OPERATION_FAILED",
+			`Draft append could not be confirmed for Message-ID ${draft.messageId}. Inspect Drafts before retrying.`,
+			"reconcile",
+			{ cause: error },
+		);
+	}
 	if (!result)
 		throw new Error(`Draft was not appended to mailbox ${input.mailbox}.`);
 	return {
@@ -71,7 +86,7 @@ export async function createDraft(
 ) {
 	await client.mailboxOpen(input.mailbox);
 	return {
-		status: "created",
+		status: "created" as const,
 		mailbox: input.mailbox,
 		...(await appendDraft(client, config, input)),
 	};
@@ -82,61 +97,35 @@ export async function editDraft(
 	config: BridgeConfig,
 	input: EditDraftLookupInput,
 ) {
-	const mailbox = await client.mailboxOpen(input.mailbox);
-	checkUidValidity(input.uidValidity, mailbox.uidValidity);
+	await client.mailboxOpen(input.mailbox);
 	if (!client.capabilities.has("UIDPLUS"))
 		return {
-			status: "blocked_uidplus_required",
+			status: "blocked_uidplus_required" as const,
 			mailbox: input.mailbox,
 			oldUid: input.uid,
 			reason:
-				"Draft editing requires IMAP UIDPLUS to delete only the old draft. Edit this draft in Proton Mail instead.",
+				"Draft editing requires UIDPLUS to delete only the original. Edit it in Proton Mail.",
 		};
-	const existing = await client.fetchOne(
-		input.uid,
-		{ uid: true, size: true, flags: true },
-		{ uid: true },
-	);
-	if (!existing)
+	let inspected: Awaited<ReturnType<typeof inspectDraft>>;
+	try {
+		inspected = await inspectDraft(client, input);
+	} catch (error) {
+		if (
+			!(error instanceof MailError) ||
+			(error.code !== "NOT_FOUND" && error.code !== "UNSUPPORTED_CONTENT")
+		)
+			throw error;
 		return {
-			status: "not_found",
+			status:
+				error.code === "NOT_FOUND"
+					? ("not_found" as const)
+					: ("blocked_unsupported_draft" as const),
 			mailbox: input.mailbox,
 			oldUid: input.uid,
-			reason: `Draft UID ${input.uid} was not found in mailbox ${input.mailbox}.`,
+			reason: error.message,
 		};
-	if (existing.size === undefined || existing.size > 10 * 1024 * 1024)
-		return {
-			status: "blocked_unsupported_draft",
-			mailbox: input.mailbox,
-			oldUid: input.uid,
-			reason:
-				"Draft is larger than 10 MiB or its size is unavailable. Edit it in Proton Mail instead.",
-		};
-	const full = await client.fetchOne(
-		input.uid,
-		{ uid: true, source: true },
-		{ uid: true },
-	);
-	if (full === false || !full.source)
-		throw new Error(
-			"Cannot inspect the existing draft. No replacement was created.",
-		);
-	const original = await simpleParser(full.source, {
-		skipHtmlToText: true,
-		skipTextToHtml: true,
-	});
-	if (
-		original.attachments.length > 0 ||
-		original.html ||
-		existing.flags?.has("\\Deleted")
-	)
-		return {
-			status: "blocked_unsupported_draft",
-			mailbox: input.mailbox,
-			oldUid: input.uid,
-			reason:
-				"This draft has HTML, attachments, or is marked for deletion. Edit it in Proton Mail to preserve its contents. No replacement was created.",
-		};
+	}
+	const { original } = inspected;
 	const replacement = await appendDraft(client, config, input, original);
 	const result = {
 		mailbox: input.mailbox,
@@ -147,17 +136,24 @@ export async function editDraft(
 		messageId: replacement.messageId,
 	};
 	try {
+		const current = await inspectDraft(client, input);
+		if (current.fingerprint !== inspected.fingerprint)
+			throw new MailError(
+				"DRAFT_CHANGED",
+				"Original draft changed after replacement. It was retained.",
+				"reconcile",
+			);
 		if (await client.messageDelete(input.uid, { uid: true }))
-			return { status: "updated", ...result };
+			return { status: "updated" as const, ...result };
 		return {
-			status: "replacement_created_old_delete_failed",
+			status: "replacement_created_old_delete_failed" as const,
 			...result,
 			reason:
 				"The replacement draft was saved, but deletion of the old draft was not confirmed. Inspect both drafts before retrying.",
 		};
 	} catch (error) {
 		return {
-			status: "replacement_created_old_delete_failed",
+			status: "replacement_created_old_delete_failed" as const,
 			...result,
 			reason: `The replacement draft was saved, but deletion of the old draft was not confirmed: ${safeErrorMessage(error)}. Inspect both drafts before retrying.`,
 		};

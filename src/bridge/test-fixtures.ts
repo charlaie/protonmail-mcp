@@ -15,6 +15,7 @@ export const testConfig: BridgeConfig = {
 	imapPort: 1143,
 	smtpPort: 1025,
 	tlsRejectUnauthorized: false,
+	ownAddresses: ["bridge@example.com"],
 };
 
 export function fixtureMessage(
@@ -119,7 +120,22 @@ export class FakeImap extends EventEmitter implements ImapClient {
 		this.closed = true;
 	}
 	async list() {
-		return [];
+		return [...this.mailboxes.keys()].map((path) => ({
+			path,
+			pathAsListed: path,
+			parent: [],
+			parentPath: "",
+			name: path,
+			delimiter: "/",
+			flags: new Set<string>(),
+			listed: true,
+			subscribed: true,
+			...(path === "Drafts"
+				? { specialUse: "\\Drafts" }
+				: path === "Sent"
+					? { specialUse: "\\Sent" }
+					: {}),
+		}));
 	}
 	async mailboxOpen(path: string | string[]) {
 		if (typeof path !== "string")
@@ -173,14 +189,19 @@ export class FakeImap extends EventEmitter implements ImapClient {
 	}
 	async append(path: string, content: string | Buffer, flags: string[] = []) {
 		this.appends.push({ content, flags });
+		const saved = fixtureMessage(98 + this.appends.length);
+		saved.source = Buffer.isBuffer(content) ? content : Buffer.from(content);
+		saved.size = saved.source.length;
+		saved.flags = new Set(flags);
+		this.mailboxes.set(path, [...(this.mailboxes.get(path) ?? []), saved]);
 		return {
 			destination: path,
-			uid: 99,
+			uid: 98 + this.appends.length,
 			uidValidity: this.uidValidity,
-			seq: 99,
+			seq: 98 + this.appends.length,
 		};
 	}
-	async messageDelete() {
+	async messageDelete(range: Parameters<ImapClient["messageDelete"]>[0]) {
 		this.deletions++;
 		if (this.deleteFailure === "event") {
 			const error = new Error("Socket failed during deletion");
@@ -188,6 +209,14 @@ export class FakeImap extends EventEmitter implements ImapClient {
 			throw error;
 		}
 		if (this.deleteFailure === "throw") throw new Error("STORE failed");
-		return this.deleteFailure !== "false";
+		if (this.deleteFailure === "false") return false;
+		const removed = uidsFromRange(range);
+		this.mailboxes.set(
+			this.selected,
+			this.currentMessages().filter(
+				(message) => !removed.includes(message.uid),
+			),
+		);
+		return true;
 	}
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { randomUUID } from "node:crypto";
 import { loadEnvFile } from "node:process";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { loadBridgeConfig } from "./bridge/config.js";
@@ -9,13 +10,14 @@ import {
 	SearchMessagesSchema,
 	SendEmailSchema,
 } from "./bridge/schemas.js";
-import { sendEmail } from "./bridge/smtp.js";
+import { submitEmail } from "./bridge/smtp.js";
 import { createServer } from "./mcp/server.js";
 import {
 	runPolicyCommand,
 	runResetPolicyCommand,
 	runSetupCommand,
 } from "./policy/cli.js";
+import { newEmailMessage, sendMessageId } from "./sending/model.js";
 import { safeErrorMessage } from "./shared/errors.js";
 
 function usage() {
@@ -98,14 +100,17 @@ async function runBridgeCommand(command: string, args: string[]) {
 			return;
 		}
 		case "bridge:send-test": {
+			const input = SendEmailSchema.parse({
+				operationId: randomUUID(),
+				to: args[0],
+				subject: "Proton Bridge MCP test",
+				text: "This is a direct Proton Bridge SMTP test from protonmail-mcp.",
+			});
 			printJson(
-				await sendEmail(
+				await submitEmail(
 					config,
-					SendEmailSchema.parse({
-						to: args[0],
-						subject: "Proton Bridge MCP test",
-						text: "This is a direct Proton Bridge SMTP test from protonmail-mcp.",
-					}),
+					newEmailMessage(config.user, input),
+					sendMessageId(input.operationId),
 				),
 			);
 			return;

@@ -1,4 +1,6 @@
 import { ImapFlow } from "imapflow";
+import { safeErrorMessage } from "../shared/errors.js";
+import { MailError } from "../shared/mail-error.js";
 import type { BridgeConfig } from "./config.js";
 
 export type ImapClient = Pick<
@@ -59,6 +61,16 @@ export function createImapSession(
 			await Promise.race([client.connect(), failed]);
 			connected = true;
 			return await operation(client);
+		} catch (error) {
+			if (error instanceof MailError) throw error;
+			throw new MailError(
+				!connected || connectionError
+					? "CONNECTION_FAILED"
+					: "OPERATION_FAILED",
+				safeErrorMessage(error),
+				!connected ? "safe" : "never",
+				{ cause: error },
+			);
 		} finally {
 			if (connected && !connectionError) {
 				await client.logout().catch(() => client.close());

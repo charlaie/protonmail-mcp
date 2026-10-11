@@ -4,16 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import {
-	CLIENT_CAPABILITIES_META_KEY,
-	CLIENT_INFO_META_KEY,
 	type ClientCapabilities,
-	InMemoryTransport,
-	isJSONRPCErrorResponse,
-	isJSONRPCResponse,
-	type JSONRPCResultResponse,
 	LOG_LEVEL_META_KEY,
 	McpServer,
-	PROTOCOL_VERSION_META_KEY,
 	specTypeSchemas,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -26,10 +19,12 @@ import {
 import { createReadPolicy } from "../policy/schema.js";
 import { createReadService } from "../policy/service.js";
 import { saveReadPolicy } from "../policy/store.js";
+import { ToolErrorSchema } from "../shared/mail-error.js";
 import {
 	BINARY_OUTPUT_CAPABILITY,
 	registerAttachmentTools,
 } from "./attachments.js";
+import { createTestClient } from "./test-client.js";
 
 const identity = {
 	mailbox: "Archive/Invoices",
@@ -83,82 +78,26 @@ async function fixture(
 	const service = createImapService(testConfig, async (operation) =>
 		operation(imap),
 	);
-	const server = new McpServer({ name: "attachment-test", version: "1" });
-	registerAttachmentTools({
-		server,
-		readService: () => createReadService(service, testConfig.user),
-	});
-	const [client, transport] = InMemoryTransport.createLinkedPair();
+	const factory = () => {
+		const server = new McpServer({ name: "attachment-test", version: "1" });
+		registerAttachmentTools({
+			server,
+			readService: () => createReadService(service, testConfig.user),
+		});
+		return server;
+	};
 	t.after(async () => {
-		await server.close();
-		await client.close();
 		if (previousPath === undefined)
 			delete process.env.PROTONMAIL_MCP_POLICY_FILE;
 		else process.env.PROTONMAIL_MCP_POLICY_FILE = previousPath;
 		await rm(directory, { recursive: true, force: true });
 	});
-	await server.connect(transport);
-	await client.start();
-	let nextId = 0;
-	const protocolVersion = options.protocolVersion ?? "2025-11-25";
-	const capabilities = options.capabilities ?? {};
-	async function request(
-		method: string,
-		params: Record<string, unknown>,
-	): Promise<JSONRPCResultResponse> {
-		const id = ++nextId;
-		return new Promise((resolve, reject) => {
-			const timeout = setTimeout(
-				() => reject(new Error(`Timed out waiting for ${method}`)),
-				3000,
-			);
-			client.onmessage = (message) => {
-				if (!isJSONRPCResponse(message) || message.id !== id) return;
-				clearTimeout(timeout);
-				if (isJSONRPCErrorResponse(message))
-					reject(new Error(JSON.stringify(message.error)));
-				else resolve(message);
-			};
-			client
-				.send({
-					jsonrpc: "2.0",
-					id,
-					method,
-					params: {
-						...params,
-						...(protocolVersion === "2026-07-28"
-							? {
-									_meta: {
-										[PROTOCOL_VERSION_META_KEY]: protocolVersion,
-										[CLIENT_INFO_META_KEY]: {
-											name: "attachment-client-test",
-											version: "1",
-										},
-										[CLIENT_CAPABILITIES_META_KEY]: capabilities,
-									},
-								}
-							: {}),
-					},
-				})
-				.catch((error) => {
-					clearTimeout(timeout);
-					reject(error);
-				});
-		});
-	}
-	if (protocolVersion === "2025-11-25") {
-		await request("initialize", {
-			protocolVersion,
-			capabilities,
-			clientInfo: { name: "attachment-client-test", version: "1" },
-		});
-		await client.send({ jsonrpc: "2.0", method: "notifications/initialized" });
-	}
+	const client = await createTestClient(t, factory, options);
 	return {
 		imap,
 		policy,
 		async call(format?: "text" | "raw", metadata?: Record<string, unknown>) {
-			const response = await request("tools/call", {
+			const response = await client.request("tools/call", {
 				name: "get_attachment",
 				...(metadata ? { _meta: metadata } : {}),
 				arguments: { ...identity, ...(format ? { format } : {}) },
@@ -233,7 +172,10 @@ for (const protocolVersion of ["2025-11-25", "2026-07-28"] satisfies (
 						/does not declare support for application\/pdf/,
 					);
 					assert.match(JSON.stringify(result.content), /base64 blob/);
-					assert.match(JSON.stringify(result.content), /format: \\"text\\"/);
+					assert.match(
+						ToolErrorSchema.parse(result.structuredContent).error.message,
+						/format: "text"/,
+					);
 				}
 			});
 		}

@@ -1,23 +1,36 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { loadBridgeConfig } from "../bridge/config.js";
-import { createImapService } from "../bridge/imap.js";
+import { type BridgeConfig, loadBridgeConfig } from "../bridge/config.js";
+import { createImapService, type ImapService } from "../bridge/imap.js";
+import { composeReplyDraft } from "../bridge/replies.js";
 import {
 	CreateDraftSchema,
+	CreateReplyDraftSchema,
 	EditDraftSchema,
 	GetMessageSchema,
 	GetThreadSchema,
 	SearchMessagesSchema,
-	SendEmailSchema,
 } from "../bridge/schemas.js";
-import { sendEmail } from "../bridge/smtp.js";
 import { canReadMailbox, readPolicyStatus } from "../policy/enforcement.js";
 import { createReadService } from "../policy/service.js";
 import { loadReadPolicy } from "../policy/store.js";
-import { safeErrorMessage } from "../shared/errors.js";
+import { createSendService, type SendService } from "../sending/service.js";
+import { MailError } from "../shared/mail-error.js";
 import { registerAttachmentTools } from "./attachments.js";
-import { createSendApprovalController } from "./elicitation.js";
+import {
+	createSendApprovalController,
+	type SendApprovalController,
+} from "./elicitation.js";
+import {
+	CreateDraftOutputSchema,
+	EditDraftOutputSchema,
+	GetMessageOutputSchema,
+	MailboxesOutputSchema,
+	SearchOutputSchema,
+	ThreadOutputSchema,
+} from "./output-schemas.js";
 import { errorResponse, jsonResponse } from "./responses.js";
+import { registerSendTools } from "./send-tools.js";
 
 const READ_ONLY = {
 	readOnlyHint: true,
@@ -33,19 +46,26 @@ const WRITE = {
 };
 const DESTRUCTIVE = { ...WRITE, destructiveHint: true };
 
-async function respond(operation: () => Promise<unknown>) {
+async function respond(operation: () => Promise<object>) {
 	try {
 		return jsonResponse(await operation());
 	} catch (error) {
-		return errorResponse(safeErrorMessage(error));
+		return errorResponse(error);
 	}
 }
 
-export function createServer() {
-	const config = loadBridgeConfig();
-	const imap = createImapService(config);
+export function createServer(
+	options: {
+		config?: BridgeConfig;
+		imap?: ImapService;
+		sends?: SendService;
+		approval?: SendApprovalController;
+	} = {},
+) {
+	const config = options.config ?? loadBridgeConfig();
+	const imap = options.imap ?? createImapService(config);
 	const readService = () => createReadService(imap, config.user);
-	const sendApproval = createSendApprovalController(config.user);
+	const sendApproval = options.approval ?? createSendApprovalController();
 	const server = new McpServer(
 		{ name: "protonmail-mcp", version: "1.0.0" },
 		{
@@ -53,40 +73,13 @@ export function createServer() {
 		},
 	);
 
-	server.registerTool(
-		"send_email",
-		{
-			title: "Send email",
-			description:
-				"Send a plain-text email through Proton Bridge SMTP. Use only when the user explicitly asks to send and the recipients, subject, and body are known. Mandatory user approval shows the complete message before delivery. Check partial or uncertain delivery outcomes before retrying.",
-			inputSchema: SendEmailSchema,
-			annotations: DESTRUCTIVE,
-		},
-		async (input, ctx) => {
-			try {
-				const approval = await sendApproval.requireApproval(input, ctx);
-				if (approval.kind !== "approved") return approval.response;
-			} catch (error) {
-				return errorResponse(
-					`Email not sent. Approval could not be completed: ${safeErrorMessage(error)}`,
-				);
-			}
-			try {
-				const result = await sendEmail(config, input);
-				return result.status === "partially_sent"
-					? errorResponse({
-							...result,
-							reason:
-								"Some recipients were rejected. Email was sent to accepted recipients. Do not resend to them; check Sent before retrying rejected recipients.",
-						})
-					: jsonResponse(result);
-			} catch (error) {
-				return errorResponse(
-					`Email delivery could not be confirmed: ${safeErrorMessage(error)}. Check Proton Mail Sent before retrying to avoid sending a duplicate.`,
-				);
-			}
-		},
-	);
+	registerSendTools({
+		server,
+		config,
+		sends: options.sends ?? createSendService(config),
+		approval: sendApproval,
+		readService,
+	});
 
 	server.registerTool(
 		"list_mailboxes",
@@ -95,22 +88,25 @@ export function createServer() {
 			description:
 				"List Proton Bridge mailboxes and exact paths. selectable indicates whether the path holds messages. allowedByReadPolicy indicates mailbox access for this account; sender restrictions may still apply. policyStatus explains missing, legacy, or mismatched policy and requires setup when it is not ok.",
 			inputSchema: z.object({}),
+			outputSchema: MailboxesOutputSchema,
 			annotations: READ_ONLY,
 		},
 		() =>
 			respond(async () => {
 				const policy = await loadReadPolicy();
 				const policyStatus = readPolicyStatus(policy, config.user);
-				return (await imap.listMailboxes()).map((mailbox) => ({
-					...mailbox,
-					selectable: !mailbox.flags.includes("\\Noselect"),
-					policyStatus,
-					allowedByReadPolicy:
-						policyStatus === "ok" &&
-						policy !== null &&
-						!mailbox.flags.includes("\\Noselect") &&
-						canReadMailbox(policy, mailbox.path),
-				}));
+				return {
+					mailboxes: (await imap.listMailboxes()).map((mailbox) => ({
+						...mailbox,
+						selectable: !mailbox.flags.includes("\\Noselect"),
+						policyStatus,
+						allowedByReadPolicy:
+							policyStatus === "ok" &&
+							policy !== null &&
+							!mailbox.flags.includes("\\Noselect") &&
+							canReadMailbox(policy, mailbox.path),
+					})),
+				};
 			}),
 	);
 
@@ -121,6 +117,7 @@ export function createServer() {
 			description:
 				"Save a plain-text draft without sending it. Requires Drafts mailbox access. Recipients, subject, and body may be blank. Returns UID and UIDVALIDITY when Bridge provides them. Draft write access is controlled by the mailbox allowlist, independently of sender read restrictions.",
 			inputSchema: CreateDraftSchema,
+			outputSchema: CreateDraftOutputSchema,
 			annotations: WRITE,
 		},
 		async (input) => {
@@ -129,7 +126,49 @@ export function createServer() {
 				return jsonResponse(await imap.createDraft({ ...input, mailbox }));
 			} catch (error) {
 				return errorResponse(
-					`Draft creation could not be confirmed: ${safeErrorMessage(error)}. Inspect Drafts before retrying.`,
+					error instanceof MailError
+						? error
+						: new MailError(
+								"OPERATION_FAILED",
+								"Draft creation could not be confirmed. Inspect Drafts before retrying.",
+								"reconcile",
+								{ cause: error },
+							),
+				);
+			}
+		},
+	);
+
+	server.registerTool(
+		"create_reply_draft",
+		{
+			title: "Create reply draft",
+			inputSchema: CreateReplyDraftSchema,
+			outputSchema: CreateDraftOutputSchema,
+			annotations: WRITE,
+			description:
+				"Create a plain-text reply or reply-all draft from an allowed message identity. Derives recipients using Reply-To, excludes configured own addresses, never copies Bcc, and sets In-Reply-To and References. Requires authorized source reads and Drafts access. Never sends mail.",
+		},
+		async (input) => {
+			try {
+				const reads = await readService();
+				const original = await reads.getMessage(input);
+				const mailbox = await reads.requireDraftsMailbox();
+				return jsonResponse(
+					await imap.createDraft(
+						composeReplyDraft(config, original, input, mailbox),
+					),
+				);
+			} catch (error) {
+				return errorResponse(
+					error instanceof MailError
+						? error
+						: new MailError(
+								"OPERATION_FAILED",
+								"Reply draft creation could not be confirmed. Inspect Drafts before retrying.",
+								"reconcile",
+								{ cause: error },
+							),
 				);
 			}
 		},
@@ -142,6 +181,7 @@ export function createServer() {
 			description:
 				"Replace the full contents of a plain-text draft by UID and UIDVALIDITY. Supply all recipients, subject, and body to retain; omitted values are cleared. Preserves reply headers. Drafts with HTML or attachments must be edited in Proton Mail. Creates a replacement and deletes the original; inspect partial outcomes before retrying. Requires Drafts mailbox access and UIDPLUS.",
 			inputSchema: EditDraftSchema,
+			outputSchema: EditDraftOutputSchema,
 			annotations: DESTRUCTIVE,
 		},
 		async (input) => {
@@ -150,10 +190,28 @@ export function createServer() {
 				const result = await imap.editDraft({ ...input, mailbox });
 				return result.status === "updated"
 					? jsonResponse(result)
-					: errorResponse(result);
+					: {
+							...jsonResponse({
+								...result,
+								retry:
+									result.status === "replacement_created_old_delete_failed"
+										? "reconcile"
+										: result.status === "not_found"
+											? "refresh_identity"
+											: "never",
+							}),
+							isError: true,
+						};
 			} catch (error) {
 				return errorResponse(
-					`Draft update could not be confirmed: ${safeErrorMessage(error)}. Inspect Drafts before retrying.`,
+					error instanceof MailError
+						? error
+						: new MailError(
+								"OPERATION_FAILED",
+								"Draft update could not be confirmed. Inspect Drafts before retrying.",
+								"reconcile",
+								{ cause: error },
+							),
 				);
 			}
 		},
@@ -166,6 +224,7 @@ export function createServer() {
 			description:
 				"Search allowed Proton Bridge mailboxes. Returns newest allowed summaries by received date, up to limit, after applying sender policy. Bodies and attachments are omitted. Keep UIDVALIDITY with each UID for later reads or edits. Run protonmail-mcp setup to configure access.",
 			inputSchema: SearchMessagesSchema,
+			outputSchema: SearchOutputSchema,
 			annotations: READ_ONLY,
 		},
 		(input) =>
@@ -182,6 +241,7 @@ export function createServer() {
 			description:
 				"Read an allowed message by mailbox, UID, and UIDVALIDITY from search_messages. UIDVALIDITY detects mailbox resets. Returns plain text, converting HTML-only messages. Attachment contents are omitted. Messages over 10 MiB must be read in Proton Mail.",
 			inputSchema: GetMessageSchema,
+			outputSchema: GetMessageOutputSchema,
 			annotations: READ_ONLY,
 		},
 		(input) => respond(async () => (await readService()).getMessage(input)),
@@ -194,6 +254,7 @@ export function createServer() {
 			description:
 				"Reconstruct an allowed email reply chain using exact Message-ID, References, and In-Reply-To tokens across allowed mailboxes. This is a best-effort header reconstruction. Returns allowed messages up to limit and limitReached when the cap is reached. Set includeText=false for summaries. Each bodyStatus explains included or unavailable text. Bodies over 10 MiB require Proton Mail; thread text is limited to 500,000 characters, with get_message available for omitted bodies.",
 			inputSchema: GetThreadSchema,
+			outputSchema: ThreadOutputSchema,
 			annotations: READ_ONLY,
 		},
 		(input) =>

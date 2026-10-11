@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { simpleParser } from "mailparser";
 import { canReadMessage } from "../policy/enforcement.js";
 import { createReadPolicy } from "../policy/schema.js";
+import { MailError } from "../shared/mail-error.js";
 import { createImapService } from "./imap.js";
 import {
 	CreateDraftSchema,
@@ -195,14 +196,14 @@ test("draft creation sets Draft and retains Bcc, including an empty composition"
 
 test("draft edit preserves reply identity and reports a saved replacement after delete failure", async () => {
 	const client = new FakeImap();
-	const original = fixtureMessage(1);
+	const original = fixtureMessage(31);
 	original.source = Buffer.from(
 		"From: bridge@example.com\r\nMessage-ID: <draft@example.com>\r\nIn-Reply-To: <parent@example.com>\r\nReferences: <root@example.com> <parent@example.com>\r\nReply-To: reply@example.com\r\nContent-Type: text/plain\r\n\r\nOld body",
 	);
 	client.mailboxes.set("Drafts", [original]);
 	client.deleteFailure = "throw";
 	const result = await service(client).editDraft({
-		...EditDraftSchema.parse({ uid: 1, uidValidity: "7", text: "New body" }),
+		...EditDraftSchema.parse({ uid: 31, uidValidity: "7", text: "New body" }),
 		mailbox: "Drafts",
 	});
 	assert.equal(result.status, "replacement_created_old_delete_failed");
@@ -358,7 +359,7 @@ test("thread body limits retain summaries and other available bodies", async () 
 
 test("a socket error after APPEND retains replacement recovery details through the session", async () => {
 	const client = new FakeImap();
-	const original = fixtureMessage(1, { sender: "alias@example.com" });
+	const original = fixtureMessage(32, { sender: "alias@example.com" });
 	client.mailboxes.set("Drafts", [original]);
 	client.deleteFailure = "event";
 	const imap = createImapService(
@@ -366,7 +367,7 @@ test("a socket error after APPEND retains replacement recovery details through t
 		createImapSession(testConfig, () => client),
 	);
 	const result = await imap.editDraft({
-		...EditDraftSchema.parse({ uid: 1, uidValidity: "7", text: "Updated" }),
+		...EditDraftSchema.parse({ uid: 32, uidValidity: "7", text: "Updated" }),
 		mailbox: "Drafts",
 	});
 	assert.equal(result.status, "replacement_created_old_delete_failed");
@@ -395,4 +396,108 @@ test("attached drafts are never replaced", async () => {
 	assert.equal(result.status, "blocked_unsupported_draft");
 	assert.equal(client.appends.length, 0);
 	assert.equal(client.deletions, 0);
+});
+
+test("simultaneous edits on separate IMAP connections create only one replacement", async () => {
+	const shared = new Map([
+		["Drafts", [fixtureMessage(1, { sender: testConfig.user })]],
+	]);
+	const clients: FakeImap[] = [];
+	const imap = createImapService(testConfig, async (operation) => {
+		const client = new FakeImap();
+		client.mailboxes = shared;
+		clients.push(client);
+		return operation(client);
+	});
+	const input = {
+		...EditDraftSchema.parse({ uid: 1, uidValidity: "7", text: "Changed" }),
+		mailbox: "Drafts",
+	};
+	const results = await Promise.all([
+		imap.editDraft(input),
+		imap.editDraft(input),
+	]);
+	assert.deepEqual(
+		results.map((result) => result.status),
+		["updated", "not_found"],
+	);
+	assert.equal(
+		clients.reduce((total, client) => total + client.appends.length, 0),
+		1,
+	);
+});
+
+test("queued edits retain one replacement and its identity after every deletion failure mode", async (t) => {
+	for (const [index, mode] of (
+		["false", "throw", "event"] as const
+	).entries()) {
+		await t.test(mode, async () => {
+			const uid = 40 + index;
+			const shared = new Map([
+				["Drafts", [fixtureMessage(uid, { sender: testConfig.user })]],
+			]);
+			const clients: FakeImap[] = [];
+			const imap = createImapService(testConfig, (operation) => {
+				const client = new FakeImap();
+				client.mailboxes = shared;
+				client.deleteFailure = mode;
+				clients.push(client);
+				return createImapSession(testConfig, () => client)(operation);
+			});
+			const input = {
+				...EditDraftSchema.parse({ uid, uidValidity: "7", text: "Changed" }),
+				mailbox: "Drafts",
+			};
+			const results = await Promise.all([
+				imap.editDraft(input),
+				imap.editDraft(input),
+			]);
+			assert.equal(results[0].status, "replacement_created_old_delete_failed");
+			assert.deepEqual(results[1], results[0]);
+			assert.deepEqual(await imap.editDraft(input), results[0]);
+			assert.equal(
+				clients.reduce((total, client) => total + client.appends.length, 0),
+				1,
+			);
+			assert.equal(shared.get("Drafts")?.length, 2);
+		});
+	}
+});
+
+test("session errors preserve typed refusals and distinguish connection failures from operation failures", async () => {
+	const disconnected = new FakeImap();
+	disconnected.connectFailure = true;
+	await assert.rejects(
+		createImapSession(testConfig, () => disconnected)(async () => "unused"),
+		(error: unknown) =>
+			error instanceof MailError &&
+			error.code === "CONNECTION_FAILED" &&
+			error.retry === "safe",
+	);
+	await assert.rejects(
+		createImapSession(
+			testConfig,
+			() => new FakeImap(),
+		)(async () => {
+			throw new Error("Invalid attachment header");
+		}),
+		(error: unknown) =>
+			error instanceof MailError &&
+			error.code === "OPERATION_FAILED" &&
+			error.retry === "never",
+	);
+	const refusal = new MailError(
+		"UNSUPPORTED_CONTENT",
+		"Invalid attachment header",
+		"never",
+	);
+	await assert.rejects(
+		createImapSession(
+			testConfig,
+			() => new FakeImap(),
+		)(async () => {
+			throw refusal;
+		}),
+		(error: unknown) => error === refusal,
+	);
 });

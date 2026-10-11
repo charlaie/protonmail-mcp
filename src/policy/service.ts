@@ -6,6 +6,7 @@ import type {
 	GetThreadInput,
 	SearchMessagesInput,
 } from "../bridge/schemas.js";
+import { MailError } from "../shared/mail-error.js";
 import {
 	canReadMailbox,
 	canReadMessage,
@@ -16,10 +17,17 @@ import { getPolicyFilePath, loadReadPolicy } from "./store.js";
 
 async function requireReadPolicy(bridgeUser: string) {
 	const policy = await loadReadPolicy();
-	if (!policy) throw new Error(READ_POLICY_NOT_CONFIGURED);
+	if (!policy)
+		throw new MailError(
+			"POLICY_NOT_CONFIGURED",
+			READ_POLICY_NOT_CONFIGURED,
+			"configure",
+		);
 	if (readPolicyStatus(policy, bridgeUser) !== "ok")
-		throw new Error(
+		throw new MailError(
+			"ACCOUNT_MISMATCH",
 			"Read policy is not bound to this Bridge account. Run protonmail-mcp setup for this account to configure its access.",
+			"configure",
 		);
 	return policy;
 }
@@ -33,8 +41,10 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 	};
 	function requireMailbox(mailbox: string) {
 		if (!canReadMailbox(policy, mailbox))
-			throw new Error(
+			throw new MailError(
+				"POLICY_DENIED",
 				`Mailbox ${mailbox} is not allowed by the read policy. Run protonmail-mcp setup to change access.`,
+				"configure",
 			);
 	}
 	const accepts = (
@@ -46,16 +56,55 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 			case "found":
 				return result.value;
 			case "not_found":
-				throw new Error(
+				throw new MailError(
+					"NOT_FOUND",
 					`Message UID ${input.uid} was not found in mailbox ${input.mailbox}. Search again for the current UID.`,
+					"refresh_identity",
 				);
 			case "denied":
-				throw new Error("Message sender is not allowed by the read policy.");
+				throw new MailError(
+					"POLICY_DENIED",
+					"Message sender is not allowed by the read policy.",
+					"configure",
+				);
 			case "unavailable":
-				throw new Error(result.reason);
+				throw new MailError("UNSUPPORTED_CONTENT", result.reason, "never");
 		}
 	}
+	async function requireSpecialMailbox(specialUse: string, fallback: string) {
+		const mailboxes = (await imap.listMailboxes()).filter(
+			(mailbox) => !mailbox.flags.includes("\\Noselect"),
+		);
+		const mailbox =
+			mailboxes.find(
+				(item) =>
+					item.specialUse === specialUse || item.flags.includes(specialUse),
+			) ?? mailboxes.find((item) => item.path === fallback);
+		if (!mailbox)
+			throw new MailError(
+				"NOT_FOUND",
+				`${fallback} mailbox was not found. Use list_mailboxes to inspect available mailboxes.`,
+				"configure",
+			);
+		requireMailbox(mailbox.path);
+		return mailbox.path;
+	}
 	return {
+		async getDraftSnapshot(input: GetMessageInput) {
+			requireMailbox(input.mailbox);
+			return imap.getDraftSnapshot(input, accepts);
+		},
+		async deleteDraftSnapshot(input: GetMessageInput, fingerprint: string) {
+			requireMailbox(input.mailbox);
+			return imap.deleteDraftSnapshot(input, fingerprint, accepts);
+		},
+		async findSentCopies(messageId: string) {
+			return imap.findSentCopies(
+				await requireSpecialMailbox("\\Sent", "Sent"),
+				messageId,
+				accepts,
+			);
+		},
 		async searchMessages(input: SearchMessagesInput) {
 			requireMailbox(input.mailbox);
 			return imap.searchMessages(input, accepts);
@@ -91,22 +140,6 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 				input,
 			);
 		},
-		async requireDraftsMailbox() {
-			const mailboxes = (await imap.listMailboxes()).filter(
-				(mailbox) => !mailbox.flags.includes("\\Noselect"),
-			);
-			const drafts =
-				mailboxes.find(
-					(mailbox) =>
-						mailbox.specialUse === "\\Drafts" ||
-						mailbox.flags.includes("\\Drafts"),
-				) ?? mailboxes.find((mailbox) => mailbox.path === "Drafts");
-			if (!drafts)
-				throw new Error(
-					"Drafts mailbox was not found. Use list_mailboxes to inspect available mailboxes.",
-				);
-			requireMailbox(drafts.path);
-			return drafts.path;
-		},
+		requireDraftsMailbox: () => requireSpecialMailbox("\\Drafts", "Drafts"),
 	};
 }

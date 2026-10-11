@@ -1,6 +1,6 @@
 # protonmail-mcp
 
-An MCP server for using Proton Mail through the local Proton Mail Bridge. It exposes tools to list mailboxes, search message metadata, read allowed plain-text messages and attachments, create and edit plain-text drafts, and send plain-text email after user approval.
+An MCP server for using Proton Mail through the local Proton Mail Bridge. It exposes tools to list mailboxes, search message metadata, read allowed plain-text messages and attachments, create and edit plain-text drafts and replies, and send approved plain-text messages or draft snapshots with durable recovery.
 
 ## Requirements
 
@@ -43,6 +43,10 @@ PROTONMAIL_IMAP_PORT=1143
 PROTONMAIL_SMTP_PORT=1025
 PROTONMAIL_TLS_REJECT_UNAUTHORIZED=false
 ```
+
+Disabling certificate verification is allowed only for literal loopback IPs or `localhost`. The server pins `localhost` to `127.0.0.1`. Other hosts require `PROTONMAIL_TLS_REJECT_UNAUTHORIZED=true` and a valid, trusted certificate; STARTTLS remains mandatory for both IMAP and SMTP. A self-signed remote certificate must be trusted explicitly, for example through Node's `NODE_EXTRA_CA_CERTS`.
+
+Optionally set `PROTONMAIL_BRIDGE_OWN_ADDRESSES` to a comma-separated list of this account's aliases. The Bridge username is included automatically. Reply-all excludes these addresses, replies select the addressed alias when configured, and draft sending accepts only configured account senders. This is local configuration, not a tool-controlled sender allowlist.
 
 Optionally set `PROTONMAIL_MCP_POLICY_FILE` to choose where the read policy is stored. By default it uses `~/.config/protonmail-mcp/read-policy.json`.
 An empty value uses that default. For multiple Bridge accounts, give each MCP configuration its own policy file.
@@ -107,17 +111,43 @@ If your MCP client starts servers from the repository directory, you can also us
 
 ## Available MCP Tools
 
-- `list_mailboxes`: lists Proton Bridge IMAP mailboxes and whether each is allowed by the read policy.
+- `list_mailboxes`: returns a `mailboxes` array containing Proton Bridge IMAP mailboxes and whether each is allowed by the read policy.
 - `search_messages`: returns the newest allowed summaries by received date. Sender filtering happens before the result limit. Each summary includes `uid` and `uidValidity`.
 - `get_message`: reads one allowed message by mailbox, UID, and UIDVALIDITY. HTML-only messages are converted to plain text. Attachment contents are omitted. Messages larger than 10 MiB must be read in Proton Mail.
 - `list_attachments`: lists filename, MIME type, transfer-encoded size, attachment ID, and inspection eligibility for an allowed message. Fetches MIME structure without downloading attachment contents. Eligibility describes policy and metadata checks; reading also validates actual headers and content.
 - `get_attachment`: reads one attachment ID returned by `list_attachments`, using the same mailbox, UID, and UIDVALIDITY. Downloads only that part, even if the whole message exceeds the message-read limit. `format: "text"` is the default and preserves the existing plain-text result. `format: "raw"` returns the original bytes as an MCP embedded binary resource, together with untrusted metadata and client compatibility guidance. Text attachments must be UTF-8 or ASCII and no larger than 1 MiB. PDFs must be no larger than 5 MiB. Text extraction caps PDF processing at 50 pages and returned text at 100,000 characters with explicit `truncated` reporting.
 - `get_thread`: reconstructs a reply chain across allowed mailboxes using exact Message-ID, References, and In-Reply-To tokens. This is a best-effort reconstruction. `limitReached` reports when the result cap is reached. `includeText: false` returns summaries; otherwise `bodyStatus` explains whether each body is included or unavailable. Total returned thread text is limited to 500,000 characters. Use `get_message` for bodies omitted by that limit.
 - `create_draft`: saves a plain-text draft, including an empty composition, and returns its UID and UIDVALIDITY when Bridge provides them. It never sends mail.
+- `create_reply_draft`: creates a reply or reply-all draft from an allowed mailbox, UID, and UIDVALIDITY. It respects Reply-To, excludes configured own addresses, deduplicates recipients, never copies original Bcc recipients, and derives In-Reply-To and References. `replyAll` defaults to false; `text` may be empty. Requires source read permission and Drafts access. It never sends mail.
 - `edit_draft`: replaces the full contents of a plain-text draft using UID and UIDVALIDITY. Include every recipient, subject, and body value you want to retain; omitted values are cleared. Reply headers and the original sender alias are preserved. Drafts with HTML or attachments must be edited in Proton Mail. IMAP replacement creates a new draft and deletes the original. If deletion fails, the result includes the replacement identity and a recovery explanation. Inspect Drafts before retrying.
-- `send_email`: sends plain-text email after mandatory user approval of the sender, recipients, subject, and complete formatted body. Bodies are limited to 100,000 characters. `partially_sent` identifies accepted and rejected recipients. On uncertain delivery, check Sent before retrying to avoid duplicates.
+- `send_email`: sends plain-text email after mandatory user approval of the sender, recipients, subject, reply metadata, and complete formatted body. Bodies are limited to 100,000 characters. Requires a new `operationId` UUID for each intended send; repeat the same ID and arguments to retrieve an attempted operation's outcome without submitting it again.
+- `send_draft`: sends a plain-text Drafts snapshot identified by UID and UIDVALIDITY after full-message approval. Requires an `operationId` UUID and account, mailbox, and sender read permission. It preserves the draft's recipients, Bcc, sender, subject, text, Reply-To, and threading headers. HTML, attachments, invalid headers, unconfigured sender aliases, and oversized drafts are refused. Changing the snapshot requires a new operation and approval. After full SMTP acceptance, it checks the snapshot again before deleting only that draft with UIDPLUS. Deletion is a separately reported outcome; a deletion failure never triggers another send.
+- `get_send_operation`: retrieves the current account's durable operation record by `operationId`, including after a restart. It never sends mail. Interrupted submissions are reported as uncertain.
+- `reconcile_send_operation`: searches the policy-allowed Sent mailbox for an uncertain operation's exact preassigned Message-ID. Positive evidence records matching identities in `sentCopies`, separately from the SMTP outcome. No match leaves the operation uncertain. It never resends or deletes drafts.
 
-`get_message`, `get_thread`, `list_attachments`, `get_attachment`, and `edit_draft` require the `uidValidity` returned with the message identity. A mailbox reset invalidates old identities; search again before retrying. Tool failures set `isError: true`, including policy refusals and partial draft or email outcomes.
+`get_message`, `get_thread`, `list_attachments`, `get_attachment`, `create_reply_draft`, `send_draft`, and `edit_draft` require the `uidValidity` returned with the message identity. A mailbox reset invalidates old identities; search again before retrying. Tool failures set `isError: true`, including policy refusals and partial draft or email outcomes. Tools advertise output schemas and return `structuredContent` alongside JSON text for older clients. Ordinary errors have `{ status: "error", error: { code, message, retry } }`. Retry guidance distinguishes safe retry, refreshed identity, configuration changes, renewed approval, reconciliation, and no retry.
+
+### Send recovery
+
+For example, use a new UUID when asking to send a draft:
+
+```json
+{
+  "operationId": "695c6c8e-c22a-46ed-8f12-04e7df0a1b4b",
+  "uid": 123,
+  "uidValidity": "7"
+}
+```
+
+Retain that ID across approval rounds, retries, and server restarts. A UUID is permanently bound to its original request and approved-content hash. The server commits a submission claim before SMTP starts. Only one SMTP attempt is allowed per ID across processes sharing the journal. A draft identity also cannot be submitted under competing IDs while an earlier attempt is accepted, partial, or uncertain. A definite rejection allows a newly approved attempt under a new ID.
+
+The result contains `operationId`, the preassigned `messageId`, timestamps, hashes, source identity, `outcome`, `draftCleanup`, `sentCopies`, and `retry`. Outcomes include `prepared`, `accepted`, `partially_accepted`, `rejected`, and `uncertain`. Accepted means Bridge accepted submission, not that every recipient received it. A partial outcome lists accepted and rejected recipients; never resend to accepted recipients. Partial and uncertain sends retain their draft. Sent-copy evidence never replaces a known SMTP outcome and does not establish which recipients received the message. An uncertain operation with positive Sent evidence still has an unknown SMTP result and advises against retrying.
+
+The SQLite journal defaults to `send-operations/` beside the policy file. Set `PROTONMAIL_MCP_OPERATIONS_DIR` to choose another local directory. Each account has a separate database with private file permissions. Records contain request/content hashes and outcome metadata, not message bodies or Bridge passwords. Keep the journal when moving configurations or recovering a server; deleting it removes replay protection. Use a local filesystem and share this directory among MCP processes for the same account. SQLite commits use synchronous FULL durability; interrupted or unrecorded SMTP outcomes stay uncertain and block automatic retries.
+
+A Message-ID correlates a submission with Sent; it does not guarantee SMTP deduplication or exactly-once delivery. A Sent copy does not prove delivery to every recipient. Do not create a replacement operation ID merely because an acknowledgment was lost. Resolve uncertainty using the recorded ID and Sent evidence first.
+
+Draft edits and sends serialize mutations to the same identity within one process, then recheck content before destructive cleanup. If a replacement is saved but deleting the original fails, further edits of that original return the first replacement's recovery details. An uncertain append also blocks further mutations of that original. These edit guards last for the process lifetime; inspect Drafts before restarting after a partial edit, and use the replacement's identity for subsequent edits. Sending claims also coordinate across processes sharing the journal. Editing in other processes or mail clients is not a transaction with this server. External changes detected during approval or cleanup are refused or retained; an external client can still act between the final check and SMTP submission.
 
 ## Attachment inspection
 
@@ -193,4 +223,4 @@ pnpm check
 pnpm test
 ```
 
-The test command builds the server and runs policy, approval, attachment validation, IMAP operation, and real stdio regressions. On macOS it also exercises real sandboxed PDF extraction, denial of private file access, network and process restrictions, and timeout/memory/output limits. Those tests require permission to start `sandbox-exec`; an enclosing sandbox may prohibit it. Tests use temporary policy files and a simulated Bridge connection; they do not send email or connect to a live account.
+The test command builds the server and runs policy, approval, attachment validation, IMAP operation, and real stdio regressions. On macOS it also exercises real sandboxed PDF extraction, denial of private file access, network and process restrictions, and timeout/memory/output limits. Those tests require permission to start `sandbox-exec`; an enclosing sandbox may prohibit it. Tests use temporary policy/journal files, simulated Bridge connections, and a local ephemeral SMTP server with STARTTLS. They exercise SMTP rejection, partial acceptance, lost acknowledgments, restart recovery, competing draft sends/edits, and both approval protocol flows. They do not contact a live account or deliver real email. CI runs formatting, builds, and regressions on Linux and macOS, including the minimum Node.js version. Actual Bridge synchronization and client approval presentation still require a separate test-account release check.

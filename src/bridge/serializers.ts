@@ -3,7 +3,7 @@ import type {
 	ListResponse,
 	MessageAddressObject,
 } from "imapflow";
-import type { AddressObject } from "mailparser";
+import type { AddressObject, EmailAddress } from "mailparser";
 
 export function validDate(value: unknown): Date | undefined {
 	const date =
@@ -48,10 +48,32 @@ export function parsedAddressText(
 	return addresses.text;
 }
 
+export function parsedAddressEmails(
+	addresses: AddressObject | AddressObject[] | undefined,
+): string[] {
+	return (
+		Array.isArray(addresses) ? addresses : addresses ? [addresses] : []
+	).flatMap((group) => addressEmails(group.value));
+}
+
+function addressEmails(entries: EmailAddress[]): string[] {
+	return entries.flatMap((entry) =>
+		entry.group
+			? addressEmails(entry.group)
+			: entry.address
+				? [entry.address.trim()]
+				: [],
+	);
+}
+
+import type { MessageSummary } from "./message-model.js";
+
+export type { MessageSummary } from "./message-model.js";
+
 export function messageSummary(
 	message: FetchMessageObject,
 	uidValidity: string,
-) {
+): MessageSummary {
 	return {
 		uid: message.uid,
 		uidValidity,
@@ -69,8 +91,6 @@ export function messageSummary(
 		size: message.size,
 	};
 }
-
-export type MessageSummary = ReturnType<typeof messageSummary>;
 
 export function mailboxSummary(mailbox: ListResponse) {
 	return {

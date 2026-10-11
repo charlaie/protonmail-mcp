@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { strict as assert } from "node:assert";
+import { randomUUID } from "node:crypto";
 import type { ServerContext } from "@modelcontextprotocol/server";
-import type { SendEmailInput } from "../bridge/schemas.js";
+import type { SendApprovalInput } from "./elicitation.js";
 import { createSendApprovalController } from "./elicitation.js";
 
 const approvedInputResponses = {
@@ -26,15 +27,23 @@ function context(options?: {
 }
 
 async function runSendApprovalChecks() {
-	const controller = createSendApprovalController("sender@example.com");
-	const original: SendEmailInput = {
-		to: ["recipient@example.com"],
-		subject: "Original subject",
-		text: `First paragraph\n\n${"x".repeat(1000)}\nFinal paragraph`,
+	const controller = createSendApprovalController();
+	const original: SendApprovalInput = {
+		operationId: randomUUID(),
+		message: {
+			from: "sender@example.com",
+			cc: [],
+			bcc: [],
+			inReplyTo: [],
+			references: [],
+			to: ["recipient@example.com"],
+			subject: "Original subject",
+			text: `First paragraph\n\n${"x".repeat(1000)}\nFinal paragraph`,
+		},
 	};
-	const changed: SendEmailInput = {
+	const changed: SendApprovalInput = {
 		...original,
-		to: ["attacker@example.com"],
+		message: { ...original.message, to: ["attacker@example.com"] },
 	};
 
 	const injected = await controller.requireApproval(
@@ -50,7 +59,9 @@ async function runSendApprovalChecks() {
 	const serializedPrompt = JSON.stringify(changedFlow.response.inputRequests);
 	assert.ok(serializedPrompt.includes("sender@example.com"));
 	assert.ok(
-		serializedPrompt.includes(JSON.stringify(original.text).slice(1, -1)),
+		serializedPrompt.includes(
+			JSON.stringify(original.message.text).slice(1, -1),
+		),
 	);
 	const decodedChangedState = await controller.verifyRequestState(
 		changedState,

@@ -1,12 +1,15 @@
 import { htmlToText } from "html-to-text";
 import type { FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
+import { MailError } from "../shared/mail-error.js";
+import type { MessageContent } from "./message-model.js";
 import type { GetMessageInput, SearchMessagesInput } from "./schemas.js";
 import { buildSearchQuery } from "./search.js";
 import {
 	type MessageSummary,
 	messageReceivedTime,
 	messageSummary,
+	parsedAddressEmails,
 	parsedAddressText,
 	validDate,
 } from "./serializers.js";
@@ -34,8 +37,10 @@ const MAX_MESSAGE_BYTES = 10 * 1024 * 1024;
 
 export function checkUidValidity(expected: string | undefined, actual: bigint) {
 	if (expected !== undefined && expected !== actual.toString())
-		throw new Error(
+		throw new MailError(
+			"STALE_IDENTITY",
 			"Mailbox UIDVALIDITY changed. Search again for the current message UID before retrying.",
+			"refresh_identity",
 		);
 }
 
@@ -92,7 +97,7 @@ export async function readMessage(
 	client: ImapClient,
 	input: GetMessageInput,
 	accepts: MessageFilter,
-) {
+): Promise<ReadResult<MessageContent>> {
 	const mailbox = await client.mailboxOpen(input.mailbox, { readOnly: true });
 	checkUidValidity(input.uidValidity, mailbox.uidValidity);
 	const summary = await client.fetchOne(String(input.uid), SUMMARY_FIELDS, {
@@ -145,6 +150,7 @@ export async function readMessage(
 		kind: "found",
 		value: {
 			...messageSummary(fetched, mailbox.uidValidity.toString()),
+			subject: parsed.subject ?? fetched.envelope?.subject ?? "",
 			messageId: parsed.messageId ?? fetched.envelope?.messageId,
 			headers: {
 				from: parsedAddressText(parsed.from),
@@ -155,6 +161,12 @@ export async function readMessage(
 				date: validDate(parsed.date)?.toISOString(),
 				inReplyTo: parsed.inReplyTo ?? fetched.envelope?.inReplyTo,
 				references: parseMessageIds(parsed.references),
+			},
+			addresses: {
+				from: parsedAddressEmails(parsed.from),
+				to: parsedAddressEmails(parsed.to),
+				cc: parsedAddressEmails(parsed.cc),
+				replyTo: parsedAddressEmails(parsed.replyTo),
 			},
 			text,
 		},

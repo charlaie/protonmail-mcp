@@ -14,6 +14,7 @@ import {
 	parseJSONRPCMessage,
 } from "@modelcontextprotocol/server";
 import { SearchMessagesSchema, SendEmailSchema } from "../bridge/schemas.js";
+import { ToolErrorSchema } from "../shared/mail-error.js";
 
 test("stdio loads .env, advertises tools, and reports policy errors over the real SDK", {
 	timeout: 10_000,
@@ -92,11 +93,13 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	);
 	const listed = await request("tools/list");
 	assert.ok(isSpecType.ListToolsResult(listed.result));
-	assert.equal(listed.result.tools.length, 9);
+	assert.equal(listed.result.tools.length, 13);
+	assert.ok(listed.result.tools.every((tool) => tool.outputSchema));
 	const getMessage = listed.result.tools.find(
 		(tool) => tool.name === "get_message",
 	);
 	assert.ok(getMessage);
+	assert.ok(getMessage.outputSchema);
 	assert.ok(getMessage.inputSchema.required?.includes("uidValidity"));
 	const getAttachment = listed.result.tools.find(
 		(tool) => tool.name === "get_attachment",
@@ -131,6 +134,10 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	assert.ok(isSpecType.CallToolResult(denied.result));
 	assert.equal(denied.result.isError, true);
 	assert.ok(JSON.stringify(denied.result.content).includes("setup"));
+	assert.equal(
+		ToolErrorSchema.parse(denied.result.structuredContent).error.code,
+		"POLICY_NOT_CONFIGURED",
+	);
 	const invalidFormat = await request("tools/call", {
 		name: "get_attachment",
 		arguments: {
@@ -171,6 +178,7 @@ test("schemas reject invalid date ranges and unsafe headers before contacting Br
 	);
 	assert.equal(
 		SendEmailSchema.safeParse({
+			operationId: "bca519ee-fd56-480a-9b47-d1d90d9fa1c7",
 			to: "person@example.com",
 			subject: "Subject\r\nBcc: injected@example.com",
 			text: "Body",
@@ -179,6 +187,7 @@ test("schemas reject invalid date ranges and unsafe headers before contacting Br
 	);
 	assert.equal(
 		SendEmailSchema.safeParse({
+			operationId: "bca519ee-fd56-480a-9b47-d1d90d9fa1c7",
 			to: "person@example.com",
 			subject: "Subject",
 			text: "x".repeat(100_001),

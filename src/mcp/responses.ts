@@ -11,13 +11,18 @@ export function textResponse(text: string) {
 }
 
 /** Return a JSON object as a text response. */
-export function jsonResponse(value: unknown) {
-	return textResponse(JSON.stringify(value, null, 2));
+export function jsonResponse(value: object) {
+	return {
+		...textResponse(JSON.stringify(value, null, 2)),
+		structuredContent: value,
+	};
 }
 
-export function errorResponse(error: string | object) {
+export function errorResponse(error: unknown) {
 	return {
-		...(typeof error === "string" ? textResponse(error) : jsonResponse(error)),
+		...jsonResponse(toolError(error)),
 		isError: true,
 	};
 }
+
+import { toolError } from "../shared/mail-error.js";

@@ -22,6 +22,11 @@ const UidValiditySchema = z
 	);
 
 export const SendEmailSchema = z.object({
+	operationId: z
+		.uuid()
+		.describe(
+			"A new UUID for this send. Reuse the same UUID and arguments when checking or retrying this operation; never replace it to retry an uncertain send.",
+		),
 	to: EmailListSchema.describe("Primary recipients for the email."),
 	cc: EmailListSchema.optional().describe("Optional CC recipients."),
 	bcc: EmailListSchema.optional().describe("Optional BCC recipients."),
@@ -107,6 +112,26 @@ export const GetMessageSchema = z.object({
 	uidValidity: UidValiditySchema,
 	uid: UidSchema.describe(
 		"IMAP UID of the message, usually returned by search_messages.",
+	),
+});
+
+export const SendDraftSchema = z.object({
+	operationId: SendEmailSchema.shape.operationId,
+	uidValidity: UidValiditySchema,
+	uid: UidSchema,
+});
+export const GetSendOperationSchema = z.object({
+	operationId: SendEmailSchema.shape.operationId,
+});
+export const CreateReplyDraftSchema = GetMessageSchema.extend({
+	replyAll: z
+		.boolean()
+		.default(false)
+		.describe(
+			"Include the original To and Cc recipients, excluding configured own addresses. Original Bcc recipients are never copied.",
+		),
+	text: TextSchema.default("").describe(
+		"Plain-text reply body. May be empty for an unfinished reply draft.",
 	),
 });
 
