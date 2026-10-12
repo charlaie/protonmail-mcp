@@ -108,10 +108,7 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	assert.ok(getAttachment.inputSchema.required?.includes("uidValidity"));
 	assert.ok(getAttachment.inputSchema.required?.includes("attachmentId"));
 	assert.equal(getAttachment.inputSchema.required?.includes("format"), false);
-	assert.match(
-		JSON.stringify(getAttachment.inputSchema.properties?.format),
-		/raw/,
-	);
+	assert.equal(getAttachment.inputSchema.properties?.format, undefined);
 	assert.equal(getAttachment.annotations?.readOnlyHint, true);
 	for (const name of ["list_attachments", "get_attachment"]) {
 		const result = await request("tools/call", {

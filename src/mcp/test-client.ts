@@ -22,7 +22,7 @@ export async function createTestClient(
 		capabilities?: ClientCapabilities;
 		onElicitation?: () => Promise<{
 			action: "accept" | "decline";
-			content?: { approve_send: boolean };
+			content?: { approve_send: boolean } | { approve_attachment: boolean };
 		}>;
 	} = {},
 ) {

@@ -17,7 +17,7 @@ import { saveReadPolicy } from "../policy/store.js";
 import type { OutgoingMessage } from "../sending/model.js";
 import { createSendService } from "../sending/service.js";
 import { createSendStore } from "../sending/store.js";
-import { createSendApprovalController } from "./elicitation.js";
+import { createApprovalController } from "./elicitation.js";
 import { SendOutputSchema } from "./output-schemas.js";
 import { createServer } from "./server.js";
 import { createTestClient } from "./test-client.js";
@@ -85,7 +85,7 @@ async function fixture(
 			};
 		},
 	});
-	const approval = createSendApprovalController();
+	const approval = createApprovalController();
 	const factory = () =>
 		createServer({ config: testConfig, imap, sends, approval });
 	const legacy = options.changedDuringLegacyApproval !== undefined;

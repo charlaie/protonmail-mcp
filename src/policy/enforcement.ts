@@ -19,6 +19,8 @@ export function summarizeReadPolicy(policy: ReadPolicy) {
 		allowedSenderDomains: policy.allowedSenderDomains,
 		allowedAttachmentExtensions:
 			policy.version === 2 ? policy.allowedAttachmentExtensions : [],
+		requireAttachmentApproval:
+			policy.version === 2 && policy.requireAttachmentApproval,
 		createdAt: policy.createdAt,
 		updatedAt: policy.updatedAt,
 	};

@@ -14,47 +14,32 @@ export type AttachmentExtension = z.infer<typeof AttachmentExtensionSchema>;
 type FormatDefinition = {
 	mimeTypes: readonly [string, ...string[]];
 	maxBytes: number;
-} & (
-	| { decoder: "utf8_text"; charsets: readonly string[] }
-	| { decoder: "pdf_text" }
-);
-const TEXT_CHARSETS = ["utf8", "utf-8", "ascii", "usascii", "us-ascii"];
+};
 
-// Every supported extension must explicitly choose its decoder and byte budget.
+// Every supported extension must explicitly choose its MIME types and byte budget.
 // Adding an extension to the schema without a definition is a compile error.
 const FORMAT_DEFINITIONS = {
 	".txt": {
-		decoder: "utf8_text",
 		mimeTypes: ["text/plain"],
 		maxBytes: MAX_TEXT_BYTES,
-		charsets: TEXT_CHARSETS,
 	},
 	".csv": {
-		decoder: "utf8_text",
 		mimeTypes: ["text/csv", "text/plain", "application/csv"],
 		maxBytes: MAX_TEXT_BYTES,
-		charsets: TEXT_CHARSETS,
 	},
 	".tsv": {
-		decoder: "utf8_text",
 		mimeTypes: ["text/tab-separated-values", "text/plain"],
 		maxBytes: MAX_TEXT_BYTES,
-		charsets: TEXT_CHARSETS,
 	},
 	".md": {
-		decoder: "utf8_text",
 		mimeTypes: ["text/markdown", "text/plain"],
 		maxBytes: MAX_TEXT_BYTES,
-		charsets: TEXT_CHARSETS,
 	},
 	".json": {
-		decoder: "utf8_text",
 		mimeTypes: ["application/json", "text/json", "text/plain"],
 		maxBytes: MAX_TEXT_BYTES,
-		charsets: TEXT_CHARSETS,
 	},
 	".pdf": {
-		decoder: "pdf_text",
 		mimeTypes: ["application/pdf"],
 		maxBytes: MAX_PDF_BYTES,
 	},
@@ -90,25 +75,13 @@ export function parseAttachmentFormat(
 
 export function attachmentHeaderError(
 	format: AttachmentFormat,
-	headers: { contentType: string; charset: string | undefined },
+	headers: { contentType: string },
 ) {
-	// Octet-stream is common for valid attachments. Content validation is still mandatory.
+	// Generic binary MIME types are common for attachments with an allowed extension.
 	if (
 		headers.contentType !== "application/octet-stream" &&
 		!format.mimeTypes.includes(headers.contentType)
 	)
 		return "MIME type does not match the filename extension.";
-	switch (format.decoder) {
-		case "utf8_text":
-			return headers.charset &&
-				!format.charsets.includes(headers.charset.toLowerCase())
-				? "Only UTF-8 and ASCII text attachments are supported."
-				: undefined;
-		case "pdf_text":
-			return undefined;
-		default: {
-			const exhaustive: never = format;
-			return exhaustive;
-		}
-	}
+	return undefined;
 }

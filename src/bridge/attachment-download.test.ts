@@ -12,36 +12,38 @@ const input = GetAttachmentSchema.parse({
 	uidValidity: "7",
 	uid: 1,
 	attachmentId: "2",
-	format: "raw",
 });
 const readOptions = {
 	allowedExtensions: [".txt", ".pdf"] satisfies AttachmentExtension[],
-	protectedFiles: [],
 };
 
 function fixture(options: {
 	contentType: "text/plain" | "application/pdf";
 	disposition: "inline" | "attachment" | undefined;
 	encoding: "8bit" | "base64";
+	bytes?: Buffer;
+	charset?: string;
 }) {
 	const { contentType, disposition, encoding } = options;
 	const filename = contentType === "application/pdf" ? "scan.pdf" : "notes.txt";
 	const original =
-		contentType === "application/pdf"
+		options.bytes ??
+		(contentType === "application/pdf"
 			? Buffer.concat([
 					Buffer.from("%PDF-1.7\n"),
 					Buffer.from([0, 255, 128, 10]),
 				])
-			: Buffer.from("Hello \r\nworld\r\n");
+			: Buffer.from("Hello \r\nworld\r\n"));
+	const charset = options.charset ?? "utf-8";
 	const payload =
 		encoding === "base64" ? Buffer.from(original.toString("base64")) : original;
 	const parameters: MessageStructureObject["parameters"] =
 		contentType === "text/plain"
-			? { charset: "utf-8", format: "flowed", delsp: "yes" }
+			? { charset, format: "flowed", delsp: "yes" }
 			: {};
 	const headers = Buffer.from(
 		[
-			`Content-Type: ${contentType}; name="${filename}"${contentType === "text/plain" ? "; charset=utf-8; format=flowed; delsp=yes" : ""}`,
+			`Content-Type: ${contentType}; name="${filename}"${contentType === "text/plain" ? `; charset=${charset}; format=flowed; delsp=yes` : ""}`,
 			...(disposition
 				? [`Content-Disposition: ${disposition}; filename="${filename}"`]
 				: []),
@@ -118,7 +120,7 @@ test("raw output refuses inline plain text transformed by the real bounded downl
 		assert.notDeepEqual(Buffer.concat(chunks), original);
 		await assert.rejects(
 			getAttachment(client, input, allowAllMessages, readOptions),
-			/may reformat or transcode.*format: "text"/,
+			/may reformat or transcode/,
 		);
 	}
 });
@@ -126,6 +128,13 @@ test("raw output refuses inline plain text transformed by the real bounded downl
 test("real downloads preserve ordinary text attachments and transfer-decoded inline PDFs", async () => {
 	for (const options of [
 		{ contentType: "text/plain", disposition: "attachment", encoding: "8bit" },
+		{
+			contentType: "text/plain",
+			disposition: "attachment",
+			encoding: "base64",
+			bytes: Buffer.from([255, 254, 0, 65, 0, 13, 0, 10]),
+			charset: "utf-16",
+		},
 		{
 			contentType: "application/pdf",
 			disposition: "inline",

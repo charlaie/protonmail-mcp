@@ -11,10 +11,7 @@ import type { createReadService } from "../policy/service.js";
 import { newEmailMessage, type SendOperation } from "../sending/model.js";
 import type { SendService } from "../sending/service.js";
 import { MailError, type RetrySchema } from "../shared/mail-error.js";
-import type {
-	SendApprovalController,
-	SendApprovalInput,
-} from "./elicitation.js";
+import type { ApprovalController, SendApprovalInput } from "./elicitation.js";
 import { SendOutputSchema } from "./output-schemas.js";
 import { errorResponse, jsonResponse } from "./responses.js";
 
@@ -69,13 +66,13 @@ export function registerSendTools(input: {
 	server: McpServer;
 	config: BridgeConfig;
 	sends: SendService;
-	approval: SendApprovalController;
+	approval: ApprovalController;
 	readService: () => Promise<Awaited<ReturnType<typeof createReadService>>>;
 }) {
 	const { server, config, sends, approval, readService } = input;
 	async function approve(message: SendApprovalInput, ctx: ServerContext) {
 		try {
-			return await approval.requireApproval(message, ctx);
+			return await approval.requireSendApproval(message, ctx);
 		} catch (error) {
 			throw new MailError(
 				"APPROVAL_DENIED",

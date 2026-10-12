@@ -4,6 +4,7 @@ import { MailError } from "../shared/mail-error.js";
 import {
 	type AttachmentReadOptions,
 	getAttachment,
+	getAttachmentMetadata,
 	listAttachments,
 } from "./attachments.js";
 import type { BridgeConfig } from "./config.js";
@@ -62,6 +63,12 @@ export function createImapService(
 			accepts: MessageFilter,
 			options: AttachmentReadOptions,
 		) => run((client) => getAttachment(client, input, accepts, options)),
+		getAttachmentMetadata: (
+			input: GetAttachmentInput,
+			accepts: MessageFilter,
+			allowed: AttachmentExtension[],
+		) =>
+			run((client) => getAttachmentMetadata(client, input, accepts, allowed)),
 		createDraft: (input: CreateDraftLookupInput) =>
 			run((client) => createDraft(client, config, input)),
 		editDraft: (input: EditDraftLookupInput) =>

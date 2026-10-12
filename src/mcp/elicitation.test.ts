@@ -3,8 +3,9 @@
 import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
 import type { ServerContext } from "@modelcontextprotocol/server";
+import type { AttachmentApprovalInput } from "../policy/service.js";
 import type { SendApprovalInput } from "./elicitation.js";
-import { createSendApprovalController } from "./elicitation.js";
+import { createApprovalController } from "./elicitation.js";
 
 const approvedInputResponses = {
 	approve_send: {
@@ -27,7 +28,7 @@ function context(options?: {
 }
 
 async function runSendApprovalChecks() {
-	const controller = createSendApprovalController();
+	const controller = createApprovalController();
 	const original: SendApprovalInput = {
 		operationId: randomUUID(),
 		message: {
@@ -46,13 +47,13 @@ async function runSendApprovalChecks() {
 		message: { ...original.message, to: ["attacker@example.com"] },
 	};
 
-	const injected = await controller.requireApproval(
+	const injected = await controller.requireSendApproval(
 		changed,
 		context({ inputResponses: approvedInputResponses }),
 	);
 	assert.equal(injected.kind, "denied");
 
-	const changedFlow = await controller.requireApproval(original, context());
+	const changedFlow = await controller.requireSendApproval(original, context());
 	assert.equal(changedFlow.kind, "input_required");
 	const changedState = changedFlow.response.requestState;
 	assert.ok(typeof changedState === "string");
@@ -67,7 +68,7 @@ async function runSendApprovalChecks() {
 		changedState,
 		context(),
 	);
-	const changedResult = await controller.requireApproval(
+	const changedResult = await controller.requireSendApproval(
 		changed,
 		context({
 			inputResponses: approvedInputResponses,
@@ -76,7 +77,10 @@ async function runSendApprovalChecks() {
 	);
 	assert.equal(changedResult.kind, "denied");
 
-	const approvedFlow = await controller.requireApproval(original, context());
+	const approvedFlow = await controller.requireSendApproval(
+		original,
+		context(),
+	);
 	assert.equal(approvedFlow.kind, "input_required");
 	const approvedState = approvedFlow.response.requestState;
 	assert.ok(typeof approvedState === "string");
@@ -84,7 +88,7 @@ async function runSendApprovalChecks() {
 		approvedState,
 		context(),
 	);
-	const approved = await controller.requireApproval(
+	const approved = await controller.requireSendApproval(
 		original,
 		context({
 			inputResponses: approvedInputResponses,
@@ -93,7 +97,7 @@ async function runSendApprovalChecks() {
 	);
 	assert.equal(approved.kind, "approved");
 
-	const replayed = await controller.requireApproval(
+	const replayed = await controller.requireSendApproval(
 		original,
 		context({
 			inputResponses: approvedInputResponses,
@@ -110,7 +114,82 @@ async function runSendApprovalChecks() {
 		/mac/,
 	);
 
-	const expiredFlow = await controller.requireApproval(original, context());
+	const attachment: AttachmentApprovalInput = {
+		bridgeUser: "bridge@example.com",
+		policyFingerprint: "fixture-policy",
+		attachment: {
+			mailbox: "INBOX",
+			uid: 1,
+			uidValidity: "7",
+			attachmentId: "2",
+			filename: "scan.pdf",
+			contentType: "application/pdf",
+			mimeType: "application/pdf",
+			size: 100,
+			charset: undefined,
+			senderEmails: ["trusted@example.com"],
+			subject: "Invoice",
+		},
+	};
+	const acceptedAttachment = {
+		approve_attachment: {
+			action: "accept",
+			content: { approve_attachment: true },
+		},
+	};
+	const attachmentFlow = await controller.requireAttachmentApproval(
+		attachment,
+		context(),
+	);
+	assert.equal(attachmentFlow.kind, "input_required");
+	const attachmentToken = attachmentFlow.response.requestState;
+	assert.ok(typeof attachmentToken === "string");
+	const attachmentState = await controller.verifyRequestState(
+		attachmentToken,
+		context(),
+	);
+	assert.equal(
+		(
+			await controller.requireSendApproval(
+				original,
+				context({
+					requestState: attachmentState,
+					inputResponses: approvedInputResponses,
+				}),
+			)
+		).kind,
+		"denied",
+	);
+	const sendFlow = await controller.requireSendApproval(original, context());
+	assert.equal(sendFlow.kind, "input_required");
+	const sendToken = sendFlow.response.requestState;
+	assert.ok(typeof sendToken === "string");
+	const sendState = await controller.verifyRequestState(sendToken, context());
+	assert.equal(
+		(
+			await controller.requireAttachmentApproval(
+				attachment,
+				context({
+					requestState: sendState,
+					inputResponses: acceptedAttachment,
+				}),
+			)
+		).kind,
+		"denied",
+	);
+	const expiringAttachment = await controller.requireAttachmentApproval(
+		attachment,
+		context(),
+	);
+	assert.equal(expiringAttachment.kind, "input_required");
+	const expiringAttachmentToken = expiringAttachment.response.requestState;
+	assert.ok(typeof expiringAttachmentToken === "string");
+	const expiringAttachmentState = await controller.verifyRequestState(
+		expiringAttachmentToken,
+		context(),
+	);
+
+	const expiredFlow = await controller.requireSendApproval(original, context());
 	assert.equal(expiredFlow.kind, "input_required");
 	const expiredToken = expiredFlow.response.requestState;
 	assert.ok(typeof expiredToken === "string");
@@ -122,7 +201,7 @@ async function runSendApprovalChecks() {
 	const expiredTime = Date.now() + 11 * 60 * 1000;
 	try {
 		Date.now = () => expiredTime;
-		const expired = await controller.requireApproval(
+		const expired = await controller.requireSendApproval(
 			original,
 			context({
 				inputResponses: approvedInputResponses,
@@ -130,10 +209,22 @@ async function runSendApprovalChecks() {
 			}),
 		);
 		assert.equal(expired.kind, "denied");
+		assert.equal(
+			(
+				await controller.requireAttachmentApproval(
+					attachment,
+					context({
+						requestState: expiringAttachmentState,
+						inputResponses: acceptedAttachment,
+					}),
+				)
+			).kind,
+			"denied",
+		);
 	} finally {
 		Date.now = originalNow;
 	}
 }
 
 await runSendApprovalChecks();
-console.log("Send approval checks passed.");
+console.log("Send and attachment approval checks passed.");

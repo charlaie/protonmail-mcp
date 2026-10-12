@@ -20,6 +20,7 @@ import {
 } from "../bridge/test-fixtures.js";
 import { createReadPolicy, ReadPolicySchema } from "./schema.js";
 import {
+	parseAttachmentApproval,
 	parseAttachmentExtensions,
 	parseMailboxSelection,
 	parseSenderDomains,
@@ -104,6 +105,11 @@ test("setup rejects invalid selections and sender entries without broadening acc
 		".txt",
 	]);
 	assert.deepEqual(parseAttachmentExtensions(""), []);
+	for (const answer of ["y", "YES", " yes "])
+		assert.equal(parseAttachmentApproval(answer), true);
+	for (const answer of ["", "n", "NO"])
+		assert.equal(parseAttachmentApproval(answer), false);
+	assert.throws(() => parseAttachmentApproval("maybe"));
 	for (const answer of ["*", ".exe", ".zip", "pdf", ".docx"])
 		assert.throws(() => parseAttachmentExtensions(answer));
 });
@@ -125,10 +131,15 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		allowedMailboxes: ["INBOX"],
 		allowedSenderEmails: ["trusted@example.com"],
 	});
-	const { allowedAttachmentExtensions: _, ...oldPolicy } = policy;
+	const {
+		allowedAttachmentExtensions: _,
+		requireAttachmentApproval: _approval,
+		...oldPolicy
+	} = policy;
 	const parsed = ReadPolicySchema.parse(oldPolicy);
 	assert.ok(parsed.version === 2);
 	assert.deepEqual(parsed.allowedAttachmentExtensions, []);
+	assert.equal(parsed.requireAttachmentApproval, false);
 	assert.equal(
 		ReadPolicySchema.safeParse({
 			...policy,
@@ -154,7 +165,11 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	client.mailboxes.set("INBOX", [message]);
 	client.attachmentContents.set("INBOX:1:2", {
 		content: Buffer.from("content"),
-		meta: { filename: "note.txt", contentType: "text/plain" },
+		meta: {
+			filename: "note.txt",
+			contentType: "text/plain",
+			disposition: "attachment",
+		},
 	});
 	const imap = createImapService(testConfig, async (operation) =>
 		operation(client),
@@ -174,8 +189,22 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	assert.equal(client.downloads.length, 0);
 	await saveReadPolicy({ ...policy, allowedAttachmentExtensions: [".txt"] });
 	reads = await createReadService(imap, testConfig.user);
-	assert.equal((await reads.getAttachment(input)).status, "ok");
+	assert.equal((await reads.getAttachment(input)).status, "raw");
 	assert.equal(client.downloads.length, 1);
+	await saveReadPolicy({
+		...policy,
+		allowedAttachmentExtensions: [".txt"],
+		requireAttachmentApproval: true,
+	});
+	reads = await createReadService(imap, testConfig.user);
+	assert.equal(
+		(await reads.prepareAttachmentRead(input)).kind,
+		"approval_required",
+	);
+	await assert.rejects(reads.getAttachment(input), /Approval is required/);
+	assert.equal(client.downloads.length, 1);
+	await saveReadPolicy({ ...policy, allowedAttachmentExtensions: [".txt"] });
+	reads = await createReadService(imap, testConfig.user);
 	await assert.rejects(
 		reads.getAttachment({ ...input, mailbox: "Archive" }),
 		/Mailbox/,

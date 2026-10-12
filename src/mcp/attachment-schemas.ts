@@ -5,8 +5,9 @@ import { ToolErrorSchema } from "../shared/mail-error.js";
 
 const IdentitySchema = GetMessageSchema.extend({
 	attachmentId: GetAttachmentSchema.shape.attachmentId,
-	filename: z.string().optional(),
+	filename: z.string(),
 	contentType: z.string(),
+	charset: z.string().optional(),
 	size: z.number(),
 	untrusted: z.literal(true),
 });
@@ -35,18 +36,6 @@ export const AttachmentListOutputSchema = z.union([
 	ToolErrorSchema,
 ]);
 export const AttachmentOutputSchema = z.union([
-	IdentitySchema.extend({
-		status: z.literal("ok"),
-		text: z.string(),
-		truncated: z.boolean(),
-		pages: z.number().optional(),
-		pagesRead: z.number().optional(),
-	}),
-	IdentitySchema.extend({
-		status: z.literal("ocr_required"),
-		pages: z.number(),
-		reason: z.string(),
-	}),
 	IdentitySchema.extend({
 		status: z.literal("raw"),
 		mimeType: z.string(),

@@ -28,6 +28,7 @@ const AccountReadPolicySchema = z.object({
 	version: z.literal(2),
 	bridgeUser: z.string().min(1),
 	allowedAttachmentExtensions: z.array(AttachmentExtensionSchema).default([]),
+	requireAttachmentApproval: z.boolean().default(false),
 });
 
 export const ReadPolicySchema = z.discriminatedUnion("version", [
@@ -43,12 +44,14 @@ export function createReadPolicy(input: {
 	allowedSenderEmails?: string[];
 	allowedSenderDomains?: string[];
 	allowedAttachmentExtensions?: AttachmentExtension[];
+	requireAttachmentApproval?: boolean;
 }) {
 	const now = new Date().toISOString();
 
 	return AccountReadPolicySchema.parse({
 		version: 2,
 		bridgeUser: input.bridgeUser,
+		requireAttachmentApproval: input.requireAttachmentApproval,
 		allowedAttachmentExtensions: [
 			...new Set(input.allowedAttachmentExtensions ?? []),
 		],

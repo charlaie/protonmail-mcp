@@ -1,3 +1,4 @@
+import type { AttachmentMetadata } from "../bridge/attachments.js";
 import type { ImapService } from "../bridge/imap.js";
 import type { ReadResult } from "../bridge/messages.js";
 import type {
@@ -6,6 +7,7 @@ import type {
 	GetThreadInput,
 	SearchMessagesInput,
 } from "../bridge/schemas.js";
+import { hashContent } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
 import {
 	canReadMailbox,
@@ -13,7 +15,24 @@ import {
 	READ_POLICY_NOT_CONFIGURED,
 	readPolicyStatus,
 } from "./enforcement.js";
-import { getPolicyFilePath, loadReadPolicy } from "./store.js";
+import { loadReadPolicy } from "./store.js";
+
+export type AttachmentApprovalInput = {
+	bridgeUser: string;
+	policyFingerprint: string;
+	attachment: AttachmentMetadata;
+};
+
+export type AttachmentReadAuthorization =
+	| { kind: "policy"; input: AttachmentApprovalInput }
+	| { kind: "human"; input: AttachmentApprovalInput };
+
+type AttachmentReadPlan =
+	| { kind: "approval_required"; input: AttachmentApprovalInput }
+	| {
+			kind: "authorized";
+			authorization: Extract<AttachmentReadAuthorization, { kind: "policy" }>;
+	  };
 
 async function requireReadPolicy(bridgeUser: string) {
 	const policy = await loadReadPolicy();
@@ -37,7 +56,6 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 	const attachmentOptions = {
 		allowedExtensions:
 			policy.version === 2 ? policy.allowedAttachmentExtensions : [],
-		protectedFiles: [getPolicyFilePath()],
 	};
 	function requireMailbox(mailbox: string) {
 		if (!canReadMailbox(policy, mailbox))
@@ -124,10 +142,53 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 				input,
 			);
 		},
-		async getAttachment(input: GetAttachmentInput) {
+		async prepareAttachmentRead(
+			input: GetAttachmentInput,
+		): Promise<AttachmentReadPlan> {
 			requireMailbox(input.mailbox);
+			const approvalInput = {
+				bridgeUser,
+				policyFingerprint: hashContent(policy),
+				attachment: unwrap(
+					await imap.getAttachmentMetadata(
+						input,
+						accepts,
+						attachmentOptions.allowedExtensions,
+					),
+					input,
+				),
+			} satisfies AttachmentApprovalInput;
+			return policy.version === 2 && policy.requireAttachmentApproval
+				? { kind: "approval_required", input: approvalInput }
+				: {
+						kind: "authorized",
+						authorization: { kind: "policy", input: approvalInput },
+					};
+		},
+		async getAttachment(
+			input: GetAttachmentInput,
+			authorization?: AttachmentReadAuthorization,
+		) {
+			requireMailbox(input.mailbox);
+			const approved = authorization?.input;
+			if (
+				(policy.version === 2 &&
+					policy.requireAttachmentApproval &&
+					authorization?.kind !== "human") ||
+				(approved &&
+					(approved.bridgeUser !== bridgeUser ||
+						approved.policyFingerprint !== hashContent(policy)))
+			)
+				throw new MailError(
+					"APPROVAL_DENIED",
+					"Attachment not downloaded. Approval is required or the read policy changed. Review the attachment again.",
+					"new_approval",
+				);
 			return unwrap(
-				await imap.getAttachment(input, accepts, attachmentOptions),
+				await imap.getAttachment(input, accepts, {
+					...attachmentOptions,
+					expectedAttachment: approved?.attachment,
+				}),
 				input,
 			);
 		},

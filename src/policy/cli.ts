@@ -8,6 +8,7 @@ import { safeErrorMessage } from "../shared/errors.js";
 import { summarizeReadPolicy } from "./enforcement.js";
 import { createReadPolicy } from "./schema.js";
 import {
+	parseAttachmentApproval,
 	parseAttachmentExtensions,
 	parseMailboxSelection,
 	parseSenderDomains,
@@ -95,6 +96,11 @@ export async function runSetupCommand() {
 			`Allowed attachment extensions (${AttachmentExtensionSchema.options.join(", ")}), comma-separated. Blank disables attachment reads: `,
 			parseAttachmentExtensions,
 		);
+		const requireAttachmentApproval = await ask(
+			rl,
+			"Require human approval before each attachment download? [y/N]: ",
+			parseAttachmentApproval,
+		);
 
 		const policy = createReadPolicy({
 			bridgeUser: config.user,
@@ -102,6 +108,7 @@ export async function runSetupCommand() {
 			allowedSenderEmails,
 			allowedSenderDomains,
 			allowedAttachmentExtensions,
+			requireAttachmentApproval,
 		});
 
 		await saveReadPolicy(policy);

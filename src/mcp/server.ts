@@ -18,8 +18,8 @@ import { createSendService, type SendService } from "../sending/service.js";
 import { MailError } from "../shared/mail-error.js";
 import { registerAttachmentTools } from "./attachments.js";
 import {
-	createSendApprovalController,
-	type SendApprovalController,
+	type ApprovalController,
+	createApprovalController,
 } from "./elicitation.js";
 import {
 	CreateDraftOutputSchema,
@@ -59,17 +59,17 @@ export function createServer(
 		config?: BridgeConfig;
 		imap?: ImapService;
 		sends?: SendService;
-		approval?: SendApprovalController;
+		approval?: ApprovalController;
 	} = {},
 ) {
 	const config = options.config ?? loadBridgeConfig();
 	const imap = options.imap ?? createImapService(config);
 	const readService = () => createReadService(imap, config.user);
-	const sendApproval = options.approval ?? createSendApprovalController();
+	const approval = options.approval ?? createApprovalController();
 	const server = new McpServer(
 		{ name: "protonmail-mcp", version: "1.0.0" },
 		{
-			requestState: { verify: sendApproval.verifyRequestState },
+			requestState: { verify: approval.verifyRequestState },
 		},
 	);
 
@@ -77,7 +77,7 @@ export function createServer(
 		server,
 		config,
 		sends: options.sends ?? createSendService(config),
-		approval: sendApproval,
+		approval,
 		readService,
 	});
 
@@ -265,7 +265,7 @@ export function createServer(
 			})),
 	);
 
-	registerAttachmentTools({ server, readService });
+	registerAttachmentTools({ server, readService, approval });
 
 	return server;
 }

@@ -39,3 +39,17 @@ export function parseAttachmentExtensions(answer: string) {
 		),
 	];
 }
+
+export function parseAttachmentApproval(answer: string) {
+	switch (answer.trim().toLowerCase()) {
+		case "y":
+		case "yes":
+			return true;
+		case "":
+		case "n":
+		case "no":
+			return false;
+		default:
+			throw new Error("Enter yes or no.");
+	}
+}
