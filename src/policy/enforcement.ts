@@ -1,4 +1,6 @@
 import type { MessageSummary } from "../bridge/serializers.js";
+import type { ManageMessageInput } from "../inbox/model.js";
+import { MailError } from "../shared/mail-error.js";
 import type { ReadPolicy } from "./schema.js";
 
 export const READ_POLICY_NOT_CONFIGURED =
@@ -21,6 +23,8 @@ export function summarizeReadPolicy(policy: ReadPolicy) {
 			policy.version === 2 ? policy.allowedAttachmentExtensions : [],
 		requireAttachmentApproval:
 			policy.version === 2 && policy.requireAttachmentApproval,
+		inboxWrites:
+			policy.version === 2 ? policy.inboxWrites : { mode: "disabled" },
 		createdAt: policy.createdAt,
 		updatedAt: policy.updatedAt,
 	};
@@ -28,6 +32,36 @@ export function summarizeReadPolicy(policy: ReadPolicy) {
 
 export function canReadMailbox(policy: ReadPolicy, mailbox: string) {
 	return policy.allowedMailboxes.includes(mailbox);
+}
+
+export function requireInboxWrite(
+	policy: ReadPolicy,
+	input: ManageMessageInput,
+	destination?: string,
+) {
+	if (
+		policy.version !== 2 ||
+		policy.inboxWrites.mode !== "enabled" ||
+		!policy.inboxWrites.actions.includes(input.change.action)
+	)
+		throw new MailError(
+			"POLICY_DENIED",
+			"This inbox action is disabled by the local policy. Run protonmail-mcp setup to grant inbox write permissions.",
+			"configure",
+		);
+	for (const path of destination === undefined
+		? [input.mailbox]
+		: [input.mailbox, destination]) {
+		if (
+			!canReadMailbox(policy, path) ||
+			!policy.inboxWrites.mailboxes.includes(path)
+		)
+			throw new MailError(
+				"POLICY_DENIED",
+				`Mailbox ${path} needs both read and inbox write permission.`,
+				"configure",
+			);
+	}
 }
 
 export function readPolicyStatus(

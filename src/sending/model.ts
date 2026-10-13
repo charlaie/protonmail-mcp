@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { GetMessageSchema, SendEmailSchema } from "../bridge/schemas.js";
+import {
+	MediaMetadataSchema,
+	OutgoingMediaSchema,
+	outgoingMedia,
+} from "../outgoing/media.js";
 
 const HeaderSchema = z
 	.string()
@@ -21,6 +26,7 @@ export const OutgoingMessageSchema = z
 		inReplyTo: z.array(MessageIdSchema),
 		references: z.array(MessageIdSchema),
 		replyTo: HeaderSchema.optional(),
+		media: OutgoingMediaSchema.optional(),
 	})
 	.refine(
 		(message) => message.to.length + message.cc.length + message.bcc.length > 0,
@@ -30,6 +36,10 @@ export type OutgoingMessage = z.infer<typeof OutgoingMessageSchema>;
 
 export const SendSourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("email") }),
+	GetMessageSchema.extend({
+		kind: z.literal("forward"),
+		fingerprint: z.string(),
+	}),
 	GetMessageSchema.extend({
 		kind: z.literal("draft"),
 		fingerprint: z.string(),
@@ -72,6 +82,7 @@ export const SendOperationSchema = z.object({
 	outcome: SendOutcomeSchema,
 	draftCleanup: DraftCleanupSchema,
 	sentCopies: z.array(GetMessageSchema).default([]),
+	media: z.array(MediaMetadataSchema).optional(),
 });
 export type SendOperation = z.infer<typeof SendOperationSchema>;
 
@@ -101,6 +112,9 @@ export function newEmailMessage(
 		bcc: input.bcc ?? [],
 		subject: input.subject,
 		text: input.text,
+		...(input.attachments?.length || input.inlineImages?.length
+			? { media: outgoingMedia(input) }
+			: {}),
 		inReplyTo: [],
 		references: [],
 	});

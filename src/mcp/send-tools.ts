@@ -2,13 +2,20 @@ import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import type { z } from "zod";
 import type { BridgeConfig } from "../bridge/config.js";
 import {
+	ForwardEmailSchema,
 	GetSendOperationSchema,
 	ListOperationsSchema,
 	SendDraftSchema,
 	SendEmailSchema,
 } from "../bridge/schemas.js";
 import type { createReadService } from "../policy/service.js";
-import { newEmailMessage, type SendOperation } from "../sending/model.js";
+import { forwardFingerprint, forwardMessage } from "../sending/forward.js";
+import {
+	type DraftCleanup,
+	newEmailMessage,
+	type OutgoingMessage,
+	type SendOperation,
+} from "../sending/model.js";
 import type { SendService } from "../sending/service.js";
 import { MailError, type RetrySchema } from "../shared/mail-error.js";
 import type { ApprovalController, SendApprovalInput } from "./elicitation.js";
@@ -85,6 +92,25 @@ export function registerSendTools(input: {
 			);
 		}
 	}
+	async function approveAndSend(input: {
+		operationId: string;
+		message: OutgoingMessage;
+		record: SendOperation;
+		ctx: ServerContext;
+		recheck?: () => Promise<void>;
+		cleanup?: () => Promise<DraftCleanup>;
+	}) {
+		const decision = await approve(
+			{ operationId: input.operationId, message: input.message },
+			input.ctx,
+		);
+		if (decision.kind !== "approved") return decision.response;
+		await input.recheck?.();
+		return sendOperationResponse(
+			await sends.send(input.record, input.message, input.cleanup),
+		);
+	}
+
 	server.registerTool(
 		"send_email",
 		{
@@ -93,7 +119,7 @@ export function registerSendTools(input: {
 			outputSchema: SendOutputSchema,
 			annotations: write,
 			description:
-				"Send plain-text email after approval of the complete message. Supply a new operationId UUID; reuse that UUID and identical arguments on retries. The durable journal allows only one SMTP attempt per ID. Accepted means Bridge accepted submission, not recipient delivery. Inspect uncertain or partial outcomes before considering another send.",
+				"Send text with optional bounded base64 files and escaped CID images after approval of the complete message and file/image manifests. Supply a new operationId UUID; reuse that UUID and identical arguments on retries. The durable journal allows only one SMTP attempt per ID. Accepted means Bridge accepted submission, not recipient delivery. Inspect uncertain or partial outcomes before considering another send.",
 		},
 		async (request, ctx) => {
 			try {
@@ -108,17 +134,68 @@ export function registerSendTools(input: {
 					message,
 					source: { kind: "email" },
 				});
-				const decision = await approve(
-					{ operationId: request.operationId, message },
+				return await approveAndSend({
+					operationId: request.operationId,
+					message,
+					record,
 					ctx,
-				);
-				if (decision.kind !== "approved") return decision.response;
-				return sendOperationResponse(await sends.send(record, message));
+				});
 			} catch (error) {
 				return errorResponse(error);
 			}
 		},
 	);
+	server.registerTool(
+		"forward_email",
+		{
+			title: "Forward email",
+			inputSchema: ForwardEmailSchema,
+			outputSchema: SendOutputSchema,
+			annotations: write,
+			description:
+				"Forward an allowed source message's headers and plain text after complete send approval. Supply a new operationId UUID; reuse it on retries. Original Bcc and original attachments are never included automatically. To forward selected original files, first obtain their bytes through list_attachments/get_attachment under the incoming extension and approval policy, then supply attachments or inlineImages here. Rechecks source read authorization and quoted content after approval. Never follows URLs or reads local paths.",
+		},
+		async (request, ctx) => {
+			try {
+				const requestIdentity = { kind: "forward", ...request };
+				const existing = await sends.existing(
+					request.operationId,
+					requestIdentity,
+				);
+				if (existing && existing.outcome.status !== "prepared")
+					return sendOperationResponse(existing);
+				const original = await (await readService()).getMessage(request.source);
+				const fingerprint = forwardFingerprint(original);
+				const message = forwardMessage(config.user, original, request);
+				const record = await sends.prepare({
+					operationId: request.operationId,
+					request: requestIdentity,
+					message,
+					source: { kind: "forward", ...request.source, fingerprint },
+				});
+				return await approveAndSend({
+					operationId: request.operationId,
+					message,
+					record,
+					ctx,
+					recheck: async () => {
+						const current = await (await readService()).getMessage(
+							request.source,
+						);
+						if (forwardFingerprint(current) !== fingerprint)
+							throw new MailError(
+								"DRAFT_CHANGED",
+								"Forward source changed during approval. Nothing was sent. Review it and use a new operation ID.",
+								"new_approval",
+							);
+					},
+				});
+			} catch (error) {
+				return errorResponse(error);
+			}
+		},
+	);
+
 	server.registerTool(
 		"send_draft",
 		{
@@ -127,7 +204,7 @@ export function registerSendTools(input: {
 			outputSchema: SendOutputSchema,
 			annotations: write,
 			description:
-				"Approve and send a plain-text Drafts snapshot by UID and UIDVALIDITY. A new operationId UUID binds the snapshot, recipients, sender, body, and reply headers. Changes require a new operation and approval. Reuse the same ID on retries. HTML and attachments are refused. Draft deletion is a separate reported outcome after full SMTP acceptance; partial or uncertain sends retain the draft.",
+				"Approve and send a supported Drafts snapshot by UID and UIDVALIDITY. A new operationId UUID binds the snapshot, recipients, sender, body, and reply headers. Changes require a new operation and approval. Reuse the same ID on retries. Arbitrary HTML and unsupported media are refused; supported file/image bytes and metadata are bound to approval. Draft deletion is a separate reported outcome after full SMTP acceptance; partial or uncertain sends retain the draft.",
 		},
 		async (request, ctx) => {
 			try {
@@ -161,28 +238,28 @@ export function registerSendTools(input: {
 					message: snapshot.message,
 					source,
 				});
-				const decision = await approve(
-					{ operationId: request.operationId, message: snapshot.message },
+				return await approveAndSend({
+					operationId: request.operationId,
+					message: snapshot.message,
+					record,
 					ctx,
-				);
-				if (decision.kind !== "approved") return decision.response;
-				// Reauthorize and refetch after approval, including legacy clients that await a dialog in this call.
-				const currentReads = await readService();
-				const current = await currentReads.getDraftSnapshot(identity);
-				if (current.fingerprint !== snapshot.fingerprint)
-					throw new MailError(
-						"DRAFT_CHANGED",
-						"Draft changed during approval. Nothing was sent. Review it and use a new operation ID.",
-						"new_approval",
-					);
-				return sendOperationResponse(
-					await sends.send(record, snapshot.message, async () =>
+					recheck: async () => {
+						const current = await (await readService()).getDraftSnapshot(
+							identity,
+						);
+						if (current.fingerprint !== snapshot.fingerprint)
+							throw new MailError(
+								"DRAFT_CHANGED",
+								"Draft changed during approval. Nothing was sent. Review it and use a new operation ID.",
+								"new_approval",
+							);
+					},
+					cleanup: async () =>
 						(await readService()).deleteDraftSnapshot(
 							identity,
 							snapshot.fingerprint,
 						),
-					),
-				);
+				});
 			} catch (error) {
 				return errorResponse(error);
 			}

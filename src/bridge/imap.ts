@@ -1,6 +1,9 @@
 import type { AttachmentExtension } from "../attachments/formats.js";
 import { createDraftService } from "../drafts/service.js";
 import type { DraftStore } from "../drafts/store.js";
+import { createInboxService } from "../inbox/service.js";
+import type { InboxStore } from "../inbox/store.js";
+import { mediaManifest } from "../outgoing/media.js";
 import type { DraftCleanup } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
 import {
@@ -32,9 +35,11 @@ export function createImapService(
 	config: BridgeConfig,
 	run = createImapSession(config),
 	draftStore?: DraftStore,
+	inboxStore?: InboxStore,
 ) {
 	const drafts = createDraftService(config, run, draftStore);
 	return {
+		inbox: createInboxService(config, run, inboxStore),
 		listMailboxes: () =>
 			run(async (client) =>
 				(
@@ -80,7 +85,7 @@ export function createImapService(
 		retryDraftCleanup: drafts.retryCleanup,
 		getDraft: (input: GetMessageInput, accepts: MessageFilter) =>
 			run(async (client) => {
-				const { original, fingerprint } = await inspectDraft(
+				const { original, fingerprint, media } = await inspectDraft(
 					client,
 					input,
 					accepts,
@@ -94,6 +99,7 @@ export function createImapService(
 					bcc: parsedAddressEmails(original.bcc),
 					subject: original.subject ?? "",
 					text: original.text ?? "",
+					media: mediaManifest(media),
 				};
 			}),
 		getDraftSnapshot: (input: GetMessageInput, accepts: MessageFilter) =>

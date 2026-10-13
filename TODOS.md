@@ -4,13 +4,14 @@ This tracks gaps after the draft/send reliability work. Automated checks passed,
 
 ## Current priorities
 
-- [ ] Support outgoing attachments and inline images in composition, drafts, editing, and sending. Keep plain text as the default. Inline images may use generated HTML with a text alternative; general HTML authoring is not a priority.
-- [ ] Support inbox actions that Proton Bridge actually exposes, including read state, stars, archive, Trash, moves, and labels where supported. Add explicit local write permissions, validate source and destination access, and preserve sender restrictions and durable draft/send claims.
-- [ ] Support forwarding with explicit approval before submission, using the same content binding, durable operation IDs, and recovery guarantees as sending. Do not bypass source-read or attachment permissions.
+- [x] Support outgoing attachments and PNG/JPEG/GIF inline images in composition, drafts, editing, and sending. Plain text remains the default. Inline images use escaped generated HTML with a text alternative. Live rendering checks remain outstanding.
+- [x] Support read state, stars, archive, Trash, moves, and existing labels where Bridge advertises the required capabilities. Inbox writes require separate local action/source/destination grants, preserve sender restrictions, and share durable draft/send claims. Live synchronization checks remain outstanding.
+- [x] Support forwarding with explicit send approval, content binding, durable operation IDs, and send recovery. Original attachments require explicit selection through authorized download tools; forwarding never automatically reads or copies them.
 
 ## Other capability gaps
 
 - [ ] General HTML composition and editing arbitrary rich drafts, if a concrete use case justifies them.
+- [ ] Label/folder creation and permanent deletion, if needed. Current inbox actions use existing mailboxes and Trash. Placement changes through All Mail and Starred views are refused; use the ordinary source folder.
 - [ ] Search pagination, unread/flag filters, batch reads, and reliable traversal beyond the current 100-result limit per mailbox.
 - [ ] Improve thread reconstruction where Bridge provides useful metadata. Current threading is a best-effort reconstruction from Message-ID, References, and In-Reply-To.
 - [ ] Add a stable logical draft identifier across edits. IMAP replacement currently creates a new UID, so clients must use the returned replacement identity.
@@ -37,6 +38,8 @@ This tracks gaps after the draft/send reliability work. Automated checks passed,
 - External Proton clients do not participate in the journal's claims. Revision checks detect observed changes, but another client can still act between a final check and a server write.
 - IMAP draft replacement uses separate append and delete operations. Partial outcomes can leave two copies that require reconciliation or cleanup.
 - Recovery favors safety over eventual completion. A crash after reserving APPEND but before performing it can leave an unresolved operation with no matching draft. APPEND errors are conservatively uncertain because the library can fail after acceptance.
+- A crash can leave an inbox write marked `submitting` with an active reservation. It cannot be automatically reconciled while its writer might still run. Manual inspection requires stopping every process for the account. Missing evidence never proves a failed write.
+- Removing a Proton label through Bridge also selects an ordinary destination folder and may relocate the message. Labels must use explicit label actions; IMAP keywords are not synchronized Proton labels.
 - Sender allowlisting checks message headers and does not authenticate the sender. Message text and attachment data can contain prompt injection and must not authorize tool actions.
 - Bridge must be running and signed in. The server does not establish a hosted availability guarantee or independently verify provider delivery.
 

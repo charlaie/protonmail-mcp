@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { z } from "zod";
+import { mediaMailOptions } from "../outgoing/mime.js";
 import type { OutgoingMessage, SmtpOutcome } from "../sending/model.js";
 import { safeErrorMessage } from "../shared/errors.js";
 import type { BridgeConfig } from "./config.js";
@@ -53,6 +54,7 @@ export async function submitEmail(
 	try {
 		const info = await transport.sendMail({
 			...message,
+			...mediaMailOptions(message.text, message.media),
 			messageId,
 			inReplyTo: message.inReplyTo.length
 				? message.inReplyTo.join(" ")

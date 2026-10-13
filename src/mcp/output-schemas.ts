@@ -5,6 +5,7 @@ import {
 } from "../bridge/message-model.js";
 import { GetMessageSchema } from "../bridge/schemas.js";
 import { DraftOperationSchema } from "../drafts/model.js";
+import { MediaMetadataSchema } from "../outgoing/media.js";
 import { SendOperationSchema } from "../sending/model.js";
 import { RetrySchema, ToolErrorSchema } from "../shared/mail-error.js";
 
@@ -72,6 +73,7 @@ export const GetDraftOutputSchema = z.union([
 		bcc: z.array(z.string()),
 		subject: z.string(),
 		text: z.string(),
+		media: z.array(MediaMetadataSchema),
 	}),
 	ToolErrorSchema,
 ]);

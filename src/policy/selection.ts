@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AttachmentExtensionSchema } from "../attachments/formats.js";
+import { InboxActionNameSchema } from "../inbox/model.js";
 import { DomainSchema } from "./schema.js";
 
 export function splitCsv(value: string) {
@@ -25,6 +26,10 @@ export function parseMailboxSelection(answer: string, mailboxes: string[]) {
 
 export function parseSenderEmails(answer: string) {
 	return z.array(z.email()).parse(splitCsv(answer));
+}
+
+export function parseInboxActions(answer: string) {
+	return [...new Set(z.array(InboxActionNameSchema).parse(splitCsv(answer)))];
 }
 export function parseSenderDomains(answer: string) {
 	return z.array(DomainSchema).parse(splitCsv(answer));

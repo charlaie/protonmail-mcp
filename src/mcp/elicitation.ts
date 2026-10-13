@@ -9,6 +9,7 @@ import {
 	type ServerContext,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { mediaManifest } from "../outgoing/media.js";
 import type {
 	AttachmentApprovalInput,
 	AttachmentReadAuthorization,
@@ -28,7 +29,7 @@ const ApproveSendSchema = z.object({
 		.boolean()
 		.default(false)
 		.describe(
-			"Approve this only if the recipients, subject, and full body are correct. Approval immediately sends the email.",
+			"Approve this only if the recipients, subject, full body, and attachment/image manifests are correct. Approval immediately sends the email.",
 		)
 		.meta({ title: "Send email now" }),
 });
@@ -65,6 +66,9 @@ function approvalMessage(input: SendApprovalInput): string {
 			? `References: ${message.references.join(" ")}`
 			: undefined,
 		`Body:\n${message.text}`,
+		message.media?.length
+			? `Attachments and inline images, with untrusted filenames/descriptions:\n${JSON.stringify(mediaManifest(message.media), null, 2)}`
+			: undefined,
 	]
 		.filter(Boolean)
 		.join("\n");

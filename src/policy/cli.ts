@@ -4,12 +4,17 @@ import { AttachmentExtensionSchema } from "../attachments/formats.js";
 
 import { loadBridgeConfig } from "../bridge/config.js";
 import { createImapService } from "../bridge/imap.js";
+import {
+	InboxActionNameSchema,
+	type InboxWritePolicy,
+} from "../inbox/model.js";
 import { safeErrorMessage } from "../shared/errors.js";
 import { summarizeReadPolicy } from "./enforcement.js";
 import { createReadPolicy } from "./schema.js";
 import {
 	parseAttachmentApproval,
 	parseAttachmentExtensions,
+	parseInboxActions,
 	parseMailboxSelection,
 	parseSenderDomains,
 	parseSenderEmails,
@@ -58,7 +63,7 @@ export async function runSetupCommand() {
 		throw new Error("No selectable mailboxes were returned by Proton Bridge.");
 	}
 
-	console.log("Proton Mail MCP read policy setup");
+	console.log("Proton Mail MCP access policy setup");
 	console.log("");
 	console.log("Select which mailboxes the model may search and read.");
 	console.log("Include Drafts to enable draft creation and editing.");
@@ -101,6 +106,27 @@ export async function runSetupCommand() {
 			"Require human approval before each attachment download? [y/N]: ",
 			parseAttachmentApproval,
 		);
+		const inboxActions = await ask(
+			rl,
+			`Allowed inbox actions (${InboxActionNameSchema.options.join(", ")}), comma-separated. Blank disables inbox writes: `,
+			parseInboxActions,
+		);
+		let inboxWrites: InboxWritePolicy = { mode: "disabled" };
+		if (inboxActions.length > 0) {
+			console.log("Writable mailbox choices within the selected read policy:");
+			allowedMailboxes.forEach((mailbox, index) => {
+				console.log(`${index + 1}. ${mailbox}`);
+			});
+			inboxWrites = {
+				mode: "enabled",
+				actions: inboxActions,
+				mailboxes: await ask(
+					rl,
+					"Writable inbox source and destination mailboxes, by exact name or number from the selected read list: ",
+					(answer) => parseMailboxSelection(answer, allowedMailboxes),
+				),
+			};
+		}
 
 		const policy = createReadPolicy({
 			bridgeUser: config.user,
@@ -109,6 +135,7 @@ export async function runSetupCommand() {
 			allowedSenderDomains,
 			allowedAttachmentExtensions,
 			requireAttachmentApproval,
+			inboxWrites,
 		});
 
 		await saveReadPolicy(policy);

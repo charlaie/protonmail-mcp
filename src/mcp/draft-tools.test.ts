@@ -12,6 +12,7 @@ import {
 	testConfig,
 } from "../bridge/test-fixtures.js";
 import { createDraftStore } from "../drafts/store.js";
+import { testFile, testImage } from "../outgoing/test-fixtures.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import { createSendService } from "../sending/service.js";
@@ -190,4 +191,33 @@ test("journal metadata remains available during policy outage, pagination ends, 
 	const refused = await callTool("retry_draft_cleanup", { operationId });
 	assert.match(JSON.stringify(refused), /POLICY_NOT_CONFIGURED/);
 	assert.equal(imapClient.deletions, 1);
+});
+
+test("reply draft tools accept explicitly supplied files and images and expose manifests without bytes", async (t) => {
+	const { callTool, imapClient } = await fixture(t);
+	const result = DraftOperationOutputSchema.parse(
+		await callTool("create_reply_draft", {
+			operationId: randomUUID(),
+			mailbox: "INBOX",
+			uid: 2,
+			uidValidity: "7",
+			text: "Reply with files",
+			attachments: [testFile],
+			inlineImages: [testImage],
+		}),
+	);
+	assert.ok("outcome" in result && "identity" in result.outcome);
+	assert.equal(result.outcome.status, "completed");
+	assert.equal(result.media?.length, 2);
+	const draft = GetDraftOutputSchema.parse(
+		await callTool("get_draft", result.outcome.identity),
+	);
+	assert.ok("revision" in draft);
+	assert.equal(draft.media.length, 2);
+	assert.equal(
+		draft.media.find((part) => part.kind === "attachment")?.filename,
+		testFile.filename,
+	);
+	assert.equal(JSON.stringify(draft).includes("contentBase64"), false);
+	assert.equal(imapClient.appends.length, 1);
 });

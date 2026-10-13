@@ -256,7 +256,7 @@ test("rich drafts and stale identities are blocked before any mutation", async (
 		...editInput(original, { uid: 1, uidValidity: "7", text: "Replacement" }),
 		mailbox: "Drafts",
 	};
-	await assert.rejects(service(client).editDraft(input), /HTML or attachments/);
+	await assert.rejects(service(client).editDraft(input), /HTML/);
 	await assert.rejects(
 		service(client).editDraft({ ...input, uidValidity: "8" }),
 		/UIDVALIDITY changed/,
@@ -403,22 +403,26 @@ test("a socket error after APPEND retains replacement recovery details through t
 	assert.equal(client.closed, true);
 });
 
-test("attached drafts are never replaced", async () => {
+test("plain-text drafts with attachments preserve their payload when edits omit attachments", async () => {
 	const client = new FakeImap();
-	const original = fixtureMessage(1);
+	const original = fixtureMessage(33);
 	original.source = Buffer.from(
 		"MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nBody\r\n--x\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=file.txt\r\n\r\nKeep attachment\r\n--x--",
 	);
 	client.mailboxes.set("Drafts", [original]);
-	await assert.rejects(
-		service(client).editDraft({
-			...editInput(original, { uid: 1, uidValidity: "7", text: "Replacement" }),
-			mailbox: "Drafts",
-		}),
-		/HTML or attachments/,
-	);
-	assert.equal(client.appends.length, 0);
-	assert.equal(client.deletions, 0);
+	const result = await service(client).editDraft({
+		...editInput(original, { uid: 33, uidValidity: "7", text: "Replacement" }),
+		mailbox: "Drafts",
+	});
+	assert.equal(result.outcome.status, "completed");
+	assert.equal(client.appends.length, 1);
+	const parsed = await simpleParser(client.appends[0].content);
+	assert.equal(parsed.attachments[0]?.content.toString(), "Keep attachment");
+	assert.deepEqual(parsed.attachments[0]?.headers.get("content-type"), {
+		value: "application/octet-stream",
+		params: { name: "file.txt" },
+	});
+	assert.equal(client.deletions, 1);
 });
 
 test("simultaneous edits on separate IMAP connections create only one replacement", async () => {

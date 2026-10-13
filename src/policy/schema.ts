@@ -3,6 +3,10 @@ import {
 	type AttachmentExtension,
 	AttachmentExtensionSchema,
 } from "../attachments/formats.js";
+import {
+	type InboxWritePolicy,
+	InboxWritePolicySchema,
+} from "../inbox/model.js";
 
 export const DomainSchema = z
 	.string()
@@ -23,13 +27,26 @@ const PolicyFields = {
 	updatedAt: z.iso.datetime(),
 };
 
-const AccountReadPolicySchema = z.object({
-	...PolicyFields,
-	version: z.literal(2),
-	bridgeUser: z.string().min(1),
-	allowedAttachmentExtensions: z.array(AttachmentExtensionSchema).default([]),
-	requireAttachmentApproval: z.boolean().default(false),
-});
+const AccountReadPolicySchema = z
+	.object({
+		...PolicyFields,
+		version: z.literal(2),
+		bridgeUser: z.string().min(1),
+		allowedAttachmentExtensions: z.array(AttachmentExtensionSchema).default([]),
+		requireAttachmentApproval: z.boolean().default(false),
+		inboxWrites: InboxWritePolicySchema.default({ mode: "disabled" }),
+	})
+	.refine(
+		(policy) =>
+			policy.inboxWrites.mode === "disabled" ||
+			policy.inboxWrites.mailboxes.every((mailbox) =>
+				policy.allowedMailboxes.includes(mailbox),
+			),
+		{
+			path: ["inboxWrites", "mailboxes"],
+			message: "Inbox writable mailboxes must also be allowed for reading.",
+		},
+	);
 
 export const ReadPolicySchema = z.discriminatedUnion("version", [
 	z.object({ ...PolicyFields, version: z.literal(1) }),
@@ -45,12 +62,14 @@ export function createReadPolicy(input: {
 	allowedSenderDomains?: string[];
 	allowedAttachmentExtensions?: AttachmentExtension[];
 	requireAttachmentApproval?: boolean;
+	inboxWrites?: InboxWritePolicy;
 }) {
 	const now = new Date().toISOString();
 
 	return AccountReadPolicySchema.parse({
 		version: 2,
 		bridgeUser: input.bridgeUser,
+		inboxWrites: input.inboxWrites,
 		requireAttachmentApproval: input.requireAttachmentApproval,
 		allowedAttachmentExtensions: [
 			...new Set(input.allowedAttachmentExtensions ?? []),

@@ -100,17 +100,23 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 			"create_draft",
 			"create_reply_draft",
 			"edit_draft",
+			"forward_email",
 			"get_attachment",
 			"get_draft",
 			"get_draft_operation",
+			"get_inbox_capabilities",
+			"get_inbox_operation",
 			"get_message",
 			"get_send_operation",
 			"get_thread",
 			"list_attachments",
 			"list_draft_operations",
+			"list_inbox_operations",
 			"list_mailboxes",
 			"list_send_operations",
+			"manage_message",
 			"reconcile_draft_operation",
+			"reconcile_inbox_operation",
 			"reconcile_send_operation",
 			"retry_draft_cleanup",
 			"retry_send_cleanup",
@@ -120,7 +126,13 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 		].sort(),
 	);
 	assert.ok(listed.result.tools.every((tool) => tool.outputSchema));
-	for (const name of ["create_draft", "create_reply_draft", "edit_draft"]) {
+	for (const name of [
+		"create_draft",
+		"create_reply_draft",
+		"edit_draft",
+		"forward_email",
+		"manage_message",
+	]) {
 		const advertised: (typeof tools)[number] | undefined = tools.find(
 			(candidate) => candidate.name === name,
 		);

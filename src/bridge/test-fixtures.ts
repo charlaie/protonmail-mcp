@@ -63,6 +63,9 @@ function uidsFromRange(range: Parameters<ImapClient["fetchAll"]>[0]) {
 // Only the external IMAP boundary is simulated. MIME parsing and policy logic stay real.
 export class FakeImap extends EventEmitter implements ImapClient {
 	capabilities = new Map<string, boolean>([["UIDPLUS", true]]);
+	permanentFlags = new Set(["\\Seen", "\\Flagged"]);
+	flagChanges: { uid: number; flag: string; enabled: boolean }[] = [];
+	moves: { uid: number; source: string; destination: string }[] = [];
 	selected = "INBOX";
 	uidValidity = 7n;
 	mailboxes = new Map<string, FetchMessageObject[]>([["INBOX", []]]);
@@ -146,6 +149,7 @@ export class FakeImap extends EventEmitter implements ImapClient {
 			delimiter: "/",
 			flags: new Set<string>(),
 			uidValidity: this.uidValidity,
+			permanentFlags: this.permanentFlags,
 			uidNext: 100,
 			exists: this.currentMessages().length,
 		};
@@ -221,5 +225,58 @@ export class FakeImap extends EventEmitter implements ImapClient {
 			),
 		);
 		return true;
+	}
+	async messageFlagsAdd(
+		range: Parameters<ImapClient["messageFlagsAdd"]>[0],
+		flags: string[],
+	) {
+		for (const uid of uidsFromRange(range)) {
+			const message = this.currentMessages().find((item) => item.uid === uid);
+			if (!message) return false;
+			message.flags ??= new Set();
+			for (const flag of flags) {
+				message.flags.add(flag);
+				this.flagChanges.push({ uid, flag, enabled: true });
+			}
+		}
+		return true;
+	}
+	async messageFlagsRemove(
+		range: Parameters<ImapClient["messageFlagsRemove"]>[0],
+		flags: string[],
+	) {
+		for (const uid of uidsFromRange(range)) {
+			const message = this.currentMessages().find((item) => item.uid === uid);
+			if (!message) return false;
+			for (const flag of flags) {
+				message.flags?.delete(flag);
+				this.flagChanges.push({ uid, flag, enabled: false });
+			}
+		}
+		return true;
+	}
+	async messageMove(
+		range: Parameters<ImapClient["messageMove"]>[0],
+		destination: string,
+	) {
+		const source = this.selected;
+		const uidMap = new Map<number, number>();
+		for (const uid of uidsFromRange(range)) {
+			const message = this.currentMessages().find((item) => item.uid === uid);
+			if (!message) return false;
+			const nextUid = 200 + this.moves.length;
+			this.mailboxes.set(destination, [
+				...(this.mailboxes.get(destination) ?? []),
+				{ ...message, uid: nextUid, flags: new Set(message.flags) },
+			]);
+			if (!destination.startsWith("Labels/"))
+				this.mailboxes.set(
+					source,
+					this.currentMessages().filter((item) => item.uid !== uid),
+				);
+			this.moves.push({ uid, source, destination });
+			uidMap.set(uid, nextUid);
+		}
+		return { path: source, destination, uidValidity: this.uidValidity, uidMap };
 	}
 }

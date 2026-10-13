@@ -1,0 +1,225 @@
+import { strict as assert } from "node:assert";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { type TestContext, test } from "node:test";
+import { createImapService } from "../bridge/imap.js";
+import {
+	FakeImap,
+	fixtureMessage,
+	testConfig,
+} from "../bridge/test-fixtures.js";
+import {
+	InboxCapabilitiesOutputSchema,
+	InboxOperationOutputSchema,
+	InboxOperationsOutputSchema,
+} from "../inbox/model.js";
+import { createInboxStore } from "../inbox/store.js";
+import { createReadPolicy, ReadPolicySchema } from "../policy/schema.js";
+import { parseInboxActions } from "../policy/selection.js";
+import { createReadService } from "../policy/service.js";
+import { saveReadPolicy } from "../policy/store.js";
+import { createServer } from "./server.js";
+import { createTestClient } from "./test-client.js";
+
+async function fixture(t: TestContext, enabled = true) {
+	const directory = await mkdtemp(join(tmpdir(), "protonmail-inbox-mcp-"));
+	const path = join(directory, "policy.json");
+	const previous = process.env.PROTONMAIL_MCP_POLICY_FILE;
+	process.env.PROTONMAIL_MCP_POLICY_FILE = path;
+	t.after(async () => {
+		if (previous === undefined) delete process.env.PROTONMAIL_MCP_POLICY_FILE;
+		else process.env.PROTONMAIL_MCP_POLICY_FILE = previous;
+		await rm(directory, { recursive: true, force: true });
+	});
+	const policy = createReadPolicy({
+		bridgeUser: testConfig.user,
+		allowedMailboxes: ["INBOX", "Archive", "Trash", "Labels/Work", "Drafts"],
+		allowedSenderEmails: ["trusted@example.com"],
+		inboxWrites: enabled
+			? {
+					mode: "enabled",
+					actions: [
+						"mark_read",
+						"mark_unread",
+						"star",
+						"archive",
+						"trash",
+						"apply_label",
+						"remove_label",
+						"move",
+					],
+					mailboxes: ["INBOX", "Archive", "Trash", "Labels/Work"],
+				}
+			: { mode: "disabled" },
+	});
+	await saveReadPolicy(policy);
+	const client = new FakeImap();
+	const message = fixtureMessage(1);
+	message.flags = new Set();
+	client.mailboxes.set("INBOX", [message]);
+	for (const name of ["Archive", "Trash", "Labels/Work", "Drafts", "Secret"])
+		client.mailboxes.set(name, []);
+	client.capabilities.set("MOVE", true);
+	const imap = createImapService(
+		testConfig,
+		async (operation) => operation(client),
+		undefined,
+		createInboxStore(testConfig.user, directory),
+	);
+	const mcp = await createTestClient(t, () =>
+		createServer({ config: testConfig, imap }),
+	);
+	const input = (action: string) => ({
+		operationId: randomUUID(),
+		mailbox: "INBOX",
+		uid: 1,
+		uidValidity: "7",
+		change: { action },
+	});
+	return { directory, path, policy, client, imap, mcp, input };
+}
+
+test("existing policies deny inbox writes; invalid write grants cannot expand readable paths", async (t) => {
+	const f = await fixture(t, false);
+	const { inboxWrites: _, ...oldPolicy } = f.policy;
+	const parsed = ReadPolicySchema.parse(oldPolicy);
+	assert.equal(parsed.version, 2);
+	if (parsed.version !== 2) throw new Error("Expected v2");
+	assert.deepEqual(parsed.inboxWrites, { mode: "disabled" });
+	assert.throws(
+		() =>
+			createReadPolicy({
+				bridgeUser: testConfig.user,
+				allowedMailboxes: ["INBOX"],
+				inboxWrites: {
+					mode: "enabled",
+					actions: ["move"],
+					mailboxes: ["INBOX", "Secret"],
+				},
+			}),
+		/also be allowed/,
+	);
+	assert.deepEqual(parseInboxActions("star,mark_read,star"), [
+		"star",
+		"mark_read",
+	]);
+	assert.throws(() => parseInboxActions("delete_permanently"));
+	const response = await f.mcp.callTool("manage_message", f.input("star"));
+	assert.equal(response.isError, true);
+	assert.match(JSON.stringify(response.structuredContent), /disabled/);
+	assert.equal(f.client.flagChanges.length, 0);
+});
+
+test("MCP capabilities, inbox mutations, and journal tools satisfy advertised contracts", async (t) => {
+	const f = await fixture(t);
+	const capabilities = InboxCapabilitiesOutputSchema.parse(
+		(await f.mcp.callTool("get_inbox_capabilities", {})).structuredContent,
+	);
+	assert.ok("nativeMoveSupported" in capabilities);
+	assert.equal(capabilities.nativeMoveSupported, true);
+	assert.equal(
+		capabilities.mailboxes.some((item) => item.path === "Secret"),
+		false,
+	);
+	assert.equal(
+		capabilities.mailboxes.find((item) => item.path === "Drafts")?.writable,
+		false,
+	);
+	const input = f.input("mark_read");
+	const record = InboxOperationOutputSchema.parse(
+		(await f.mcp.callTool("manage_message", input)).structuredContent,
+	);
+	assert.ok("outcome" in record);
+	assert.equal(record.outcome.status, "completed");
+	assert.equal("requestHash" in record, false);
+	assert.deepEqual(
+		(await f.mcp.callTool("manage_message", input)).structuredContent,
+		record,
+	);
+	assert.equal(f.client.flagChanges.length, 1);
+	await unlink(f.path);
+	assert.deepEqual(
+		(
+			await f.mcp.callTool("get_inbox_operation", {
+				operationId: input.operationId,
+			})
+		).structuredContent,
+		record,
+	);
+	const operations = InboxOperationsOutputSchema.parse(
+		(await f.mcp.callTool("list_inbox_operations", {})).structuredContent,
+	);
+	assert.ok("operations" in operations);
+	assert.deepEqual(operations.operations, []);
+	assert.equal(operations.nextOffset, null);
+});
+
+test("action, source, destination and sender policy are enforced before external mutations", async (t) => {
+	const f = await fixture(t);
+	await saveReadPolicy(
+		createReadPolicy({
+			bridgeUser: testConfig.user,
+			allowedMailboxes: ["INBOX", "Archive"],
+			inboxWrites: {
+				mode: "enabled",
+				actions: ["archive"],
+				mailboxes: ["INBOX"],
+			},
+		}),
+	);
+	const denied = await f.mcp.callTool("manage_message", f.input("archive"));
+	assert.equal(denied.isError, true);
+	assert.match(
+		JSON.stringify(denied.structuredContent),
+		/read and inbox write/,
+	);
+	assert.equal(
+		(await f.mcp.callTool("manage_message", f.input("star"))).isError,
+		true,
+	);
+	await saveReadPolicy(
+		createReadPolicy({
+			bridgeUser: testConfig.user,
+			allowedMailboxes: ["INBOX", "Archive"],
+			allowedSenderEmails: ["someone-else@example.com"],
+			inboxWrites: {
+				mode: "enabled",
+				actions: ["archive"],
+				mailboxes: ["INBOX", "Archive"],
+			},
+		}),
+	);
+	assert.equal(
+		(await f.mcp.callTool("manage_message", f.input("archive"))).isError,
+		true,
+	);
+	assert.equal(f.client.moves.length + f.client.flagChanges.length, 0);
+	assert.equal(f.client.sourceFetches, 0);
+	const reads = await createReadService(f.imap, "bridge@example.com");
+	await assert.rejects(
+		reads.manageInbox({
+			...f.input("archive"),
+			mailbox: "Secret",
+			change: { action: "archive" },
+		}),
+		/not selectable|permission/,
+	);
+});
+
+test("policy reload during an inbox action revokes write permission before STORE", async (t) => {
+	const f = await fixture(t);
+	let opens = 0;
+	const original = f.client.mailboxOpen.bind(f.client);
+	f.client.mailboxOpen = async (...args) => {
+		const result = await original(...args);
+		if (++opens === 1)
+			await saveReadPolicy({ ...f.policy, inboxWrites: { mode: "disabled" } });
+		return result;
+	};
+	const response = await f.mcp.callTool("manage_message", f.input("star"));
+	assert.equal(response.isError, true);
+	assert.equal(f.client.flagChanges.length, 0);
+	assert.match(JSON.stringify(response.structuredContent), /disabled/);
+});

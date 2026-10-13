@@ -1,6 +1,7 @@
 import type { BridgeConfig } from "../bridge/config.js";
 import { SendEmailSchema } from "../bridge/schemas.js";
 import { submitEmail } from "../bridge/smtp.js";
+import { mediaManifest } from "../outgoing/media.js";
 import { MailError } from "../shared/mail-error.js";
 import {
 	type DraftCleanup,
@@ -120,6 +121,9 @@ export function createSendService(
 				updatedAt: now,
 				outcome: { status: "prepared" },
 				sentCopies: [],
+				...(input.message.media?.length
+					? { media: mediaManifest(input.message.media) }
+					: {}),
 				draftCleanup:
 					input.source.kind === "draft"
 						? { status: "pending" }

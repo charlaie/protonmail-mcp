@@ -13,6 +13,7 @@ import {
 	testConfig,
 } from "../bridge/test-fixtures.js";
 import { createDraftStore } from "../drafts/store.js";
+import { testFile, testImage } from "../outgoing/test-fixtures.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import type { OutgoingMessage } from "../sending/model.js";
@@ -39,6 +40,8 @@ async function fixture(
 		deleteFailure?: boolean;
 		deniedSender?: boolean;
 		groupedRecipients?: boolean;
+		changedForwardDuringLegacyApproval?: boolean;
+		sourceChangedAfterVerifiedApproval?: boolean;
 	} = {},
 ) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-send-mcp-"));
@@ -88,10 +91,29 @@ async function fixture(
 			};
 		},
 	});
-	const approval = createApprovalController();
+	const controller = createApprovalController();
+	const approval: ReturnType<typeof createApprovalController> = {
+		...controller,
+		async requireSendApproval(input, ctx) {
+			const decision = await controller.requireSendApproval(input, ctx);
+			if (
+				decision.kind === "approved" &&
+				options.sourceChangedAfterVerifiedApproval
+			) {
+				const source = client.mailboxes.get("INBOX")?.[0];
+				assert.ok(source?.source);
+				source.source = Buffer.from(
+					source.source.toString().replace("Body 2", "Changed after approval"),
+				);
+			}
+			return decision;
+		},
+	};
 	const factory = () =>
 		createServer({ config: testConfig, imap, sends, approval });
-	const legacy = options.changedDuringLegacyApproval !== undefined;
+	const legacy =
+		options.changedDuringLegacyApproval !== undefined ||
+		options.changedForwardDuringLegacyApproval !== undefined;
 	const transport = await createTestClient(t, factory, {
 		protocolVersion: legacy ? "2025-11-25" : "2026-07-28",
 		capabilities: { elicitation: { form: {} } },
@@ -101,6 +123,13 @@ async function fixture(
 					draft.source?.toString().replace("Original body", "Changed body") ??
 						"",
 				);
+			if (options.changedForwardDuringLegacyApproval) {
+				const source = client.mailboxes.get("INBOX")?.[0];
+				assert.ok(source?.source);
+				source.source = Buffer.from(
+					source.source.toString().replace("Body 2", "Changed source body"),
+				);
+			}
 			return { action: "accept", content: { approve_send: true } };
 		},
 	});
@@ -228,4 +257,245 @@ test("sending a draft retains all grouped To, Cc, and Bcc recipients", async (t)
 	]);
 	assert.deepEqual(message.cc, ["bob@example.com"]);
 	assert.deepEqual(message.bcc, ["hidden@example.com", "private@example.com"]);
+});
+
+test("send approval shows byte-free attachment/image manifests and binds exact payload bytes", async (t) => {
+	const client = await fixture(t);
+	const args = {
+		operationId: randomUUID(),
+		to: "recipient@example.com",
+		subject: "Files",
+		text: "Review files",
+		attachments: [testFile],
+		inlineImages: [testImage],
+	};
+	const result = await client.callTool("send_email", args);
+	assert.match(JSON.stringify(result), /report\.pdf/);
+	assert.match(JSON.stringify(result), /application\/pdf/);
+	assert.match(JSON.stringify(result), /sha256/);
+	assert.match(JSON.stringify(result), /inline/);
+	assert.equal(JSON.stringify(result).includes(testFile.contentBase64), false);
+	assert.equal(JSON.stringify(result).includes(testImage.contentBase64), false);
+	const pending = parseContinuation(result);
+	const modified = sendResult(
+		await client.callTool(
+			"send_email",
+			{
+				...args,
+				attachments: [
+					{
+						...testFile,
+						contentBase64: Buffer.from("Changed").toString("base64"),
+					},
+				],
+			},
+			{ requestState: pending.requestState, inputResponses: acceptedResponse },
+		),
+	);
+	assert.ok("error" in modified);
+	assert.equal(modified.error.code, "OPERATION_CONFLICT");
+	assert.equal(client.submissions.length, 0);
+	const sent = sendResult(
+		await client.callTool("send_email", args, {
+			requestState: pending.requestState,
+			inputResponses: acceptedResponse,
+		}),
+	);
+	assert.ok("outcome" in sent);
+	assert.equal(sent.outcome.status, "accepted");
+	assert.equal(sent.media?.length, 2);
+	assert.equal(JSON.stringify(sent).includes("contentBase64"), false);
+	assert.equal(
+		client.submissions[0]?.message.media?.find(
+			(part) => part.kind === "attachment",
+		)?.file.contentBase64,
+		testFile.contentBase64,
+	);
+});
+
+test("forward approval quotes the authorized source, omits original Bcc/attachments, and retries without sending twice", async (t) => {
+	const client = await fixture(t);
+	const source = client.client.mailboxes.get("INBOX")?.[0];
+	assert.ok(source);
+	source.source = Buffer.from(
+		"From: trusted@example.com\r\nTo: old@example.com\r\nBcc: original-hidden@example.com\r\nSubject: Source topic\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nOriginal source body\r\n--x\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=original.bin\r\n\r\nOriginal bytes\r\n--x--",
+	);
+	source.size = source.source.length;
+	const args = {
+		operationId: randomUUID(),
+		source: { mailbox: "INBOX", uid: 2, uidValidity: "7" },
+		to: "recipient@example.com",
+		text: "FYI",
+		attachments: [testFile],
+	};
+	const pending = parseContinuation(
+		await client.callTool("forward_email", args),
+	);
+	assert.equal(client.submissions.length, 0);
+	const sent = sendResult(
+		await client.callTool("forward_email", args, {
+			requestState: pending.requestState,
+			inputResponses: acceptedResponse,
+		}),
+	);
+	assert.ok("outcome" in sent);
+	assert.equal(sent.outcome.status, "accepted");
+	assert.equal(sent.source.kind, "forward");
+	const outgoing = client.submissions[0]?.message;
+	assert.ok(outgoing);
+	assert.equal(outgoing.subject, "Fwd: Source topic");
+	assert.match(outgoing.text, /FYI/);
+	assert.match(outgoing.text, /Forwarded message/);
+	assert.match(outgoing.text, /Original source body/);
+	assert.equal(outgoing.text.includes("original-hidden"), false);
+	assert.deepEqual(outgoing.bcc, []);
+	assert.equal(outgoing.media?.length, 1);
+	assert.equal(outgoing.media[0]?.file.filename, testFile.filename);
+	assert.equal(client.client.downloads.length, 0);
+	assert.equal(client.client.mailboxes.get("INBOX")?.length, 1);
+	assert.equal(client.client.deletions, 0);
+	assert.deepEqual(
+		sendResult(await client.callTool("forward_email", args)),
+		sent,
+	);
+	assert.equal(client.submissions.length, 1);
+});
+
+test("forward cancellation and source changes during modern or legacy approval never submit", async (t) => {
+	await t.test("modern cancellation", async (t) => {
+		const client = await fixture(t);
+		const args = {
+			operationId: randomUUID(),
+			source: { mailbox: "INBOX", uid: 2, uidValidity: "7" },
+			to: "recipient@example.com",
+		};
+		const pending = parseContinuation(
+			await client.callTool("forward_email", args),
+		);
+		const result = sendResult(
+			await client.callTool("forward_email", args, {
+				requestState: pending.requestState,
+				inputResponses: { approve_send: { action: "decline" } },
+			}),
+		);
+		assert.ok("error" in result);
+		assert.equal(result.error.code, "APPROVAL_DENIED");
+		assert.equal(client.submissions.length, 0);
+	});
+	await t.test("modern changed source", async (t) => {
+		const client = await fixture(t);
+		const args = {
+			operationId: randomUUID(),
+			source: { mailbox: "INBOX", uid: 2, uidValidity: "7" },
+			to: "recipient@example.com",
+		};
+		const pending = parseContinuation(
+			await client.callTool("forward_email", args),
+		);
+		const source = client.client.mailboxes.get("INBOX")?.[0];
+		assert.ok(source?.source);
+		source.source = Buffer.from(
+			source.source.toString().replace("Body 2", "Changed source body"),
+		);
+		const result = sendResult(
+			await client.callTool("forward_email", args, {
+				requestState: pending.requestState,
+				inputResponses: acceptedResponse,
+			}),
+		);
+		assert.ok("error" in result);
+		assert.equal(result.error.code, "OPERATION_CONFLICT");
+		assert.equal(client.submissions.length, 0);
+	});
+	await t.test("legacy changed source", async (t) => {
+		const client = await fixture(t, {
+			changedForwardDuringLegacyApproval: true,
+		});
+		const result = sendResult(
+			await client.callTool("forward_email", {
+				operationId: randomUUID(),
+				source: { mailbox: "INBOX", uid: 2, uidValidity: "7" },
+				to: "recipient@example.com",
+			}),
+		);
+		assert.ok("error" in result);
+		assert.equal(result.error.code, "OPERATION_CONFLICT");
+		assert.equal(client.submissions.length, 0);
+	});
+});
+
+test("forward read policy is reauthorized after approval and original attachments are not auto-selected", async (t) => {
+	const client = await fixture(t);
+	const args = {
+		operationId: randomUUID(),
+		source: { mailbox: "INBOX", uid: 2, uidValidity: "7" },
+		to: "recipient@example.com",
+	};
+	const pending = parseContinuation(
+		await client.callTool("forward_email", args),
+	);
+	await saveReadPolicy(
+		createReadPolicy({
+			bridgeUser: testConfig.user,
+			allowedMailboxes: ["Drafts"],
+			allowedSenderEmails: [],
+		}),
+	);
+	const denied = sendResult(
+		await client.callTool("forward_email", args, {
+			requestState: pending.requestState,
+			inputResponses: acceptedResponse,
+		}),
+	);
+	assert.ok("error" in denied);
+	assert.equal(denied.error.code, "POLICY_DENIED");
+	assert.equal(client.submissions.length, 0);
+	assert.equal(client.client.downloads.length, 0);
+});
+
+test("a changed quoted envelope fallback invalidates a forward approval", async (t) => {
+	const client = await fixture(t);
+	const original = client.client.mailboxes.get("INBOX")?.[0];
+	assert.ok(original);
+	original.source = Buffer.from("Subject: Without From\r\n\r\nBody 2");
+	const args = {
+		operationId: randomUUID(),
+		source: { mailbox: "INBOX", uid: 2, uidValidity: "7" },
+		to: "recipient@example.com",
+	};
+	const pending = parseContinuation(
+		await client.callTool("forward_email", args),
+	);
+	assert.ok(original.envelope);
+	original.envelope.from = [{ address: "changed@example.com" }];
+	const result = sendResult(
+		await client.callTool("forward_email", args, {
+			requestState: pending.requestState,
+			inputResponses: acceptedResponse,
+		}),
+	);
+	assert.ok("error" in result);
+	assert.equal(result.error.code, "OPERATION_CONFLICT");
+	assert.equal(client.submissions.length, 0);
+});
+
+test("forward source is refetched after the real approval decision succeeds", async (t) => {
+	const client = await fixture(t, { sourceChangedAfterVerifiedApproval: true });
+	const args = {
+		operationId: randomUUID(),
+		source: { mailbox: "INBOX", uid: 2, uidValidity: "7" },
+		to: "recipient@example.com",
+	};
+	const pending = parseContinuation(
+		await client.callTool("forward_email", args),
+	);
+	const result = sendResult(
+		await client.callTool("forward_email", args, {
+			requestState: pending.requestState,
+			inputResponses: acceptedResponse,
+		}),
+	);
+	assert.ok("error" in result);
+	assert.equal(result.error.code, "DRAFT_CHANGED");
+	assert.equal(client.submissions.length, 0);
 });

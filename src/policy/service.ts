@@ -8,6 +8,7 @@ import type {
 	GetThreadInput,
 	SearchMessagesInput,
 } from "../bridge/schemas.js";
+import type { ManageMessageInput } from "../inbox/model.js";
 import { hashContent } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
 import {
@@ -15,6 +16,7 @@ import {
 	canReadMessage,
 	READ_POLICY_NOT_CONFIGURED,
 	readPolicyStatus,
+	requireInboxWrite,
 } from "./enforcement.js";
 import { loadReadPolicy } from "./store.js";
 
@@ -109,6 +111,43 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 		return mailbox.path;
 	}
 	return {
+		async getInboxCapabilities() {
+			const capabilities = await imap.inbox.capabilities();
+			const writePolicy =
+				policy.version === 2
+					? policy.inboxWrites
+					: { mode: "disabled" as const };
+			return {
+				nativeMoveSupported: capabilities.nativeMoveSupported,
+				writePolicy,
+				mailboxes: capabilities.mailboxes
+					.filter((mailbox) => canReadMailbox(policy, mailbox.path))
+					.map((mailbox) => ({
+						...mailbox,
+						writable:
+							mailbox.kind !== "drafts" &&
+							writePolicy.mode === "enabled" &&
+							writePolicy.mailboxes.includes(mailbox.path),
+					})),
+			};
+		},
+		async manageInbox(input: ManageMessageInput) {
+			return imap.inbox.manage(input, async (destination) => {
+				const currentPolicy = await requireReadPolicy(bridgeUser);
+				requireInboxWrite(currentPolicy, input, destination);
+				return (mailbox, message) =>
+					canReadMessage(currentPolicy, { mailbox, message });
+			});
+		},
+		async reconcileInboxOperation(operationId: string) {
+			const record = await imap.inbox.get(operationId);
+			return imap.inbox.reconcile(operationId, async (destination) => {
+				const currentPolicy = await requireReadPolicy(bridgeUser);
+				requireInboxWrite(currentPolicy, record.request, destination);
+				return (mailbox, message) =>
+					canReadMessage(currentPolicy, { mailbox, message });
+			});
+		},
 		async getDraft(input: GetMessageInput) {
 			requireMailbox(input.mailbox);
 			return imap.getDraft(input, accepts);

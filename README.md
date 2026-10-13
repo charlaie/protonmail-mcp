@@ -1,6 +1,6 @@
 # protonmail-mcp
 
-An MCP server for using Proton Mail through the local Proton Mail Bridge. It exposes tools to list mailboxes, search message metadata, read allowed plain-text messages and download original attachments, create and edit plain-text drafts and replies, and send approved plain-text messages or draft snapshots with durable recovery.
+An MCP server for using Proton Mail through the local Proton Mail Bridge. It exposes tools to list mailboxes, search message metadata, read allowed plain-text messages and download original attachments, create and edit drafts and replies, and send or forward approved messages with attachments, inline images and durable recovery.
 
 ## Requirements
 
@@ -68,6 +68,8 @@ Setup also asks which attachment extensions may be downloaded. Supported values 
 
 Setup asks whether each attachment download requires human approval. This sets `requireAttachmentApproval` in the version 2 policy. The setting defaults to `false`, including for existing policies that omit it. Set it to `true` through setup to require approval before the server downloads attachment contents. The model cannot change this setting through tool arguments. Listing attachment metadata does not require this approval.
 
+Setup separately asks which inbox actions and mailboxes may be changed. Blank disables inbox writes. Existing policies also default to disabled. Enabled `inboxWrites` grants list actions and exact source/destination mailbox paths, all of which must already be readable. Sender restrictions still apply. These local grants authorize inbox actions without a per-action approval prompt; sending and forwarding always require their separate approval. The model cannot widen these grants.
+
 Policies are bound to the Bridge username used during setup. Existing version 1 policies and policies for another account cannot authorize reads or draft access. Run `pnpm setup` to create a version 2 policy for the current account. Setup replaces the policy file atomically.
 
 Draft tools also require the Drafts mailbox to be selected during setup. If Drafts is not allowed, draft tools return a policy error explaining how to enable access.
@@ -119,22 +121,47 @@ If your MCP client starts servers from the repository directory, you can also us
 - `list_attachments`: lists filename, MIME type, transfer-encoded size, attachment ID, and download eligibility for an allowed message. Fetches MIME structure without downloading attachment contents. Eligibility describes policy and metadata checks; downloading also validates actual part headers and decoded size.
 - `get_attachment`: downloads one attachment ID returned by `list_attachments`, using the same mailbox, UID, and UIDVALIDITY. Downloads only that part, even if the whole message exceeds the message-read limit. Always returns original bytes as an MCP embedded binary resource, with untrusted metadata and client compatibility guidance. The `format` argument has been removed. Text-format attachments are limited to 1 MiB and PDFs to 5 MiB. The local policy can require human approval before each download. The receiving client handles text decoding, document parsing, rendering, and OCR.
 - `get_thread`: reconstructs a reply chain across allowed mailboxes using exact Message-ID, References, and In-Reply-To tokens. This is a best-effort reconstruction. `limitReached` reports when the result cap is reached. `includeText: false` returns summaries; otherwise `bodyStatus` explains whether each body is included or unavailable. Total returned thread text is limited to 500,000 characters. Use `get_message` for bodies omitted by that limit.
+- `get_inbox_capabilities`: reports native MOVE support, the current inbox write policy, and readable mailbox kinds and write grants. Individual flag operations also require the selected mailbox to advertise permanent flag support.
+- `manage_message`: changes one allowed message using a durable `operationId`, mailbox, UID, UIDVALIDITY and `change`. Actions are `mark_read`, `mark_unread`, `star`, `unstar`, `archive`, `trash`, `move`, `apply_label`, and `remove_label`. Moves require native IMAP MOVE; copy/delete fallback is refused. No action permanently deletes mail or mutates Drafts.
+- `get_inbox_operation` and `list_inbox_operations`: inspect local operation metadata or paginate unresolved operations without reading bodies. Repeating a recorded request returns its outcome without another write.
+- `reconcile_inbox_operation`: checks positive flag or placement evidence for an uncertain operation without writing mail. Missing, ambiguous or changed evidence keeps uncertainty. An operation still marked `submitting` cannot be reconciled because its writer may still be running.
 - `create_draft`: saves a plain-text draft, including an empty composition. Requires an `operationId` UUID. Identical retries return the durable operation without another APPEND. Successful identity and revision are in `outcome`. It never sends mail.
 - `create_reply_draft`: creates a reply or reply-all draft from an allowed mailbox, UID, and UIDVALIDITY. It respects Reply-To, excludes configured own addresses, deduplicates recipients, never copies original Bcc recipients, and derives In-Reply-To and References. `replyAll` defaults to false; `text` may be empty. Requires an `operationId` UUID reused on retries, source read permission and Drafts access. It never sends mail.
-- `get_draft`: reads an allowed plain-text draft, including unfinished zero-recipient drafts and Bcc, and returns a `revision` token for editing. HTML and attachments are refused.
+- `get_draft`: reads an allowed draft, including unfinished zero-recipient drafts, Bcc and byte-free attachment/inline-image manifests, and returns a `revision` token for editing. Supports plain text, files and the generated inline-image body. Arbitrary HTML is refused.
 - `edit_draft`: patches a readable plain-text draft using UID, UIDVALIDITY, `expectedRevision` from `get_draft`, and a new `operationId` UUID. Omitted fields are retained. Empty recipient arrays clear those recipients; empty strings clear subject or body. Preserves sender alias, Reply-To and reply headers. Creates one replacement with a unique Message-ID, then deletes the unchanged original using UIDPLUS. A stale revision is rejected before APPEND. Identical retries return the saved operation.
 - `get_draft_operation` and `list_draft_operations`: inspect durable draft operation metadata or list unresolved operations without fetching message bodies. Lists accept `limit` and `offset`; `nextOffset: null` ends pagination. The unresolved set can change between pages.
 - `reconcile_draft_operation`: searches allowed Drafts for exactly one operation Message-ID with matching canonical content. Harmless transport headers may differ; recipients, sender, subject, body and reply headers must match. No match keeps uncertainty, and conflicting or duplicate copies are refused. Never appends or deletes mail.
 - `retry_draft_cleanup`: deletes only an edit operation's recorded original after verifying both original and replacement revisions, current policy, UIDVALIDITY and UIDPLUS. Never appends or sends. Reconcile uncertain APPEND first.
 
-- `send_email`: sends plain-text email after mandatory user approval of the sender, recipients, subject, reply metadata, and complete formatted body. Bodies are limited to 100,000 characters. Requires a new `operationId` UUID for each intended send; repeat the same ID and arguments to retrieve an attempted operation's outcome without submitting it again.
-- `send_draft`: sends a plain-text Drafts snapshot identified by UID and UIDVALIDITY after full-message approval. Requires an `operationId` UUID and account, mailbox, and sender read permission. It preserves the draft's recipients, Bcc, sender, subject, text, Reply-To, and threading headers. HTML, attachments, invalid headers, unconfigured sender aliases, and oversized drafts are refused. Changing the snapshot requires a new operation and approval. After full SMTP acceptance, it checks the snapshot again before deleting only that draft with UIDPLUS. Deletion is a separately reported outcome; a deletion failure never triggers another send.
+- `send_email`: sends text with optional attachments and inline images after mandatory user approval of the sender, recipients, subject, reply metadata, complete body and file/image manifests. Bodies are limited to 100,000 characters. Requires a new `operationId` UUID for each intended send; repeat the same ID and arguments to retrieve an attempted operation's outcome without submitting it again.
+- `send_draft`: sends a supported Drafts snapshot identified by UID and UIDVALIDITY after full-message approval. Requires an `operationId` UUID and account, mailbox, and sender read permission. It preserves recipients, Bcc, sender, subject, text, Reply-To, threading headers, files and supported inline images. Arbitrary HTML, unsupported media, invalid headers, unconfigured sender aliases, and oversized drafts are refused. Changing the snapshot requires a new operation and approval. After full SMTP acceptance, it checks the snapshot again before deleting only that draft with UIDPLUS. Deletion is a separately reported outcome; a deletion failure never triggers another send.
+- `forward_email`: quotes the allowed source's headers and plain text, adds an optional introduction, and sends after the same full-message approval and durable journal checks as other sends. Requires `operationId`, `source: { mailbox, uid, uidValidity }`, and new recipients. Original Bcc and attachments are omitted; supplied outgoing attachments/images are explicitly approved. The source is reauthorized and its quoted fields are checked after approval. It never deletes or changes the source.
 - `get_send_operation`: retrieves the current account's durable operation record by `operationId`, including after a restart. It never sends mail. Interrupted submissions are reported as uncertain.
 - `list_send_operations`: lists prepared, uncertain, partial, and accepted operations needing draft cleanup. Uses the same `limit`, `offset`, and `nextOffset` pagination contract as draft operations.
 - `retry_send_cleanup`: retries only deletion of the recorded unchanged draft for a fully accepted send under current read policy and UIDPLUS. Never submits SMTP. Partial and uncertain sends are refused.
 - `reconcile_send_operation`: searches the policy-allowed Sent mailbox for an uncertain operation's exact preassigned Message-ID. Positive evidence records matching identities in `sentCopies`, separately from the SMTP outcome. No match leaves the operation uncertain. It never resends or deletes drafts.
 
 `get_message`, `get_thread`, `list_attachments`, `get_attachment`, `create_reply_draft`, `send_draft`, and `edit_draft` require the `uidValidity` returned with the message identity. A mailbox reset invalidates old identities; search again before retrying. Tool failures set `isError: true`, including policy refusals and partial draft or email outcomes. Tools advertise output schemas and return `structuredContent` alongside JSON text for older clients. Ordinary errors have `{ status: "error", error: { code, message, retry } }`. Retry guidance distinguishes safe retry, refreshed identity, configuration changes, renewed approval, reconciliation, and no retry.
+
+### Inbox management
+
+For example, archive a message with `manage_message`:
+
+```json
+{
+  "operationId": "5cf0dd38-1353-45fa-bdb7-3cfbf9d81d9f",
+  "mailbox": "INBOX",
+  "uid": 42,
+  "uidValidity": "7",
+  "change": { "action": "archive" }
+}
+```
+
+Source and destination require read and inbox write grants. Flags preserve unrelated flags. Archive and Trash use Bridge's corresponding folders; `move` requires an exact ordinary-folder destination. All Mail and Starred are views, so placement changes must use the message's ordinary folder. Read/star flags can be changed through views, including unstar through Starred.
+
+Proton exposes existing labels as `Labels/…` mailboxes. `apply_label` uses a native move from an ordinary folder into a label projection; Proton retains the message's ordinary folder. `remove_label` moves from the label projection to an explicit ordinary folder, removing that label and choosing the message's destination folder. This can relocate the message. Generic moves cannot implicitly change labels. Label creation and arbitrary IMAP keyword tags are unsupported. See [Proton's label behavior](https://proton.me/support/labels-in-bridge).
+
+The journal reserves each active message identity and Message-ID across inbox, draft and send writes. Uncertain writes retain their reservation and never run again automatically. Reconciliation requires positive evidence under current policy. A crash can leave an inbox operation marked `submitting`; it stays reserved because the server cannot prove its writer has stopped. Inspect it manually with all account processes stopped. External Proton clients do not share these claims, and IMAP does not provide a transaction spanning a final metadata check and a write.
 
 ### Send recovery
 
@@ -152,7 +179,7 @@ Retain that ID across approval rounds, retries, and server restarts. A UUID is p
 
 The result contains `operationId`, the preassigned `messageId`, timestamps, hashes, source identity, `outcome`, `draftCleanup`, `sentCopies`, and `retry`. Outcomes include `prepared`, `accepted`, `partially_accepted`, `rejected`, and `uncertain`. Accepted means Bridge accepted submission, not that every recipient received it. A partial outcome lists accepted and rejected recipients; never resend to accepted recipients. Partial and uncertain sends retain their draft. Sent-copy evidence never replaces a known SMTP outcome and does not establish which recipients received the message. An uncertain operation with positive Sent evidence still has an unknown SMTP result and advises against retrying.
 
-The SQLite journal defaults to `send-operations/` beside the policy file. Set `PROTONMAIL_MCP_OPERATIONS_DIR` to choose another local directory. Each account has a separate database with private file permissions. Records contain request/content hashes and outcome metadata, not message bodies or Bridge passwords. Keep the journal when moving configurations or recovering a server; deleting it removes replay protection. Use a local filesystem and share this directory among MCP processes for the same account. SQLite commits use synchronous FULL durability; interrupted or unrecorded SMTP outcomes stay uncertain and block automatic retries.
+The SQLite journal defaults to `send-operations/` beside the policy file. Set `PROTONMAIL_MCP_OPERATIONS_DIR` to choose another local directory. Each account has a separate database with private file permissions. Records contain request/content hashes, optional file/image manifests and outcome metadata, not message bodies, attachment bytes or Bridge passwords. Keep the journal when moving configurations or recovering a server; deleting it removes replay protection. Use a local filesystem and share this directory among MCP processes for the same account. SQLite commits use synchronous FULL durability; interrupted or unrecorded SMTP outcomes stay uncertain and block automatic retries.
 
 A Message-ID correlates a submission with Sent; it does not guarantee SMTP deduplication or exactly-once delivery. A Sent copy does not prove delivery to every recipient. Do not create a replacement operation ID merely because an acknowledgment was lost. Resolve uncertainty using the recorded ID and Sent evidence first.
 
@@ -167,6 +194,31 @@ Read the draft with `get_draft`, then call `edit_draft` with its revision. Clien
 Use `list_draft_operations` to find unresolved writes after a restart. Reconcile `appending` operations without writing to the mailbox. A recovered create becomes `completed`; a recovered edit becomes `saved`, and `retry_draft_cleanup` completes deletion separately. Cleanup leaves the original when the replacement is missing or either content revision changed. An existing UID with unavailable source content remains unresolved. A confirmed absent original, after checking UIDVALIDITY, counts as completed deletion. Completed cleanup cannot regress when an older request finishes late.
 
 Keep the operation database when upgrading; the existing send journal is extended with draft records and claims. Draft mutations made before this upgrade have no durable history and require manual inspection. External mail clients do not participate in journal claims. Their changes detected during approval or cleanup are refused or retained, but they can still act between the final check and a server write. Manually copying messages or restoring an old journal can defeat identity-based replay protection. There is no automatic retention or pruning of journal claims.
+
+## Outgoing attachments and inline images
+
+`send_email`, `create_draft`, `create_reply_draft`, `edit_draft`, and `forward_email` accept `attachments` and `inlineImages`. Each file has a safe `filename`, a lowercase `contentType` without parameters, and `contentBase64` containing its original bytes in canonical base64. An optional `charset` preserves the MIME character set of a text file. Files may be empty. Paths, URLs, data URIs, raw MIME and custom headers are not accepted. The server never retrieves outgoing file contents from the network or filesystem.
+
+For example, attach the exact three bytes `abc` with:
+
+```json
+{
+  "attachments": [{
+    "filename": "note.txt",
+    "contentType": "text/plain",
+    "charset": "utf-8",
+    "contentBase64": "YWJj"
+  }]
+}
+```
+
+Each decoded file is limited to 5 MiB. Attachments and inline images together are limited to 6 MiB and 20 parts. Inline images also require `alt`, a description up to 128 characters, and matching PNG, JPEG or GIF MIME/signature and dimensions no larger than 4096 by 4096. This is container/header validation, not a full image decoder. SVG and arbitrary HTML authoring are unsupported.
+
+Inline images appear after the escaped text body using generated CID references, with a plain-text alternative. Text and descriptions cannot insert HTML. The server edits/sends only plain-text file drafts or drafts whose HTML exactly matches this supported rendering. It refuses arbitrary existing HTML, unsupported inline metadata or MIME parameters instead of dropping content. Supported ordinary attachments retain their original declared MIME type, optional charset, filenames and bytes, independently of MIME types guessed from filename extensions.
+
+Draft patches preserve omitted `attachments` and `inlineImages` independently; `[]` clears the specified group. `get_draft` and operation outputs include kind, filename, MIME type, optional charset, decoded size and SHA-256 digest. Inline manifests also include CID and description. They do not expose base64 or original file bytes. Send approvals display these manifests and bind the complete payload bytes. Changes to files, descriptions or MIME metadata require another reviewed operation. Files and images do not weaken stale revision, uncertain submission or cleanup protections.
+
+Forwarding does not automatically select source attachments or copy the original Bcc. To forward an original file, call `list_attachments`, select its attachment ID, and obtain its bytes through `get_attachment`. That download still enforces the incoming extension/size allowlist and optional human approval. Supply those approved bytes in the forward's `attachments` or `inlineImages` payload; the send requires its separate approval. Source headers and text are untrusted quoted material, not instructions. Outlook-style arbitrary rich text layouts and automatic attachment selection remain outside this contract.
 
 ## Attachment downloads
 

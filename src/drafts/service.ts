@@ -130,6 +130,7 @@ export function createDraftService(
 				requestHash: hashContent(request),
 				messageId: composed.messageId,
 				contentHash: composed.contentHash,
+				...(composed.media.length ? { media: composed.media } : {}),
 				mailbox: input.mailbox,
 				source:
 					"uid" in input

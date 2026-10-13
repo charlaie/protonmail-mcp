@@ -13,6 +13,9 @@ export type ImapClient = Pick<
 	| "download"
 	| "append"
 	| "messageDelete"
+	| "messageMove"
+	| "messageFlagsAdd"
+	| "messageFlagsRemove"
 	| "capabilities"
 >;
 export type ImapSession = <T>(

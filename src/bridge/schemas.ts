@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MediaInputFields, withinMediaLimits } from "../outgoing/media.js";
 
 const EmailAddressSchema = z.email().describe("A single email address.");
 const EmailListSchema = z
@@ -21,58 +22,67 @@ const UidValiditySchema = z
 		"Mailbox UIDVALIDITY returned by search_messages or create_draft. Prevents using an obsolete UID after a mailbox reset.",
 	);
 
-export const SendEmailSchema = z.object({
-	operationId: z
-		.uuid()
-		.describe(
-			"UUID for this intended write. Reuse the same UUID and arguments when checking or retrying; never replace it to retry an uncertain write.",
+export const SendEmailSchema = z
+	.object({
+		...MediaInputFields,
+		operationId: z
+			.uuid()
+			.describe(
+				"UUID for this intended write. Reuse the same UUID and arguments when checking or retrying; never replace it to retry an uncertain write.",
+			),
+		to: EmailListSchema.describe("Primary recipients for the email."),
+		cc: EmailListSchema.optional().describe("Optional CC recipients."),
+		bcc: EmailListSchema.optional().describe("Optional BCC recipients."),
+		subject: SubjectSchema.min(1).describe(
+			"Email subject line. Keep it concise and specific.",
 		),
-	to: EmailListSchema.describe("Primary recipients for the email."),
-	cc: EmailListSchema.optional().describe("Optional CC recipients."),
-	bcc: EmailListSchema.optional().describe("Optional BCC recipients."),
-	subject: SubjectSchema.min(1).describe(
-		"Email subject line. Keep it concise and specific.",
-	),
-	text: TextSchema.min(1).describe(
-		"Plain-text email body. HTML and attachments are not supported by this tool.",
-	),
-});
+		text: TextSchema.min(1).describe(
+			"Plain-text email body. HTML and attachments are not supported by this tool.",
+		),
+	})
+	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
 
-const DraftContentSchema = z.object({
-	to: EmailListSchema.optional().describe("Optional primary recipients."),
-	cc: EmailListSchema.optional().describe("Optional CC recipients."),
-	bcc: EmailListSchema.optional().describe("Optional BCC recipients."),
-	subject: SubjectSchema.default("").describe(
-		"Draft subject line. May be blank for an unfinished draft.",
-	),
-	text: TextSchema.default("").describe(
-		"Plain-text draft body. HTML and attachments are not supported by this tool.",
-	),
-});
+const DraftContentSchema = z
+	.object({
+		...MediaInputFields,
+		to: EmailListSchema.optional().describe("Optional primary recipients."),
+		cc: EmailListSchema.optional().describe("Optional CC recipients."),
+		bcc: EmailListSchema.optional().describe("Optional BCC recipients."),
+		subject: SubjectSchema.default("").describe(
+			"Draft subject line. May be blank for an unfinished draft.",
+		),
+		text: TextSchema.default("").describe(
+			"Plain-text draft body. HTML and attachments are not supported by this tool.",
+		),
+	})
+	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
 
-export const CreateDraftSchema = DraftContentSchema.extend({
+export const CreateDraftSchema = DraftContentSchema.safeExtend({
 	operationId: SendEmailSchema.shape.operationId,
 });
 
 const PatchRecipientsSchema = z
 	.union([EmailAddressSchema, z.array(EmailAddressSchema)])
 	.transform((value) => (Array.isArray(value) ? value : [value]));
-export const EditDraftSchema = z.object({
-	operationId: SendEmailSchema.shape.operationId,
-	uidValidity: UidValiditySchema,
-	uid: UidSchema,
-	expectedRevision: z
-		.string()
-		.regex(/^[a-f0-9]{64}$/)
-		.describe("Revision returned by get_draft. Rejects stale edits."),
-	to: PatchRecipientsSchema.optional().describe(
-		"Omit to preserve; [] clears recipients.",
-	),
-	cc: PatchRecipientsSchema.optional(),
-	bcc: PatchRecipientsSchema.optional(),
-	subject: SubjectSchema.optional(),
-	text: TextSchema.optional(),
-});
+export const EditDraftSchema = z
+	.object({
+		...MediaInputFields,
+		operationId: SendEmailSchema.shape.operationId,
+		uidValidity: UidValiditySchema,
+		uid: UidSchema,
+		expectedRevision: z
+			.string()
+			.regex(/^[a-f0-9]{64}$/)
+			.describe("Revision returned by get_draft. Rejects stale edits."),
+		to: PatchRecipientsSchema.optional().describe(
+			"Omit to preserve; [] clears recipients.",
+		),
+		cc: PatchRecipientsSchema.optional(),
+		bcc: PatchRecipientsSchema.optional(),
+		subject: SubjectSchema.optional(),
+		text: TextSchema.optional(),
+	})
+	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
 
 const MailboxSchema = z
 	.string()
@@ -132,6 +142,21 @@ export const GetMessageSchema = z.object({
 	),
 });
 
+export const ForwardEmailSchema = z
+	.object({
+		...SendEmailSchema.shape,
+		source: GetMessageSchema.describe(
+			"Original message whose allowed headers and plain text are quoted. Original attachments are not included automatically.",
+		),
+		text: TextSchema.default("").describe(
+			"Optional introduction before the forwarded message.",
+		),
+		subject: SubjectSchema.optional().describe(
+			"Optional subject. Defaults to Fwd: plus the original subject.",
+		),
+	})
+	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
+
 export const SendDraftSchema = z.object({
 	operationId: SendEmailSchema.shape.operationId,
 	uidValidity: UidValiditySchema,
@@ -145,6 +170,7 @@ export const GetSendOperationSchema = z.object({
 	operationId: SendEmailSchema.shape.operationId,
 });
 export const CreateReplyDraftSchema = GetMessageSchema.extend({
+	...MediaInputFields,
 	operationId: SendEmailSchema.shape.operationId,
 	replyAll: z
 		.boolean()
@@ -155,7 +181,7 @@ export const CreateReplyDraftSchema = GetMessageSchema.extend({
 	text: TextSchema.default("").describe(
 		"Plain-text reply body. May be empty for an unfinished reply draft.",
 	),
-});
+}).refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
 
 export const ListAttachmentsSchema = GetMessageSchema;
 export const GetAttachmentSchema = GetMessageSchema.extend({

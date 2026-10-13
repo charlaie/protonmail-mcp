@@ -17,6 +17,7 @@ import {
 	type ApprovalController,
 	createApprovalController,
 } from "./elicitation.js";
+import { registerInboxTools } from "./inbox-tools.js";
 import {
 	GetMessageOutputSchema,
 	MailboxesOutputSchema,
@@ -147,6 +148,7 @@ export function createServer(
 	);
 
 	registerAttachmentTools({ server, readService, approval });
+	registerInboxTools({ server, imap, readService });
 
 	return server;
 }

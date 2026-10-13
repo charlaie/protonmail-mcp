@@ -51,7 +51,7 @@ export function registerDraftTools(input: {
 			outputSchema: DraftOperationOutputSchema,
 			annotations: write,
 			description:
-				"Save a plain-text draft without sending. Supply a new operationId UUID and reuse it with identical arguments on retries. Empty recipients, subject and body are allowed. Durable APPEND intent prevents duplicates after restart; appending means uncertain and requires reconciliation. Requires allowed Drafts mailbox access.",
+				"Save a text draft with optional bounded base64 attachments and inline images without sending. Supply a new operationId UUID and reuse it with identical arguments on retries. Empty recipients, subject and body are allowed. Durable APPEND intent prevents duplicates after restart; appending means uncertain and requires reconciliation. Requires allowed Drafts mailbox access.",
 		},
 		async (request) => {
 			try {
@@ -103,7 +103,7 @@ export function registerDraftTools(input: {
 			outputSchema: GetDraftOutputSchema,
 			annotations: read,
 			description:
-				"Read a policy-authorized plain-text draft, including Bcc and its revision token. Keep revision for edit_draft expectedRevision. Empty unfinished drafts are supported. HTML, attachments, oversized drafts, and disallowed senders are refused.",
+				"Read a policy-authorized draft, including Bcc, byte-free file/image manifests and its revision token. Keep revision for edit_draft expectedRevision. Empty unfinished drafts are supported. Arbitrary HTML, unsupported media, oversized drafts, and disallowed senders are refused.",
 		},
 		async (request) => {
 			try {
@@ -121,7 +121,7 @@ export function registerDraftTools(input: {
 			outputSchema: DraftOperationOutputSchema,
 			annotations: { ...write, destructiveHint: true },
 			description:
-				"Patch a readable plain-text draft using its UID, UIDVALIDITY and expectedRevision from get_draft. Omitted fields are preserved; [] clears recipients and an empty string clears subject or body. Requires a new operationId UUID, reused on retries. Preserves sender and reply headers. Drafts with an attempted send or unresolved replacement are blocked. Creates one replacement, then safely deletes the unchanged original. Uncertain results require recovery; never change IDs to retry.",
+				"Patch a readable supported draft using its UID, UIDVALIDITY and expectedRevision from get_draft. Omitted fields and attachment/inline-image groups are preserved; [] clears the specified recipient or payload group and an empty string clears subject or body. Requires a new operationId UUID, reused on retries. Preserves sender and reply headers. Drafts with an attempted send or unresolved replacement are blocked. Creates one replacement, then safely deletes the unchanged original. Uncertain results require recovery; never change IDs to retry.",
 		},
 		async (request) => {
 			try {

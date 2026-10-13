@@ -1,4 +1,6 @@
 import { type ParsedMail, simpleParser } from "mailparser";
+import { mediaManifest } from "../outgoing/media.js";
+import { parsedMedia } from "../outgoing/mime.js";
 import { hashContent, OutgoingMessageSchema } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
 import type { BridgeConfig } from "./config.js";
@@ -18,7 +20,9 @@ import {
 import type { ImapClient } from "./session.js";
 
 export function draftContentHash(original: ParsedMail) {
+	const media = parsedMedia(original);
 	return hashContent({
+		...(media.length ? { media: mediaManifest(media) } : {}),
 		messageId: original.messageId,
 		from: parsedAddressText(original.from),
 		to: parsedAddressText(original.to),
@@ -91,13 +95,21 @@ export async function inspectDraft(
 	const original = await simpleParser(full.source, {
 		skipHtmlToText: true,
 		skipTextToHtml: true,
+		skipImageLinks: true,
 	});
-	if (original.html || original.attachments.length > 0)
+	let media: ReturnType<typeof parsedMedia>;
+	try {
+		media = parsedMedia(original);
+	} catch (error) {
+		if (error instanceof MailError) throw error;
 		throw new MailError(
 			"UNSUPPORTED_CONTENT",
-			"Draft has HTML or attachments. Use Proton Mail to preserve its content.",
+			"Draft attachments or inline images exceed limits or have unsupported metadata. Edit it in Proton Mail.",
 			"never",
+			{ cause: error },
 		);
+	}
+
 	if (
 		!accepts(input.mailbox, {
 			...messageSummary(summary, input.uidValidity),
@@ -111,7 +123,11 @@ export async function inspectDraft(
 			"Fetched draft sender is not allowed by the read policy.",
 			"configure",
 		);
-	return { original, fingerprint: hashContent(full.source.toString("base64")) };
+	return {
+		original,
+		media,
+		fingerprint: hashContent(full.source.toString("base64")),
+	};
 }
 
 export async function readDraftSnapshot(
@@ -120,7 +136,11 @@ export async function readDraftSnapshot(
 	input: GetMessageInput,
 	accepts: MessageFilter,
 ) {
-	const { original, fingerprint } = await inspectDraft(client, input, accepts);
+	const { original, fingerprint, media } = await inspectDraft(
+		client,
+		input,
+		accepts,
+	);
 	const from = parsedAddressEmails(original.from);
 	if (from.length !== 1 || !config.ownAddresses.includes(from[0].toLowerCase()))
 		throw new MailError(
@@ -135,6 +155,7 @@ export async function readDraftSnapshot(
 		bcc: parsedAddressEmails(original.bcc),
 		subject: original.subject ?? "",
 		text: original.text ?? "",
+		...(media.length ? { media } : {}),
 		inReplyTo: parseMessageIds(original.inReplyTo),
 		references: parseMessageIds(original.references),
 		replyTo: original.replyTo?.text,

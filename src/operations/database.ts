@@ -20,7 +20,7 @@ export function createOperationDatabase(
 			const db = new DatabaseSync(path);
 			try {
 				db.exec(
-					"PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS sends (id TEXT PRIMARY KEY, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL); CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, message_id TEXT UNIQUE NOT NULL, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_mutations (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL);",
+					"PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS sends (id TEXT PRIMARY KEY, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL); CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, message_id TEXT UNIQUE NOT NULL, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_mutations (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL); CREATE TABLE IF NOT EXISTS inbox_operations (id TEXT PRIMARY KEY, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS inbox_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL);",
 				);
 				return operation(db);
 			} finally {

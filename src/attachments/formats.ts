@@ -49,20 +49,22 @@ export type AttachmentFormat = FormatDefinition & {
 	extension: AttachmentExtension;
 };
 
+export function isSafeAttachmentFilename(filename: string) {
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: Reject control characters in untrusted filenames.
+	const unsafeFilename = /[\x00-\x1f\x7f/\\:%\u202a-\u202e\u2066-\u2069]/u;
+	return (
+		filename.length > 0 &&
+		filename.length <= 255 &&
+		filename === filename.trim() &&
+		!unsafeFilename.test(filename) &&
+		!filename.startsWith(".") &&
+		!filename.endsWith(".")
+	);
+}
 export function parseAttachmentFormat(
 	filename: string | undefined,
 ): AttachmentFormat | undefined {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: Reject control characters in untrusted filenames.
-	const unsafeFilename = /[\x00-\x1f\x7f/\\:%\u202a-\u202e\u2066-\u2069]/u;
-	if (
-		!filename ||
-		filename.length > 255 ||
-		filename !== filename.trim() ||
-		unsafeFilename.test(filename) ||
-		filename.startsWith(".") ||
-		filename.endsWith(".")
-	)
-		return undefined;
+	if (!filename || !isSafeAttachmentFilename(filename)) return undefined;
 	const dot = filename.lastIndexOf(".");
 	if (dot <= 0) return undefined;
 	const extension = AttachmentExtensionSchema.safeParse(

@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { simpleParser } from "mailparser";
+import { outgoingMedia } from "../outgoing/media.js";
+import { testFile, testImage } from "../outgoing/test-fixtures.js";
 import type { OutgoingMessage } from "../sending/model.js";
 import { smtpFailure, submitEmail } from "./smtp.js";
 import { createSmtpTestServer, type SmtpScenario } from "./smtp-test-server.js";
@@ -13,6 +15,7 @@ const message: OutgoingMessage = {
 	bcc: ["hidden@example.com"],
 	subject: "Test",
 	text: "Reviewed body",
+	media: outgoingMedia({ attachments: [testFile], inlineImages: [testImage] }),
 	inReplyTo: ["<parent@example.com>"],
 	references: ["<root@example.com>", "<parent@example.com>"],
 };
@@ -53,10 +56,31 @@ for (const scenario of [
 				outcome.rejected.includes("hidden@example.com"),
 				scenario === "partial",
 			);
-			const parsed = await simpleParser(smtp.messages[0]);
+			const parsed = await simpleParser(smtp.messages[0], {
+				skipImageLinks: true,
+			});
 			assert.equal(parsed.messageId, "<stable-operation@example.com>");
 			assert.equal(parsed.inReplyTo, "<parent@example.com>");
 			assert.equal(parsed.bcc, undefined);
+			const file = parsed.attachments.find(
+				(attachment) => attachment.filename === testFile.filename,
+			);
+			assert.ok(file);
+			assert.equal(file.contentType, testFile.contentType);
+			assert.deepEqual(
+				file.content,
+				Buffer.from(testFile.contentBase64, "base64"),
+			);
+			const image = parsed.attachments.find(
+				(attachment) => attachment.filename === testImage.filename,
+			);
+			assert.ok(image?.cid);
+			assert.deepEqual(
+				image.content,
+				Buffer.from(testImage.contentBase64, "base64"),
+			);
+			assert.ok(typeof parsed.html === "string");
+			assert.ok(parsed.html.includes(`cid:${image.cid}`));
 		}
 	});
 }

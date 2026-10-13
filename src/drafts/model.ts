@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { GetMessageSchema, SendEmailSchema } from "../bridge/schemas.js";
+import { MediaMetadataSchema } from "../outgoing/media.js";
 
 export const DraftSourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("create") }),
@@ -11,6 +12,7 @@ export const DraftOperationSchema = z.object({
 	messageId: z.string(),
 	mailbox: z.string(),
 	contentHash: z.string(),
+	media: z.array(MediaMetadataSchema).optional(),
 	source: DraftSourceSchema,
 	createdAt: z.iso.datetime(),
 	updatedAt: z.iso.datetime(),

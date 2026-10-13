@@ -76,6 +76,8 @@ export function composeReplyDraft(
 		);
 	return {
 		operationId: input.operationId,
+		attachments: input.attachments,
+		inlineImages: input.inlineImages,
 		mailbox,
 		from,
 		to,

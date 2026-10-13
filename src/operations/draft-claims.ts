@@ -17,17 +17,21 @@ export function draftIdentityKey(identity: GetMessageInput) {
 function conflict(operationId: string) {
 	throw new MailError(
 		"OPERATION_CONFLICT",
-		`Draft identity is reserved by operation ${operationId}. Inspect that operation; do not change operation IDs to retry an uncertain write.`,
+		`Message identity is reserved by operation ${operationId}. Inspect that operation; do not change operation IDs to retry an uncertain write.`,
 		"reconcile",
 	);
 }
-// Both send claims and edit claims call this inside the same BEGIN IMMEDIATE transaction.
+// Send, draft edit and inbox claims call this inside BEGIN IMMEDIATE.
 export function assertDraftMutable(
 	db: DatabaseSync,
 	identity: GetMessageInput,
 	messageId?: string,
 ) {
 	const key = draftIdentityKey(identity);
+	const inbox = db
+		.prepare("SELECT operation_id FROM inbox_claims WHERE identity = ?")
+		.get(key);
+	if (inbox) conflict(OwnerSchema.parse(inbox).operation_id);
 	const mutation = db
 		.prepare("SELECT operation_id FROM draft_mutations WHERE identity = ?")
 		.get(key);
@@ -56,6 +60,20 @@ export function assertDraftMutable(
 				.operationId,
 		);
 	if (messageId) {
+		const inboxProjection = db
+			.prepare(
+				"SELECT id FROM inbox_operations WHERE json_extract(record, '$.messageId') = ? AND json_extract(record, '$.outcome.status') != 'completed'",
+			)
+			.get(messageId);
+		if (inboxProjection)
+			conflict(z.object({ id: z.string() }).parse(inboxProjection).id);
+		const attemptedDraft = db
+			.prepare(
+				"SELECT id FROM sends WHERE json_extract(record, '$.source.kind') = 'draft' AND json_extract(record, '$.source.draftMessageId') = ? AND json_extract(record, '$.outcome.status') != 'prepared' AND (json_extract(record, '$.outcome.status') != 'rejected' OR json_array_length(json_extract(record, '$.sentCopies')) > 0)",
+			)
+			.get(messageId);
+		if (attemptedDraft)
+			conflict(z.object({ id: z.string() }).parse(attemptedDraft).id);
 		const row = db
 			.prepare("SELECT record FROM drafts WHERE message_id = ?")
 			.get(messageId);
