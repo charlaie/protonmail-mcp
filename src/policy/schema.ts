@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
-	type AttachmentExtension,
-	AttachmentExtensionSchema,
+	type AttachmentPermission,
+	AttachmentPermissionSchema,
 } from "../attachments/formats.js";
 import {
 	type InboxWritePolicy,
@@ -32,7 +32,9 @@ const AccountReadPolicySchema = z
 		...PolicyFields,
 		version: z.literal(2),
 		bridgeUser: z.string().min(1),
-		allowedAttachmentExtensions: z.array(AttachmentExtensionSchema).default([]),
+		allowedAttachmentExtensions: z
+			.array(AttachmentPermissionSchema)
+			.default([]),
 		requireAttachmentApproval: z.boolean().default(false),
 		inboxWrites: InboxWritePolicySchema.default({ mode: "disabled" }),
 	})
@@ -60,7 +62,7 @@ export function createReadPolicy(input: {
 	allowedMailboxes: string[];
 	allowedSenderEmails?: string[];
 	allowedSenderDomains?: string[];
-	allowedAttachmentExtensions?: AttachmentExtension[];
+	allowedAttachmentExtensions?: AttachmentPermission[];
 	requireAttachmentApproval?: boolean;
 	inboxWrites?: InboxWritePolicy;
 }) {

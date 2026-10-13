@@ -4,6 +4,7 @@ import { isSpecType, LOG_LEVEL_META_KEY } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { saveReadPolicy } from "../policy/store.js";
 import { ToolErrorSchema } from "../shared/mail-error.js";
+import { AttachmentListOutputSchema } from "./attachment-schemas.js";
 import {
 	attachmentIdentity,
 	attachmentFixture as fixture,
@@ -154,4 +155,55 @@ test("legacy log metadata retains initialized binary capabilities", async (t) =>
 		true,
 	);
 	assert.match(JSON.stringify(result.content[0]), /declared/);
+});
+
+test("wildcard attachment policy delivers arbitrary types with their declared MIME and supports extensionless listing", async (t) => {
+	for (const [filename, contentType] of [
+		["archive.zip", "application/zip"],
+		["photo.png", "image/png"],
+		["misnamed.pdf", "application/octet-stream"],
+		["LICENSE", "application/octet-stream"],
+	]) {
+		const bytes = Buffer.from([0, 255, 128, 13, 10]);
+		const client = await fixture(t, {
+			filename,
+			contentType,
+			bytes,
+			allowedExtensions: ["*"],
+			capabilities: {
+				extensions: {
+					[BINARY_OUTPUT_CAPABILITY]: { mimeTypes: [contentType] },
+				},
+			},
+		});
+		const listing = AttachmentListOutputSchema.parse(
+			(await client.callTool("list_attachments", attachmentIdentity))
+				.structuredContent,
+		);
+		assert.ok("attachments" in listing);
+		assert.equal(listing.attachments[0]?.inspection.kind, "allowed");
+		const result = await client.call();
+		assert.equal(result.isError, undefined);
+		const resource = result.content.find((block) => block.type === "resource");
+		assert.ok(resource && "blob" in resource.resource);
+		assert.equal(resource.resource.mimeType, contentType);
+		assert.deepEqual(Buffer.from(resource.resource.blob, "base64"), bytes);
+	}
+	const client = await fixture(t, {
+		filename: "misnamed.pdf",
+		contentType: "application/octet-stream",
+		allowedExtensions: ["*"],
+		capabilities: {
+			extensions: {
+				[BINARY_OUTPUT_CAPABILITY]: { mimeTypes: ["application/pdf"] },
+			},
+		},
+	});
+	const refused = await client.call();
+	assert.equal(refused.isError, true);
+	assert.match(
+		JSON.stringify(refused.content),
+		/does not declare support for application\/octet-stream/,
+	);
+	assert.equal(client.imap.downloads.length, 0);
 });

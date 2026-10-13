@@ -18,14 +18,17 @@ const readOptions = {
 };
 
 function fixture(options: {
-	contentType: "text/plain" | "application/pdf";
+	contentType: string;
+	filename?: string;
 	disposition: "inline" | "attachment" | undefined;
 	encoding: "8bit" | "base64";
 	bytes?: Buffer;
 	charset?: string;
 }) {
 	const { contentType, disposition, encoding } = options;
-	const filename = contentType === "application/pdf" ? "scan.pdf" : "notes.txt";
+	const filename =
+		options.filename ??
+		(contentType === "application/pdf" ? "scan.pdf" : "notes.txt");
 	const original =
 		options.bytes ??
 		(contentType === "application/pdf"
@@ -158,5 +161,34 @@ test("real downloads preserve ordinary text attachments and transfer-decoded inl
 		assert.equal(result.value.status, "raw");
 		if (result.value.status === "raw")
 			assert.deepEqual(result.value.bytes, original);
+	}
+});
+
+test("real transfer decoding preserves new binary formats and extensionless files", async () => {
+	for (const [filename, contentType] of [
+		["photo.png", "image/png"],
+		["archive.zip", "application/zip"],
+		[
+			"document.docx",
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		],
+		["forwarded.eml", "message/rfc822"],
+		["LICENSE", "application/octet-stream"],
+	]) {
+		const { client, original } = fixture({
+			contentType,
+			filename,
+			disposition: "attachment",
+			encoding: "base64",
+			bytes: Buffer.from([0, 255, 128, 13, 10]),
+		});
+		const result = await getAttachment(client, input, allowAllMessages, {
+			allowedExtensions: ["*"],
+		});
+		assert.equal(result.kind, "found");
+		if (result.kind === "found") {
+			assert.deepEqual(result.value.bytes, original);
+			assert.equal(result.value.mimeType, contentType);
+		}
 	}
 });

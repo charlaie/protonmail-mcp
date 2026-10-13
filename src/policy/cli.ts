@@ -1,6 +1,5 @@
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface, type Interface } from "node:readline/promises";
-import { AttachmentExtensionSchema } from "../attachments/formats.js";
 
 import { loadBridgeConfig } from "../bridge/config.js";
 import { createImapService } from "../bridge/imap.js";
@@ -98,7 +97,7 @@ export async function runSetupCommand() {
 		);
 		const allowedAttachmentExtensions = await ask(
 			rl,
-			`Allowed attachment extensions (${AttachmentExtensionSchema.options.join(", ")}), comma-separated. Blank disables attachment reads: `,
+			"Allowed attachment extensions, comma-separated (for example .pdf,.zip). Enter * for all extensions and extensionless files; blank disables attachment reads: ",
 			parseAttachmentExtensions,
 		);
 		const requireAttachmentApproval = await ask(

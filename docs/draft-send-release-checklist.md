@@ -22,6 +22,7 @@ Automated regressions simulate IMAP boundaries and use a local SMTP server. They
 
 - Forward an allowed original with a new recipient and introduction. Verify source headers/plain text are quoted, original Bcc and attachments are omitted, and the original stays unchanged.
 - Select an original attachment using list/get tools with incoming extension restrictions and optional human approval. Add its approved bytes to the forward, approve the send separately, and verify exact delivery bytes. A forward must not automatically include unselected source files.
+- Grant a new suffix and then `*` through setup. Download controlled images, Office files, archives, attached messages and extensionless files. Verify exact decoded bytes, declared MIME types, the 5 MiB limit, and approval before downloads. Confirm old suffix grants remain restricted and client capability checks use the declared MIME type even when it is `application/octet-stream`.
 - Cancel or expire forward approval and verify no submission. Change the source or read policy during approval and verify refusal. Retry a submitted operation UUID after restart and verify no second SMTP attempt.
 
 ## Inbox management

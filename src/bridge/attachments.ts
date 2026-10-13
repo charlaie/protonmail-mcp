@@ -1,11 +1,12 @@
 import { isDeepStrictEqual } from "node:util";
 import type { MessageStructureObject } from "imapflow";
 import {
-	type AttachmentExtension,
-	type AttachmentFormat,
-	attachmentHeaderError,
-	parseAttachmentFormat,
+	AttachmentMimeTypeSchema,
+	type AttachmentPermission,
+	attachmentExtension,
+	isSafeAttachmentFilename,
 } from "../attachments/formats.js";
+import { MAX_ATTACHMENT_BYTES } from "../attachments/limits.js";
 import { MailError } from "../shared/mail-error.js";
 import type { MessageSummary } from "./message-model.js";
 import {
@@ -28,13 +29,13 @@ type Attachment = {
 type Eligibility =
 	| {
 			kind: "allowed";
-			format: AttachmentFormat;
+			extension: string | null;
 			filename: string;
 			size: number;
 	  }
 	| { kind: "blocked"; reason: string };
 export type AttachmentReadOptions = {
-	allowedExtensions: readonly AttachmentExtension[];
+	allowedExtensions: readonly AttachmentPermission[];
 	expectedAttachment?: AttachmentMetadata;
 };
 
@@ -105,22 +106,28 @@ function collectAttachments(structure: MessageStructureObject): Attachment[] {
 
 function eligibility(
 	attachment: Attachment,
-	allowed: readonly AttachmentExtension[],
+	allowed: readonly AttachmentPermission[],
 ): Eligibility {
-	const format = parseAttachmentFormat(attachment.filename);
-	if (!format || !attachment.filename)
+	if (!attachment.filename || !isSafeAttachmentFilename(attachment.filename))
 		return {
 			kind: "blocked",
-			reason: "Missing, ambiguous, or unsupported filename extension.",
+			reason: "Missing or unsafe attachment filename.",
 		};
-	if (!allowed.includes(format.extension))
+	const extension = attachmentExtension(attachment.filename);
+	if (
+		!allowed.includes("*") &&
+		(extension === null || !allowed.includes(extension))
+	)
 		return {
 			kind: "blocked",
 			reason:
 				"Extension is not allowed by the read policy. Run protonmail-mcp setup to enable it.",
 		};
-	const headerError = attachmentHeaderError(format, attachment);
-	if (headerError) return { kind: "blocked", reason: headerError };
+	if (!AttachmentMimeTypeSchema.safeParse(attachment.contentType).success)
+		return {
+			kind: "blocked",
+			reason: "Attachment MIME type is invalid or is a multipart container.",
+		};
 	if (
 		attachment.size === undefined ||
 		!Number.isSafeInteger(attachment.size) ||
@@ -131,11 +138,11 @@ function eligibility(
 			reason: "Attachment size is unavailable or invalid.",
 		};
 	// BODYSTRUCTURE size is transfer-encoded, so allow bounded encoding overhead here.
-	if (attachment.size > format.maxBytes * 2)
+	if (attachment.size > MAX_ATTACHMENT_BYTES * 2)
 		return { kind: "blocked", reason: "Attachment exceeds the size limit." };
 	return {
 		kind: "allowed",
-		format,
+		extension,
 		filename: attachment.filename,
 		size: attachment.size,
 	};
@@ -190,7 +197,7 @@ export async function listAttachments(
 	client: ImapClient,
 	input: GetMessageInput,
 	accepts: MessageFilter,
-	allowed: readonly AttachmentExtension[],
+	allowed: readonly AttachmentPermission[],
 ) {
 	const result = await authorizedAttachments(client, input, accepts);
 	if (result.kind !== "found") return result;
@@ -208,7 +215,7 @@ export async function listAttachments(
 					sizeEncoding: "transfer_encoded",
 					inspection:
 						inspection.kind === "allowed"
-							? { kind: "allowed", extension: inspection.format.extension }
+							? { kind: "allowed", extension: inspection.extension }
 							: inspection,
 				};
 			}),
@@ -216,14 +223,12 @@ export async function listAttachments(
 	} satisfies ReadResult<unknown>;
 }
 
-async function selectAttachment(
+export async function getAttachmentMetadata(
 	client: ImapClient,
 	input: GetAttachmentInput,
 	accepts: MessageFilter,
-	allowedExtensions: readonly AttachmentExtension[],
-): Promise<
-	ReadResult<{ metadata: AttachmentMetadata; format: AttachmentFormat }>
-> {
+	allowedExtensions: readonly AttachmentPermission[],
+): Promise<ReadResult<AttachmentMetadata>> {
 	const result = await authorizedAttachments(client, input, accepts);
 	if (result.kind !== "found") return result;
 	const attachment = result.value.attachments.find(
@@ -244,36 +249,16 @@ async function selectAttachment(
 	return {
 		kind: "found",
 		value: {
-			format: inspection.format,
-			metadata: {
-				...input,
-				filename: inspection.filename,
-				contentType: attachment.contentType,
-				mimeType: inspection.format.mimeTypes[0],
-				size: inspection.size,
-				charset: attachment.charset,
-				senderEmails: result.value.message.senderEmails,
-				subject: result.value.message.subject,
-			},
+			...input,
+			filename: inspection.filename,
+			contentType: attachment.contentType,
+			mimeType: attachment.contentType,
+			size: inspection.size,
+			charset: attachment.charset,
+			senderEmails: result.value.message.senderEmails,
+			subject: result.value.message.subject,
 		},
 	};
-}
-
-export async function getAttachmentMetadata(
-	client: ImapClient,
-	input: GetAttachmentInput,
-	accepts: MessageFilter,
-	allowedExtensions: readonly AttachmentExtension[],
-): Promise<ReadResult<AttachmentMetadata>> {
-	const result = await selectAttachment(
-		client,
-		input,
-		accepts,
-		allowedExtensions,
-	);
-	return result.kind === "found"
-		? { kind: "found", value: result.value.metadata }
-		: result;
 }
 
 export async function getAttachment(
@@ -282,14 +267,14 @@ export async function getAttachment(
 	accepts: MessageFilter,
 	options: AttachmentReadOptions,
 ): Promise<ReadResult<AttachmentContent>> {
-	const selected = await selectAttachment(
+	const selected = await getAttachmentMetadata(
 		client,
 		input,
 		accepts,
 		options.allowedExtensions,
 	);
 	if (selected.kind !== "found") return selected;
-	const { metadata, format } = selected.value;
+	const metadata = selected.value;
 	if (
 		options.expectedAttachment &&
 		!isDeepStrictEqual(metadata, options.expectedAttachment)
@@ -299,7 +284,7 @@ export async function getAttachment(
 			"Attachment metadata changed before download. Review the attachment again.",
 			"new_approval",
 		);
-	const limit = format.maxBytes;
+	const limit = MAX_ATTACHMENT_BYTES;
 	const downloaded = await client.download(
 		String(input.uid),
 		input.attachmentId,
@@ -310,12 +295,12 @@ export async function getAttachment(
 	try {
 		// Revalidate the actual part headers, rather than relying only on BODYSTRUCTURE.
 		const contentType = downloaded.meta.contentType ?? "";
-		const headerError = attachmentHeaderError(format, {
-			contentType,
-		});
-		if (downloaded.meta.filename !== metadata.filename || headerError)
+		if (
+			downloaded.meta.filename !== metadata.filename ||
+			contentType !== metadata.contentType
+		)
 			throw new Error(
-				`Downloaded attachment headers do not match its allowed type.${headerError ? ` ${headerError}` : ""}`,
+				"Downloaded attachment headers changed. List and approve the attachment again.",
 			);
 		// ImapFlow may normalize flowed text and replace charset metadata for
 		// these inline text parts. Its bounded download cannot promise original bytes.

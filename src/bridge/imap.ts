@@ -1,4 +1,4 @@
-import type { AttachmentExtension } from "../attachments/formats.js";
+import type { AttachmentPermission } from "../attachments/formats.js";
 import { createDraftService } from "../drafts/service.js";
 import type { DraftStore } from "../drafts/store.js";
 import { createInboxService } from "../inbox/service.js";
@@ -59,7 +59,7 @@ export function createImapService(
 		listAttachments: (
 			input: GetMessageInput,
 			accepts: MessageFilter,
-			allowed: AttachmentExtension[],
+			allowed: AttachmentPermission[],
 		) => run((client) => listAttachments(client, input, accepts, allowed)),
 		getAttachment: (
 			input: GetAttachmentInput,
@@ -69,7 +69,7 @@ export function createImapService(
 		getAttachmentMetadata: (
 			input: GetAttachmentInput,
 			accepts: MessageFilter,
-			allowed: AttachmentExtension[],
+			allowed: AttachmentPermission[],
 		) =>
 			run((client) => getAttachmentMetadata(client, input, accepts, allowed)),
 		createDraft: (input: CreateDraftLookupInput, request?: object) =>

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { AttachmentExtensionSchema } from "../attachments/formats.js";
 import { GetAttachmentSchema, GetMessageSchema } from "../bridge/schemas.js";
 import { ToolErrorSchema } from "../shared/mail-error.js";
 
@@ -26,7 +25,7 @@ export const AttachmentListOutputSchema = z.union([
 				inspection: z.discriminatedUnion("kind", [
 					z.object({
 						kind: z.literal("allowed"),
-						extension: AttachmentExtensionSchema,
+						extension: z.string().nullable(),
 					}),
 					z.object({ kind: z.literal("blocked"), reason: z.string() }),
 				]),

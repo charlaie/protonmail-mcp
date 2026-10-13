@@ -75,6 +75,34 @@ test("modern approval downloads only after consent, and cannot be replayed", asy
 	assert.equal(client.imap.downloads.length, 1);
 });
 
+test("wildcard extension grants still require content approval for new binary types", async (t) => {
+	const bytes = Buffer.from([0, 255, 128]);
+	const client = await attachmentFixture(t, {
+		...modernOptions,
+		filename: "archive.zip",
+		contentType: "application/zip",
+		bytes,
+		allowedExtensions: ["*"],
+	});
+	const first = await client.callTool("get_attachment", attachmentIdentity);
+	const pending = pendingSchema.parse(first);
+	assert.equal(client.imap.downloads.length, 0);
+	assert.match(JSON.stringify(first), /archive.zip/);
+	assert.match(JSON.stringify(first), /application\/zip/);
+	const result = await client.callTool("get_attachment", attachmentIdentity, {
+		requestState: pending.requestState,
+		inputResponses: acceptedResponse,
+	});
+	assert.ok(isSpecType.CallToolResult(result));
+	assert.equal(result.isError, undefined);
+	assert.ok(result.content);
+	const resource = result.content.find((block) => block.type === "resource");
+	assert.ok(resource && "blob" in resource.resource);
+	assert.equal(resource.resource.mimeType, "application/zip");
+	assert.deepEqual(Buffer.from(resource.resource.blob, "base64"), bytes);
+	assert.equal(client.imap.downloads.length, 1);
+});
+
 test("declined, cancelled, unchecked, and forged consent never downloads", async (t) => {
 	for (const response of [
 		{ action: "decline" },

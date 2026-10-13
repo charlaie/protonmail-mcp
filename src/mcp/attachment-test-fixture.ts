@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
 import { specTypeSchemas } from "@modelcontextprotocol/server";
+import type { AttachmentPermission } from "../attachments/formats.js";
 import { createImapService } from "../bridge/imap.js";
 import {
 	FakeImap,
@@ -31,6 +32,10 @@ export async function attachmentFixture(
 	options: NonNullable<Parameters<typeof createTestClient>[2]> & {
 		text?: boolean;
 		requireApproval?: boolean;
+		filename?: string;
+		contentType?: string;
+		bytes?: Buffer;
+		allowedExtensions?: AttachmentPermission[];
 	} = {},
 ) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-attachment-mcp-"));
@@ -39,22 +44,25 @@ export async function attachmentFixture(
 	const policy = createReadPolicy({
 		bridgeUser: testConfig.user,
 		allowedMailboxes: [attachmentIdentity.mailbox],
-		allowedAttachmentExtensions: [".pdf", ".txt"],
+		allowedAttachmentExtensions: options.allowedExtensions ?? [".pdf", ".txt"],
 		requireAttachmentApproval: options.requireApproval,
 	});
 	await saveReadPolicy(policy);
 	const imap = new FakeImap();
-	const filename = options.text ? "notes.txt" : "scan.pdf";
-	const bytes = options.text
-		? Buffer.from([255, 254, 0, 65, 0, 13, 10])
-		: pdfBytes;
+	const filename =
+		options.filename ?? (options.text ? "notes.txt" : "scan.pdf");
+	const bytes =
+		options.bytes ??
+		(options.text ? Buffer.from([255, 254, 0, 65, 0, 13, 10]) : pdfBytes);
+	const contentType =
+		options.contentType ?? (options.text ? "text/plain" : "application/pdf");
 	const message = fixtureMessage(1);
 	message.bodyStructure = {
 		type: "multipart/mixed",
 		childNodes: [
 			{
 				part: "2",
-				type: "application/octet-stream",
+				type: contentType,
 				size: bytes.length,
 				disposition: "attachment",
 				dispositionParameters: { filename },
@@ -64,7 +72,7 @@ export async function attachmentFixture(
 	imap.mailboxes.set(attachmentIdentity.mailbox, [message]);
 	imap.attachmentContents.set(`${attachmentIdentity.mailbox}:1:2`, {
 		content: bytes,
-		meta: { filename, contentType: "application/octet-stream" },
+		meta: { filename, contentType, disposition: "attachment" },
 	});
 	const service = createImapService(testConfig, async (operation) =>
 		operation(imap),

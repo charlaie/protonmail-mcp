@@ -110,7 +110,19 @@ test("setup rejects invalid selections and sender entries without broadening acc
 	for (const answer of ["", "n", "NO"])
 		assert.equal(parseAttachmentApproval(answer), false);
 	assert.throws(() => parseAttachmentApproval("maybe"));
-	for (const answer of ["*", ".exe", ".zip", "pdf", ".docx"])
+	assert.deepEqual(parseAttachmentExtensions("*, .ZIP, .docx, .zip"), [
+		"*",
+		".zip",
+		".docx",
+	]);
+	for (const answer of [
+		"pdf",
+		".",
+		"../zip",
+		".zip/evil",
+		".tar.gz",
+		".bad\\name",
+	])
 		assert.throws(() => parseAttachmentExtensions(answer));
 });
 
@@ -143,7 +155,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	assert.equal(
 		ReadPolicySchema.safeParse({
 			...policy,
-			allowedAttachmentExtensions: [".exe"],
+			allowedAttachmentExtensions: ["../exe"],
 		}).success,
 		false,
 	);

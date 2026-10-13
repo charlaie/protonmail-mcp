@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AttachmentExtensionSchema } from "../attachments/formats.js";
+import { AttachmentPermissionSchema } from "../attachments/formats.js";
 import { InboxActionNameSchema } from "../inbox/model.js";
 import { DomainSchema } from "./schema.js";
 
@@ -39,7 +39,7 @@ export function parseAttachmentExtensions(answer: string) {
 	return [
 		...new Set(
 			z
-				.array(AttachmentExtensionSchema)
+				.array(AttachmentPermissionSchema)
 				.parse(splitCsv(answer).map((extension) => extension.toLowerCase())),
 		),
 	];

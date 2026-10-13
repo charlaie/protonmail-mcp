@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { isSafeAttachmentFilename } from "../attachments/formats.js";
+import {
+	AttachmentMimeTypeSchema,
+	isSafeAttachmentFilename,
+} from "../attachments/formats.js";
 import { validInlineImage } from "./images.js";
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -22,15 +25,9 @@ export const AttachmentPayloadSchema = z
 				isSafeAttachmentFilename,
 				"Expected a safe filename, not a path.",
 			),
-		contentType: z
-			.string()
-			.max(127)
-			.regex(/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/)
-			.refine(
-				(value) => !value.startsWith("multipart/"),
-				"Attachments must be MIME leaf parts, not multipart containers.",
-			)
-			.describe("MIME type without parameters, for example application/pdf."),
+		contentType: AttachmentMimeTypeSchema.describe(
+			"MIME type without parameters, for example application/pdf.",
+		),
 		charset: z
 			.string()
 			.max(80)
