@@ -137,7 +137,7 @@ export function createInboxService(
 							"configure",
 						);
 					const now = new Date().toISOString();
-					const record: InboxOperation = {
+					const record: Omit<InboxOperation, "outcome"> = {
 						operationId: input.operationId,
 						requestHash: hashContent(input),
 						request: input,
@@ -146,7 +146,6 @@ export function createInboxService(
 						metadataHash: metadataHash(source.message, input.uidValidity),
 						createdAt: now,
 						updatedAt: now,
-						outcome: { status: "submitting" },
 					};
 					claimed = await store.claim(record);
 					if (!claimed) return get(input.operationId);
@@ -164,6 +163,14 @@ export function createInboxService(
 						);
 					if (plan.kind === "flag") {
 						if (current.message.flags?.has(plan.flag) !== plan.enabled) {
+							if (!current.selected.permanentFlags?.has(plan.flag))
+								throw new MailError(
+									"UNSUPPORTED_CONTENT",
+									`Permanent ${plan.flag} support changed before execution. Nothing was written.`,
+									"configure",
+								);
+							if (!(await store.dispatch(input.operationId)))
+								return get(input.operationId);
 							const ok = plan.enabled
 								? await client.messageFlagsAdd(input.uid, [plan.flag], {
 										uid: true,
@@ -202,6 +209,15 @@ export function createInboxService(
 							"Native MOVE support changed before execution. No copy/delete fallback is allowed.",
 							"reconcile",
 						);
+					if (!(await store.dispatch(input.operationId)))
+						return get(input.operationId);
+					// The transition may await storage; recheck native MOVE at the actual dispatch boundary.
+					if (!client.capabilities.has("MOVE"))
+						throw new MailError(
+							"UNSUPPORTED_CONTENT",
+							"Native MOVE support changed at dispatch. No copy/delete fallback is allowed.",
+							"reconcile",
+						);
 					const moved = await client.messageMove(input.uid, plan.destination, {
 						uid: true,
 					});
@@ -224,8 +240,13 @@ export function createInboxService(
 					);
 				});
 			} catch (error) {
-				if (claimed)
-					return store.uncertain(input.operationId, safeErrorMessage(error));
+				if (claimed) {
+					const reason = safeErrorMessage(error);
+					const result = await store.abort(input.operationId, reason);
+					return result.outcome.status === "submitting"
+						? store.uncertain(input.operationId, reason)
+						: result;
+				}
 				const replay = await existing(input);
 				if (replay) return replay;
 				throw error;
@@ -233,8 +254,15 @@ export function createInboxService(
 		},
 		async reconcile(operationId: string, authorize: InboxAuthorization) {
 			const record = await get(operationId);
-			if (record.outcome.status === "completed") return record;
-			if (record.outcome.status === "submitting")
+			if (
+				record.outcome.status === "completed" ||
+				record.outcome.status === "aborted"
+			)
+				return record;
+			if (
+				record.outcome.status === "submitting" ||
+				record.outcome.status === "reserved"
+			)
 				throw new MailError(
 					"OPERATION_BUSY",
 					"This inbox command may still be running or have been interrupted before its outcome was recorded. Its reservation cannot be automatically released. Inspect Bridge and the journal; never replace the operation ID to retry.",

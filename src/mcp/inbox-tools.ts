@@ -83,7 +83,7 @@ export function registerInboxTools(input: {
 			outputSchema: InboxOperationOutputSchema,
 			annotations: read,
 			description:
-				"Inspect local durable inbox operation metadata for this account, including during policy outages. Never changes flags, moves messages or reads bodies. A submitting operation can be active or interrupted and cannot be automatically released.",
+				"Inspect local durable inbox operation metadata for this account, including during policy outages. Never changes flags, moves messages or reads bodies. Reserved or submitting operations can be active or interrupted and cannot be automatically released. Aborted means no command was dispatched and the reservation was released.",
 		},
 		async (request) => {
 			try {
@@ -103,7 +103,7 @@ export function registerInboxTools(input: {
 			outputSchema: InboxOperationsOutputSchema,
 			annotations: read,
 			description:
-				"List this account's submitting or uncertain inbox operations without message bodies, including during policy outages. Paginate with limit and offset; nextOffset null ends the list. Never mutates mail.",
+				"List this account's reserved, submitting or uncertain inbox operations without message bodies, including during policy outages. Paginate with limit and offset; nextOffset null ends the list. Never mutates mail.",
 		},
 		async (request) => {
 			try {
@@ -130,7 +130,7 @@ export function registerInboxTools(input: {
 			outputSchema: InboxOperationOutputSchema,
 			annotations: { ...read, readOnlyHint: false },
 			description:
-				"Verify desired flag state or exact Message-ID/metadata and folder placement for an uncertain inbox operation. Requires current source/destination write and sender policy. Never STOREs, MOVEs or deletes. Ambiguous or missing evidence keeps uncertainty. Submitting reservations cannot be automatically reconciled because an older command may still run; inspect those manually.",
+				"Verify desired flag state or exact Message-ID/metadata and folder placement for an uncertain inbox operation. Requires current source/destination write and sender policy. Never STOREs, MOVEs or deletes. Ambiguous or missing evidence keeps uncertainty. Reserved or submitting operations cannot be automatically reconciled because their writer may still run; inspect those manually. Completed and aborted operations are terminal.",
 		},
 		async (request) => {
 			try {

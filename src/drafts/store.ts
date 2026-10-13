@@ -3,9 +3,9 @@ import { z } from "zod";
 import type { GetMessageInput } from "../bridge/schemas.js";
 import { createOperationDatabase } from "../operations/database.js";
 import {
-	assertDraftMutable,
-	draftIdentityKey,
-} from "../operations/draft-claims.js";
+	assertMessageMutable,
+	messageIdentityKey,
+} from "../operations/message-claims.js";
 import { MailError } from "../shared/mail-error.js";
 import { type DraftOperation, DraftOperationSchema } from "./model.js";
 
@@ -59,10 +59,10 @@ export function createDraftStore(account: string, directory?: string) {
 					return false;
 				}
 				if (record.source.kind === "edit") {
-					assertDraftMutable(db, record.source, sourceMessageId);
+					assertMessageMutable(db, record.source, sourceMessageId);
 					db.prepare(
 						"INSERT INTO draft_mutations (identity, operation_id) VALUES (?, ?)",
-					).run(draftIdentityKey(record.source), record.operationId);
+					).run(messageIdentityKey(record.source), record.operationId);
 				}
 				const validated = DraftOperationSchema.parse(record);
 				db.prepare(

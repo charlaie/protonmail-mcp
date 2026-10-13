@@ -3,9 +3,9 @@ import { z } from "zod";
 import type { GetMessageInput } from "../bridge/schemas.js";
 import { createOperationDatabase } from "../operations/database.js";
 import {
-	assertDraftMutable,
-	draftIdentityKey,
-} from "../operations/draft-claims.js";
+	assertMessageMutable,
+	messageIdentityKey,
+} from "../operations/message-claims.js";
 import { MailError } from "../shared/mail-error.js";
 import { type InboxOperation, InboxOperationSchema } from "./model.js";
 
@@ -18,6 +18,41 @@ function read(db: DatabaseSync, id: string) {
 		? InboxOperationSchema.parse(JSON.parse(RowSchema.parse(row).record))
 		: null;
 }
+function requireRecord(db: DatabaseSync, id: string) {
+	const record = read(db, id);
+	if (!record)
+		throw new MailError(
+			"NOT_FOUND",
+			"Inbox operation was not found for this account.",
+			"never",
+		);
+	return record;
+}
+function save(db: DatabaseSync, record: InboxOperation) {
+	const next = InboxOperationSchema.parse({
+		...record,
+		updatedAt: new Date().toISOString(),
+	});
+	db.prepare("UPDATE inbox_operations SET record = ? WHERE id = ?").run(
+		JSON.stringify(next),
+		next.operationId,
+	);
+	return next;
+}
+function finish(
+	db: DatabaseSync,
+	record: InboxOperation,
+	outcome: Extract<
+		InboxOperation["outcome"],
+		{ status: "completed" | "aborted" }
+	>,
+) {
+	const next = save(db, { ...record, outcome });
+	db.prepare(
+		"DELETE FROM inbox_claims WHERE identity = ? AND operation_id = ?",
+	).run(messageIdentityKey(record.request), record.operationId);
+	return next;
+}
 export function createInboxStore(account: string, directory?: string) {
 	const { use, transaction } = createOperationDatabase(account, directory);
 	return {
@@ -26,35 +61,35 @@ export function createInboxStore(account: string, directory?: string) {
 			use((db) =>
 				db
 					.prepare(
-						"SELECT record FROM inbox_operations WHERE json_extract(record, '$.outcome.status') != 'completed' ORDER BY id LIMIT ? OFFSET ?",
+						"SELECT record FROM inbox_operations WHERE json_extract(record, '$.outcome.status') IN ('reserved', 'submitting', 'uncertain') ORDER BY id LIMIT ? OFFSET ?",
 					)
 					.all(limit, offset)
 					.map((row) =>
 						InboxOperationSchema.parse(JSON.parse(RowSchema.parse(row).record)),
 					),
 			),
+		dispatch: (id: string) =>
+			transaction((db) => {
+				const record = requireRecord(db, id);
+				if (record.outcome.status !== "reserved") return false;
+				save(db, { ...record, outcome: { status: "submitting" } });
+				return true;
+			}),
+		abort: (id: string, reason: string) =>
+			transaction((db) => {
+				const record = requireRecord(db, id);
+				return record.outcome.status === "reserved"
+					? finish(db, record, { status: "aborted", reason })
+					: record;
+			}),
 		uncertain: (id: string, reason: string) =>
 			transaction((db) => {
-				const record = read(db, id);
-				if (!record)
-					throw new MailError(
-						"NOT_FOUND",
-						"Inbox operation was not found for this account.",
-						"never",
-					);
-				if (record.outcome.status !== "submitting") return record;
-				const next = InboxOperationSchema.parse({
-					...record,
-					updatedAt: new Date().toISOString(),
-					outcome: { status: "uncertain", reason },
-				});
-				db.prepare("UPDATE inbox_operations SET record = ? WHERE id = ?").run(
-					JSON.stringify(next),
-					id,
-				);
-				return next;
+				const record = requireRecord(db, id);
+				return record.outcome.status === "submitting"
+					? save(db, { ...record, outcome: { status: "uncertain", reason } })
+					: record;
 			}),
-		claim: (record: InboxOperation) =>
+		claim: (record: Omit<InboxOperation, "outcome">) =>
 			transaction((db) => {
 				const existing = read(db, record.operationId);
 				if (existing) {
@@ -66,12 +101,15 @@ export function createInboxStore(account: string, directory?: string) {
 						);
 					return false;
 				}
-				const key = assertDraftMutable(
+				const key = assertMessageMutable(
 					db,
 					record.request,
 					record.messageId ?? undefined,
 				);
-				const validated = InboxOperationSchema.parse(record);
+				const validated = InboxOperationSchema.parse({
+					...record,
+					outcome: { status: "reserved" },
+				});
 				db.prepare(
 					"INSERT INTO inbox_claims (identity, operation_id) VALUES (?, ?)",
 				).run(key, record.operationId);
@@ -82,27 +120,11 @@ export function createInboxStore(account: string, directory?: string) {
 			}),
 		complete: (id: string, destinationIdentity: GetMessageInput | null) =>
 			transaction((db) => {
-				const record = read(db, id);
-				if (!record)
-					throw new MailError(
-						"NOT_FOUND",
-						"Inbox operation was not found for this account.",
-						"never",
-					);
-				if (record.outcome.status === "completed") return record;
-				const next = InboxOperationSchema.parse({
-					...record,
-					updatedAt: new Date().toISOString(),
-					outcome: { status: "completed", destinationIdentity },
-				});
-				db.prepare("UPDATE inbox_operations SET record = ? WHERE id = ?").run(
-					JSON.stringify(next),
-					id,
-				);
-				db.prepare(
-					"DELETE FROM inbox_claims WHERE identity = ? AND operation_id = ?",
-				).run(draftIdentityKey(record.request), id);
-				return next;
+				const record = requireRecord(db, id);
+				return record.outcome.status === "completed" ||
+					record.outcome.status === "aborted"
+					? record
+					: finish(db, record, { status: "completed", destinationIdentity });
 			}),
 	};
 }

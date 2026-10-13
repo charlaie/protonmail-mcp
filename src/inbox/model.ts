@@ -71,7 +71,9 @@ export const InboxOperationSchema = z.object({
 	createdAt: z.iso.datetime(),
 	updatedAt: z.iso.datetime(),
 	outcome: z.discriminatedUnion("status", [
+		z.object({ status: z.literal("reserved") }),
 		z.object({ status: z.literal("submitting") }),
+		z.object({ status: z.literal("aborted"), reason: z.string() }),
 		z.object({ status: z.literal("uncertain"), reason: z.string() }),
 		z.object({
 			status: z.literal("completed"),

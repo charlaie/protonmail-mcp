@@ -20,7 +20,7 @@ import {
 	mediaManifest,
 	outgoingMedia,
 } from "./media.js";
-import { inlineHtml, parsedMedia } from "./mime.js";
+import { inlineHtml, parsedMedia, verifyComposedMedia } from "./mime.js";
 import {
 	testFile as file,
 	testImage as png,
@@ -136,6 +136,59 @@ test("inline images validate signature, MIME and dimensions before generating es
 	assert.notEqual(media[0].cid, media[1].cid);
 	assert.equal(html.includes("data:"), false);
 	assert.equal(html.includes(png.contentBase64), false);
+});
+
+test("multipart attachments are refused and a MIME parser losing media cannot authorize APPEND", async () => {
+	for (const contentType of [
+		"multipart/mixed",
+		"multipart/alternative",
+		"multipart/related",
+	]) {
+		const attachment = { ...file, contentType };
+		assert.equal(AttachmentPayloadSchema.safeParse(attachment).success, false);
+		assert.equal(
+			CreateDraftSchema.safeParse({
+				operationId: randomUUID(),
+				attachments: [attachment],
+			}).success,
+			false,
+		);
+		assert.equal(
+			SendEmailSchema.safeParse({
+				operationId: randomUUID(),
+				to: "recipient@example.com",
+				subject: "File",
+				text: "Body",
+				attachments: [attachment],
+			}).success,
+			false,
+		);
+	}
+	const malformed = await simpleParser(
+		[
+			"Content-Type: multipart/mixed; boundary=outer",
+			"MIME-Version: 1.0",
+			"",
+			"--outer",
+			"Content-Type: text/plain",
+			"",
+			"Body",
+			"--outer",
+			"Content-Type: multipart/mixed",
+			`Content-Disposition: attachment; filename="${file.filename}"`,
+			"Content-Transfer-Encoding: base64",
+			"",
+			file.contentBase64,
+			"--outer--",
+		].join("\r\n"),
+		{ skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true },
+	);
+	assert.deepEqual(parsedMedia(malformed), []);
+	assert.throws(
+		() =>
+			verifyComposedMedia(malformed, outgoingMedia({ attachments: [file] })),
+		/did not preserve every file/,
+	);
 });
 
 test("attachment/inline MIME roundtrip preserves exact bytes, filename, MIME and generated body for empty, Unicode and CRLF text", async () => {

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { ParsedMail } from "mailparser";
 import type { SendMailOptions } from "nodemailer";
 import { z } from "zod";
@@ -5,6 +6,7 @@ import { MailError } from "../shared/mail-error.js";
 import {
 	AttachmentPayloadSchema,
 	InlineImagePayloadSchema,
+	mediaManifest,
 	type OutgoingPart,
 	outgoingMedia,
 } from "./media.js";
@@ -138,4 +140,21 @@ export function parsedMedia(original: ParsedMail): OutgoingPart[] {
 			"never",
 		);
 	return parts;
+}
+
+export function verifyComposedMedia(
+	original: ParsedMail,
+	intended: OutgoingPart[],
+) {
+	if (
+		!isDeepStrictEqual(
+			mediaManifest(parsedMedia(original)),
+			mediaManifest(intended),
+		)
+	)
+		throw new MailError(
+			"UNSUPPORTED_CONTENT",
+			"Composed MIME did not preserve every file and inline image. No draft was appended.",
+			"never",
+		);
 }

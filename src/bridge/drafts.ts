@@ -1,7 +1,11 @@
 import { type ParsedMail, simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import { mediaManifest, outgoingMedia } from "../outgoing/media.js";
-import { mediaMailOptions, parsedMedia } from "../outgoing/mime.js";
+import {
+	mediaMailOptions,
+	parsedMedia,
+	verifyComposedMedia,
+} from "../outgoing/mime.js";
 import type { BridgeConfig } from "./config.js";
 import { draftContentHash } from "./draft-content.js";
 import type { CreateDraftInput, EditDraftInput } from "./schemas.js";
@@ -64,17 +68,17 @@ export async function composeDraft(
 		});
 		if (!Buffer.isBuffer(info.message))
 			throw new Error("Unable to compose draft message as a buffer.");
+		const parsed = await simpleParser(info.message, {
+			skipHtmlToText: true,
+			skipTextToHtml: true,
+			skipImageLinks: true,
+		});
+		verifyComposedMedia(parsed, media);
 		return {
 			content: info.message,
 			messageId,
 			media: mediaManifest(media),
-			contentHash: draftContentHash(
-				await simpleParser(info.message, {
-					skipHtmlToText: true,
-					skipTextToHtml: true,
-					skipImageLinks: true,
-				}),
-			),
+			contentHash: draftContentHash(parsed),
 		};
 	} finally {
 		transport.close();

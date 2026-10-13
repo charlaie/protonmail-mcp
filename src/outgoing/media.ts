@@ -26,6 +26,10 @@ export const AttachmentPayloadSchema = z
 			.string()
 			.max(127)
 			.regex(/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/)
+			.refine(
+				(value) => !value.startsWith("multipart/"),
+				"Attachments must be MIME leaf parts, not multipart containers.",
+			)
 			.describe("MIME type without parameters, for example application/pdf."),
 		charset: z
 			.string()

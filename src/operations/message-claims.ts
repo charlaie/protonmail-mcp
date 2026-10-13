@@ -7,7 +7,7 @@ import { MailError } from "../shared/mail-error.js";
 
 const RowSchema = z.object({ record: z.string() });
 const OwnerSchema = z.object({ operation_id: z.string() });
-export function draftIdentityKey(identity: GetMessageInput) {
+export function messageIdentityKey(identity: GetMessageInput) {
 	return hashContent({
 		mailbox: identity.mailbox,
 		uidValidity: identity.uidValidity,
@@ -22,12 +22,12 @@ function conflict(operationId: string) {
 	);
 }
 // Send, draft edit and inbox claims call this inside BEGIN IMMEDIATE.
-export function assertDraftMutable(
+export function assertMessageMutable(
 	db: DatabaseSync,
 	identity: GetMessageInput,
 	messageId?: string,
 ) {
-	const key = draftIdentityKey(identity);
+	const key = messageIdentityKey(identity);
 	const inbox = db
 		.prepare("SELECT operation_id FROM inbox_claims WHERE identity = ?")
 		.get(key);
@@ -62,7 +62,7 @@ export function assertDraftMutable(
 	if (messageId) {
 		const inboxProjection = db
 			.prepare(
-				"SELECT id FROM inbox_operations WHERE json_extract(record, '$.messageId') = ? AND json_extract(record, '$.outcome.status') != 'completed'",
+				"SELECT id FROM inbox_operations WHERE json_extract(record, '$.messageId') = ? AND json_extract(record, '$.outcome.status') IN ('reserved', 'submitting', 'uncertain')",
 			)
 			.get(messageId);
 		if (inboxProjection)

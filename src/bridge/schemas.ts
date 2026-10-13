@@ -37,7 +37,7 @@ export const SendEmailSchema = z
 			"Email subject line. Keep it concise and specific.",
 		),
 		text: TextSchema.min(1).describe(
-			"Plain-text email body. HTML and attachments are not supported by this tool.",
+			"Plain-text email body. Optional attachments and inlineImages are separate fields. Images use generated HTML with a text alternative.",
 		),
 	})
 	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
@@ -52,7 +52,7 @@ const DraftContentSchema = z
 			"Draft subject line. May be blank for an unfinished draft.",
 		),
 		text: TextSchema.default("").describe(
-			"Plain-text draft body. HTML and attachments are not supported by this tool.",
+			"Plain-text draft body. Optional attachments and inlineImages are separate fields. Arbitrary HTML authoring is unsupported.",
 		),
 	})
 	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");

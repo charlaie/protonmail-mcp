@@ -222,4 +222,25 @@ test("policy reload during an inbox action revokes write permission before STORE
 	assert.equal(response.isError, true);
 	assert.equal(f.client.flagChanges.length, 0);
 	assert.match(JSON.stringify(response.structuredContent), /disabled/);
+	const aborted = InboxOperationOutputSchema.parse(response.structuredContent);
+	assert.ok("outcome" in aborted);
+	assert.equal(aborted.outcome.status, "aborted");
+	assert.equal(aborted.retry, "never");
+	const listed = InboxOperationsOutputSchema.parse(
+		(await f.mcp.callTool("list_inbox_operations", {})).structuredContent,
+	);
+	assert.ok("operations" in listed);
+	assert.deepEqual(listed.operations, []);
+	await saveReadPolicy(f.policy);
+	assert.deepEqual(
+		(await f.mcp.callTool("manage_message", aborted.request)).structuredContent,
+		aborted,
+	);
+	const next = InboxOperationOutputSchema.parse(
+		(await f.mcp.callTool("manage_message", f.input("mark_read")))
+			.structuredContent,
+	);
+	assert.ok("outcome" in next);
+	assert.equal(next.outcome.status, "completed");
+	assert.equal(f.client.flagChanges.length, 1);
 });

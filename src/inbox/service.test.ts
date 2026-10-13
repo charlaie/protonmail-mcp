@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -216,7 +217,7 @@ test("unsupported MOVE, unavailable permanent flags, stale identity, disallowed 
 	);
 });
 
-test("policy revocation at final authorization prevents the external write and leaves a discoverable reservation", async (t) => {
+test("policy revocation at final authorization aborts without writing and releases its reservation", async (t) => {
 	const f = await fixture(t);
 	let checks = 0;
 	const request = f.request({ action: "star" });
@@ -225,9 +226,16 @@ test("policy revocation at final authorization prevents the external write and l
 			throw new MailError("POLICY_DENIED", "Revoked", "configure");
 		return allowAllMessages;
 	});
-	assert.equal(record.outcome.status, "uncertain");
+	assert.equal(record.outcome.status, "aborted");
 	assert.equal(f.client.flagChanges.length, 0);
-	assert.equal((await f.service.list(10, 0)).length, 1);
+	assert.equal((await f.service.list(10, 0)).length, 0);
+	assert.deepEqual(await f.service.manage(request, f.authorize), record);
+	assert.equal(
+		(await f.service.manage(f.request({ action: "star" }), f.authorize)).outcome
+			.status,
+		"completed",
+	);
+	assert.equal(f.client.flagChanges.length, 1);
 });
 
 test("MOVE capability disappearing during final policy check never invokes a copy/delete fallback", async (t) => {
@@ -240,8 +248,16 @@ test("MOVE capability disappearing during final policy check never invokes a cop
 			return allowAllMessages;
 		},
 	);
-	assert.equal(record.outcome.status, "uncertain");
+	assert.equal(record.outcome.status, "aborted");
 	assert.equal(f.client.moves.length + f.client.deletions, 0);
+	assert.equal((await f.service.list(10, 0)).length, 0);
+	f.client.capabilities.set("MOVE", true);
+	assert.equal(
+		(await f.service.manage(f.request({ action: "archive" }), f.authorize))
+			.outcome.status,
+		"completed",
+	);
+	assert.equal(f.client.moves.length, 1);
 });
 
 test("label actions use explicit projections and ordinary moves cannot change labels implicitly", async (t) => {
@@ -365,7 +381,7 @@ test("label reconciliation permits changed source projection UID and refuses dup
 	assert.equal(f.client.moves.length, 1);
 });
 
-test("submitting reservations exclude concurrent mutations through source and label projections and cannot reconcile early", async (t) => {
+test("reserved operations exclude concurrent mutations through source and label projections and cannot reconcile early", async (t) => {
 	const f = await fixture(t);
 	f.client.mailboxes.set("Labels/Work", [{ ...f.message, uid: 9 }]);
 	let release: () => void = () => {};
@@ -386,6 +402,10 @@ test("submitting reservations exclude concurrent mutations through source and la
 		return allowAllMessages;
 	});
 	await paused;
+	assert.equal(
+		(await f.store.get(request.operationId))?.outcome.status,
+		"reserved",
+	);
 	const other = createInboxService(
 		testConfig,
 		async (operation) => operation(f.client),
@@ -481,4 +501,295 @@ test("journal failure before the claim prevents mutation and terminal completion
 		record,
 	);
 	assert.equal((await f.store.list(10, 0)).length, 0);
+});
+
+test("failed source revalidation and permanent-flag capability drops abort before dispatch and release identity and projection claims", async (t) => {
+	for (const mode of [
+		"source_missing",
+		"source_changed",
+		"uidvalidity",
+		"sender_denied",
+		"flag_capability",
+	] as const)
+		await t.test(mode, async (t) => {
+			const f = await fixture(t);
+			f.client.mailboxes.set("Labels/Work", [{ ...f.message, uid: 9 }]);
+			let checks = 0;
+			const request = f.request({ action: "star" });
+			const result = await f.service.manage(request, async () => {
+				if (++checks === 2) {
+					if (mode === "source_missing") f.client.mailboxes.set("INBOX", []);
+					if (mode === "source_changed") {
+						assert.ok(f.message.envelope);
+						f.message.envelope.subject = "Updated source";
+					}
+					if (mode === "uidvalidity") f.client.uidValidity = 8n;
+					if (mode === "sender_denied") return () => false;
+					if (mode === "flag_capability")
+						f.client.permanentFlags.delete("\\Flagged");
+				}
+				return allowAllMessages;
+			});
+			assert.ok(result.outcome.status === "aborted");
+			assert.equal(f.client.flagChanges.length, 0);
+			assert.equal((await f.store.list(10, 0)).length, 0);
+			assert.deepEqual(await f.service.manage(request, f.authorize), result);
+			assert.deepEqual(
+				await f.service.reconcile(request.operationId, f.authorize),
+				result,
+			);
+			f.client.uidValidity = 7n;
+			f.client.permanentFlags.add("\\Flagged");
+			f.client.mailboxes.set("INBOX", [f.message]);
+			const other = createInboxService(
+				testConfig,
+				async (operation) => operation(f.client),
+				createInboxStore(testConfig.user, f.directory),
+			);
+			const replacement = await other.manage(
+				{ ...f.request({ action: "star" }), mailbox: "Labels/Work", uid: 9 },
+				f.authorize,
+			);
+			assert.equal(replacement.outcome.status, "completed");
+			assert.equal(f.client.flagChanges.length, 1);
+		});
+});
+
+test("dispatch storage failure before commit aborts safely, while commit-then-throw keeps the durable dispatch claim", async (t) => {
+	for (const committed of [false, true])
+		await t.test(String(committed), async (t) => {
+			const f = await fixture(t);
+			const service = createInboxService(
+				testConfig,
+				async (operation) => operation(f.client),
+				{
+					...f.store,
+					dispatch: async (id) => {
+						if (committed) assert.equal(await f.store.dispatch(id), true);
+						throw new MailError(
+							"STORAGE_FAILED",
+							"Dispatch acknowledgement lost",
+							"configure",
+						);
+					},
+				},
+			);
+			const request = f.request({ action: "star" });
+			const result = await service.manage(request, f.authorize);
+			assert.equal(result.outcome.status, committed ? "uncertain" : "aborted");
+			assert.equal(f.client.flagChanges.length, 0);
+			assert.deepEqual(await service.manage(request, f.authorize), result);
+			const other = createInboxService(
+				testConfig,
+				async (operation) => operation(f.client),
+				createInboxStore(testConfig.user, f.directory),
+			);
+			if (committed) {
+				await assert.rejects(
+					other.manage(f.request({ action: "star" }), f.authorize),
+					/reserved/,
+				);
+				assert.deepEqual(
+					await other.reconcile(request.operationId, f.authorize),
+					result,
+				);
+				assert.equal((await other.list(10, 0)).length, 1);
+			} else {
+				assert.equal((await other.list(10, 0)).length, 0);
+				assert.equal(
+					(await other.manage(f.request({ action: "star" }), f.authorize))
+						.outcome.status,
+					"completed",
+				);
+				assert.equal(f.client.flagChanges.length, 1);
+			}
+		});
+});
+
+test("lost claim acknowledgement keeps the reserved claim without authorizing dispatch or reconciliation", async (t) => {
+	const f = await fixture(t);
+	const service = createInboxService(
+		testConfig,
+		async (operation) => operation(f.client),
+		{
+			...f.store,
+			claim: async (record) => {
+				assert.equal(await f.store.claim(record), true);
+				throw new MailError(
+					"STORAGE_FAILED",
+					"Claim acknowledgement lost",
+					"configure",
+				);
+			},
+		},
+	);
+	const request = f.request({ action: "star" });
+	const result = await service.manage(request, f.authorize);
+	assert.equal(result.outcome.status, "reserved");
+	assert.equal(f.client.flagChanges.length, 0);
+	const other = createInboxService(
+		testConfig,
+		async (operation) => operation(f.client),
+		createInboxStore(testConfig.user, f.directory),
+	);
+	assert.deepEqual(await other.manage(request, f.authorize), result);
+	await assert.rejects(
+		other.manage(f.request({ action: "star" }), f.authorize),
+		/reserved/,
+	);
+	await assert.rejects(
+		other.reconcile(request.operationId, f.authorize),
+		/may still be running/,
+	);
+	assert.equal((await other.list(10, 0)).length, 1);
+});
+
+test("a desired-state no-op completes its reservation without a dispatch transition", async (t) => {
+	const f = await fixture(t);
+	const service = createInboxService(
+		testConfig,
+		async (operation) => operation(f.client),
+		{
+			...f.store,
+			dispatch: async () => {
+				throw new Error("No-op must not dispatch");
+			},
+		},
+	);
+	const result = await service.manage(
+		f.request({ action: "mark_unread" }),
+		f.authorize,
+	);
+	assert.equal(result.outcome.status, "completed");
+	assert.equal(f.client.flagChanges.length, 0);
+	assert.equal((await f.store.list(10, 0)).length, 0);
+});
+
+test("a dispatch transition returning false stops an old owner after its reservation was aborted", async (t) => {
+	const f = await fixture(t);
+	const service = createInboxService(
+		testConfig,
+		async (operation) => operation(f.client),
+		{
+			...f.store,
+			dispatch: async (id) => {
+				assert.equal(
+					(await f.store.abort(id, "Aborted before dispatch")).outcome.status,
+					"aborted",
+				);
+				return f.store.dispatch(id);
+			},
+		},
+	);
+	const request = f.request({ action: "star" });
+	const result = await service.manage(request, f.authorize);
+	assert.equal(result.outcome.status, "aborted");
+	assert.equal(f.client.flagChanges.length, 0);
+	assert.deepEqual(await f.store.complete(request.operationId, null), result);
+	assert.deepEqual(
+		await f.store.uncertain(request.operationId, "Late failure"),
+		result,
+	);
+	assert.deepEqual(await f.service.manage(request, f.authorize), result);
+	assert.equal(
+		(await f.service.manage(f.request({ action: "star" }), f.authorize)).outcome
+			.status,
+		"completed",
+	);
+});
+
+test("MOVE capability lost after the dispatch fence never invokes fallback and keeps its conservative claim", async (t) => {
+	const f = await fixture(t);
+	const service = createInboxService(
+		testConfig,
+		async (operation) => operation(f.client),
+		{
+			...f.store,
+			dispatch: async (id) => {
+				const result = await f.store.dispatch(id);
+				f.client.capabilities.delete("MOVE");
+				return result;
+			},
+		},
+	);
+	const request = f.request({ action: "archive" });
+	const result = await service.manage(request, f.authorize);
+	assert.equal(result.outcome.status, "uncertain");
+	assert.equal(f.client.moves.length + f.client.deletions, 0);
+	f.client.capabilities.set("MOVE", true);
+	await assert.rejects(
+		f.service.manage(f.request({ action: "star" }), f.authorize),
+		/reserved/,
+	);
+	assert.deepEqual(
+		await f.service.reconcile(request.operationId, f.authorize),
+		result,
+	);
+});
+
+test("a separate process cannot mutate or reconcile an active reservation and can claim its projection after safe abort", async (t) => {
+	const f = await fixture(t);
+	let release: () => void = () => {};
+	let signal: () => void = () => {};
+	const paused = new Promise<void>((resolve) => {
+		signal = resolve;
+	});
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let checks = 0;
+	const request = f.request({ action: "star" });
+	const active = f.service.manage(request, async () => {
+		if (++checks === 2) {
+			signal();
+			await gate;
+			throw new MailError(
+				"POLICY_DENIED",
+				"Revoked before dispatch",
+				"configure",
+			);
+		}
+		return allowAllMessages;
+	});
+	await paused;
+	function childAttempt(blocked: boolean) {
+		const childRequest = {
+			...f.request({ action: "star" }),
+			mailbox: "Labels/Work",
+			uid: 9,
+		};
+		const script = `
+			import { createInboxService } from ${JSON.stringify(new URL("./service.js", import.meta.url).href)};
+			import { createInboxStore } from ${JSON.stringify(new URL("./store.js", import.meta.url).href)};
+			import { FakeImap, fixtureMessage, testConfig } from ${JSON.stringify(new URL("../bridge/test-fixtures.js", import.meta.url).href)};
+			import { allowAllMessages } from ${JSON.stringify(new URL("../bridge/messages.js", import.meta.url).href)};
+			const client = new FakeImap();
+			const message = fixtureMessage(9); message.flags = new Set(["custom"]); message.envelope.messageId = ${JSON.stringify(f.message.envelope?.messageId)};
+			client.mailboxes.set("Labels/Work", [message]);
+			const service = createInboxService(testConfig, async operation => operation(client), createInboxStore(testConfig.user, ${JSON.stringify(f.directory)}));
+			const authorize = async () => allowAllMessages;
+			if (${blocked}) {
+				try { await service.manage(${JSON.stringify(childRequest)}, authorize); process.exit(2); }
+				catch (error) { if (error.code !== "OPERATION_CONFLICT") process.exit(3); }
+				try { await service.reconcile(${JSON.stringify(request.operationId)}, authorize); process.exit(4); }
+				catch (error) { if (error.code !== "OPERATION_BUSY") process.exit(5); }
+				if (client.flagChanges.length !== 0) process.exit(6);
+			} else {
+				const result = await service.manage(${JSON.stringify(childRequest)}, authorize);
+				if (result.outcome.status !== "completed" || client.flagChanges.length !== 1) process.exit(7);
+			}
+			process.exit(0);
+		`;
+		const child = spawnSync(
+			process.execPath,
+			["--input-type=module", "-e", script],
+			{ encoding: "utf8" },
+		);
+		assert.equal(child.status, 0, child.stderr);
+	}
+	childAttempt(true);
+	release();
+	assert.equal((await active).outcome.status, "aborted");
+	childAttempt(false);
+	assert.equal(f.client.flagChanges.length, 0);
 });

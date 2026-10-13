@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { GetMessageInput } from "../bridge/schemas.js";
 import { createOperationDatabase } from "../operations/database.js";
-import { assertDraftMutable } from "../operations/draft-claims.js";
+import { assertMessageMutable } from "../operations/message-claims.js";
 import { MailError } from "../shared/mail-error.js";
 import {
 	type DraftCleanup,
@@ -88,7 +88,7 @@ export function createSendStore(account: string, directory?: string) {
 						"never",
 					);
 				if (stored.source.kind === "draft") {
-					const key = assertDraftMutable(
+					const key = assertMessageMutable(
 						db,
 						stored.source,
 						stored.source.draftMessageId,
