@@ -33,6 +33,7 @@ export const SendSourceSchema = z.discriminatedUnion("kind", [
 	GetMessageSchema.extend({
 		kind: z.literal("draft"),
 		fingerprint: z.string(),
+		draftMessageId: z.string().optional(),
 	}),
 ]);
 export type SendSource = z.infer<typeof SendSourceSchema>;

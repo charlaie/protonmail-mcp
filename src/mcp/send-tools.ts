@@ -1,9 +1,9 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import type { z } from "zod";
 import type { BridgeConfig } from "../bridge/config.js";
-import { withDraftMutation } from "../bridge/draft-lock.js";
 import {
 	GetSendOperationSchema,
+	ListOperationsSchema,
 	SendDraftSchema,
 	SendEmailSchema,
 } from "../bridge/schemas.js";
@@ -12,7 +12,10 @@ import { newEmailMessage, type SendOperation } from "../sending/model.js";
 import type { SendService } from "../sending/service.js";
 import { MailError, type RetrySchema } from "../shared/mail-error.js";
 import type { ApprovalController, SendApprovalInput } from "./elicitation.js";
-import { SendOutputSchema } from "./output-schemas.js";
+import {
+	ListSendOperationsOutputSchema,
+	SendOutputSchema,
+} from "./output-schemas.js";
 import { errorResponse, jsonResponse } from "./responses.js";
 
 const write = {
@@ -139,53 +142,105 @@ export function registerSendTools(input: {
 					...request,
 					mailbox: identity.mailbox,
 				};
-				return await withDraftMutation(config, identity, async () => {
-					const existing = await sends.existing(
-						request.operationId,
-						requestIdentity,
+				const existing = await sends.existing(
+					request.operationId,
+					requestIdentity,
+				);
+				if (existing && existing.outcome.status !== "prepared")
+					return sendOperationResponse(existing);
+				const snapshot = await reads.getDraftSnapshot(identity);
+				const source = {
+					kind: "draft" as const,
+					...identity,
+					fingerprint: snapshot.fingerprint,
+					draftMessageId: snapshot.draftMessageId,
+				};
+				const record = await sends.prepare({
+					operationId: request.operationId,
+					request: requestIdentity,
+					message: snapshot.message,
+					source,
+				});
+				const decision = await approve(
+					{ operationId: request.operationId, message: snapshot.message },
+					ctx,
+				);
+				if (decision.kind !== "approved") return decision.response;
+				// Reauthorize and refetch after approval, including legacy clients that await a dialog in this call.
+				const currentReads = await readService();
+				const current = await currentReads.getDraftSnapshot(identity);
+				if (current.fingerprint !== snapshot.fingerprint)
+					throw new MailError(
+						"DRAFT_CHANGED",
+						"Draft changed during approval. Nothing was sent. Review it and use a new operation ID.",
+						"new_approval",
 					);
-					if (existing && existing.outcome.status !== "prepared")
-						return sendOperationResponse(existing);
-					const snapshot = await reads.getDraftSnapshot(identity);
-					const source = {
-						kind: "draft" as const,
-						...identity,
-						fingerprint: snapshot.fingerprint,
-					};
-					const record = await sends.prepare({
-						operationId: request.operationId,
-						request: requestIdentity,
-						message: snapshot.message,
-						source,
-					});
-					const decision = await approve(
-						{ operationId: request.operationId, message: snapshot.message },
-						ctx,
-					);
-					if (decision.kind !== "approved") return decision.response;
-					// Reauthorize and refetch after approval, including legacy clients that await a dialog in this call.
-					const currentReads = await readService();
-					const current = await currentReads.getDraftSnapshot(identity);
-					if (current.fingerprint !== snapshot.fingerprint)
-						throw new MailError(
-							"DRAFT_CHANGED",
-							"Draft changed during approval. Nothing was sent. Review it and use a new operation ID.",
-							"new_approval",
-						);
-					return sendOperationResponse(
-						await sends.send(record, snapshot.message, async () =>
-							(await readService()).deleteDraftSnapshot(
-								identity,
-								snapshot.fingerprint,
-							),
+				return sendOperationResponse(
+					await sends.send(record, snapshot.message, async () =>
+						(await readService()).deleteDraftSnapshot(
+							identity,
+							snapshot.fingerprint,
 						),
-					);
+					),
+				);
+			} catch (error) {
+				return errorResponse(error);
+			}
+		},
+	);
+	server.registerTool(
+		"list_send_operations",
+		{
+			title: "List unresolved send operations",
+			outputSchema: ListSendOperationsOutputSchema,
+			inputSchema: ListOperationsSchema,
+			annotations: read,
+			description:
+				"List prepared, uncertain, partial, or accepted sends needing cleanup from this account's journal. Returns no body. Paginate with limit and offset. Never submits or deletes mail.",
+		},
+		async (request) => {
+			try {
+				const records = await sends.list(request.limit, request.offset);
+				return jsonResponse({
+					operations: records.map(
+						(record) => sendOperationResponse(record).structuredContent,
+					),
+					nextOffset:
+						records.length === request.limit
+							? request.offset + request.limit
+							: null,
 				});
 			} catch (error) {
 				return errorResponse(error);
 			}
 		},
 	);
+	server.registerTool(
+		"retry_send_cleanup",
+		{
+			title: "Retry sent draft cleanup",
+			inputSchema: GetSendOperationSchema,
+			outputSchema: SendOutputSchema,
+			annotations: write,
+			description:
+				"Retry only deletion of the unchanged recorded draft for a fully accepted send. Rechecks current read policy, UIDVALIDITY, revision, and UIDPLUS. Never submits SMTP, appends, or edits a message. Uncertain and partial sends are refused.",
+		},
+		async (request) => {
+			try {
+				return sendOperationResponse(
+					await sends.retryCleanup(request.operationId, async (source) =>
+						(await readService()).deleteDraftSnapshot(
+							source,
+							source.fingerprint,
+						),
+					),
+				);
+			} catch (error) {
+				return errorResponse(error);
+			}
+		},
+	);
+
 	server.registerTool(
 		"get_send_operation",
 		{

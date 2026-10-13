@@ -2,6 +2,7 @@ import type { AttachmentMetadata } from "../bridge/attachments.js";
 import type { ImapService } from "../bridge/imap.js";
 import type { ReadResult } from "../bridge/messages.js";
 import type {
+	EditDraftInput,
 	GetAttachmentInput,
 	GetMessageInput,
 	GetThreadInput,
@@ -108,6 +109,29 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 		return mailbox.path;
 	}
 	return {
+		async getDraft(input: GetMessageInput) {
+			requireMailbox(input.mailbox);
+			return imap.getDraft(input, accepts);
+		},
+		async editDraft(input: EditDraftInput) {
+			return imap.editDraft(
+				{
+					...input,
+					mailbox: await requireSpecialMailbox("\\Drafts", "Drafts"),
+				},
+				accepts,
+			);
+		},
+		async reconcileDraftOperation(operationId: string) {
+			const record = await imap.getDraftOperation(operationId);
+			requireMailbox(record.mailbox);
+			return imap.reconcileDraftOperation(operationId, accepts);
+		},
+		async retryDraftCleanup(operationId: string) {
+			const record = await imap.getDraftOperation(operationId);
+			requireMailbox(record.mailbox);
+			return imap.retryDraftCleanup(operationId, accepts);
+		},
 		async getDraftSnapshot(input: GetMessageInput) {
 			requireMailbox(input.mailbox);
 			return imap.getDraftSnapshot(input, accepts);

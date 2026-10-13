@@ -12,6 +12,7 @@ import {
 	fixtureMessage,
 	testConfig,
 } from "../bridge/test-fixtures.js";
+import { createDraftStore } from "../drafts/store.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import type { OutgoingMessage } from "../sending/model.js";
@@ -70,8 +71,10 @@ async function fixture(
 	client.mailboxes.set("Sent", []);
 	client.mailboxes.set("INBOX", [fixtureMessage(2)]);
 	if (options.deleteFailure) client.deleteFailure = "throw";
-	const imap = createImapService(testConfig, async (operation) =>
-		operation(client),
+	const imap = createImapService(
+		testConfig,
+		async (operation) => operation(client),
+		createDraftStore(testConfig.user, directory),
 	);
 	const submissions: { message: OutgoingMessage; messageId: string }[] = [];
 	const sends = createSendService(testConfig, {

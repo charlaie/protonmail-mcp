@@ -341,3 +341,105 @@ test("Sent reconciliation overlapping SMTP completion preserves both transport o
 		});
 	}
 });
+
+test("accepted-draft cleanup retries never submit SMTP and deleted remains terminal under a delayed failure", async (t) => {
+	const path = await directory(t);
+	let submits = 0;
+	const store = createSendStore(testConfig.user, path);
+	const service = createSendService(testConfig, {
+		store,
+		submit: async () => {
+			submits++;
+			return accepted;
+		},
+	});
+	const record = await service.prepare({
+		operationId: randomUUID(),
+		request: {},
+		message,
+		source: {
+			kind: "draft",
+			mailbox: "Drafts",
+			uid: 1,
+			uidValidity: "7",
+			fingerprint: "original",
+		},
+	});
+	const sent = await service.send(record, message, async () => ({
+		status: "failed",
+		reason: "Disconnected",
+	}));
+	assert.equal(sent.outcome.status, "accepted");
+	let fail: () => void = () => {};
+	let started: () => void = () => {};
+	const pending = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	const retry = service.retryCleanup(record.operationId, async () => {
+		started();
+		await new Promise<void>((resolve) => {
+			fail = resolve;
+		});
+		return { status: "failed", reason: "Late failure" };
+	});
+	await pending;
+	const cleaned = await service.retryCleanup(
+		record.operationId,
+		async (source) => {
+			assert.equal(source.fingerprint, "original");
+			return { status: "deleted" };
+		},
+	);
+	assert.equal(cleaned.draftCleanup.status, "deleted");
+	fail();
+	assert.equal((await retry).draftCleanup.status, "deleted");
+	assert.equal(
+		(
+			await service.retryCleanup(record.operationId, async () => {
+				throw new Error("Must not delete twice");
+			})
+		).draftCleanup.status,
+		"deleted",
+	);
+	assert.equal(submits, 1);
+});
+
+test("cleanup-only retry refuses prepared, uncertain and partial submissions without deleting or submitting", async (t) => {
+	const path = await directory(t);
+	for (const status of [
+		"prepared",
+		"uncertain",
+		"partially_accepted",
+	] as const) {
+		const service = createSendService(testConfig, {
+			store: createSendStore(testConfig.user, path),
+			submit: async () =>
+				status === "partially_accepted"
+					? {
+							status,
+							accepted: ["recipient@example.com"],
+							rejected: ["hidden@example.com"],
+						}
+					: { status: "uncertain", reason: "Interrupted" },
+		});
+		const record = await service.prepare({
+			operationId: randomUUID(),
+			request: {},
+			message,
+			source: {
+				kind: "draft",
+				mailbox: "Drafts",
+				uid: status === "uncertain" ? 2 : 3,
+				uidValidity: "7",
+				fingerprint: "original",
+			},
+		});
+		if (status !== "prepared") await service.send(record, message);
+		await assert.rejects(
+			service.retryCleanup(record.operationId, async () => {
+				throw new Error("Must not delete");
+			}),
+			/Cleanup requires a fully accepted draft send/,
+		);
+	}
+});

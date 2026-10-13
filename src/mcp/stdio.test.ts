@@ -93,8 +93,58 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	);
 	const listed = await request("tools/list");
 	assert.ok(isSpecType.ListToolsResult(listed.result));
-	assert.equal(listed.result.tools.length, 13);
+	const tools = listed.result.tools;
+	assert.deepEqual(
+		listed.result.tools.map((tool) => tool.name).sort(),
+		[
+			"create_draft",
+			"create_reply_draft",
+			"edit_draft",
+			"get_attachment",
+			"get_draft",
+			"get_draft_operation",
+			"get_message",
+			"get_send_operation",
+			"get_thread",
+			"list_attachments",
+			"list_draft_operations",
+			"list_mailboxes",
+			"list_send_operations",
+			"reconcile_draft_operation",
+			"reconcile_send_operation",
+			"retry_draft_cleanup",
+			"retry_send_cleanup",
+			"search_messages",
+			"send_draft",
+			"send_email",
+		].sort(),
+	);
 	assert.ok(listed.result.tools.every((tool) => tool.outputSchema));
+	for (const name of ["create_draft", "create_reply_draft", "edit_draft"]) {
+		const advertised: (typeof tools)[number] | undefined = tools.find(
+			(candidate) => candidate.name === name,
+		);
+		assert.ok(advertised);
+		assert.ok(advertised.inputSchema.required?.includes("operationId"));
+		assert.equal(advertised.annotations?.idempotentHint, true);
+	}
+	const editDraft = listed.result.tools.find(
+		(tool) => tool.name === "edit_draft",
+	);
+	assert.ok(editDraft);
+	assert.ok(editDraft.inputSchema.required?.includes("expectedRevision"));
+	assert.equal(editDraft.inputSchema.required?.includes("text"), false);
+	assert.equal(editDraft.inputSchema.required?.includes("subject"), false);
+	const getDraft = listed.result.tools.find(
+		(tool) => tool.name === "get_draft",
+	);
+	assert.equal(getDraft?.annotations?.readOnlyHint, true);
+	for (const name of ["retry_draft_cleanup", "retry_send_cleanup"]) {
+		const advertised: (typeof tools)[number] | undefined = tools.find(
+			(candidate) => candidate.name === name,
+		);
+		assert.equal(advertised?.annotations?.destructiveHint, true);
+	}
 	const getMessage = listed.result.tools.find(
 		(tool) => tool.name === "get_message",
 	);

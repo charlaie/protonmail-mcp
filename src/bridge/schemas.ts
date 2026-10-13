@@ -25,7 +25,7 @@ export const SendEmailSchema = z.object({
 	operationId: z
 		.uuid()
 		.describe(
-			"A new UUID for this send. Reuse the same UUID and arguments when checking or retrying this operation; never replace it to retry an uncertain send.",
+			"UUID for this intended write. Reuse the same UUID and arguments when checking or retrying; never replace it to retry an uncertain write.",
 		),
 	to: EmailListSchema.describe("Primary recipients for the email."),
 	cc: EmailListSchema.optional().describe("Optional CC recipients."),
@@ -50,11 +50,28 @@ const DraftContentSchema = z.object({
 	),
 });
 
-export const CreateDraftSchema = DraftContentSchema;
+export const CreateDraftSchema = DraftContentSchema.extend({
+	operationId: SendEmailSchema.shape.operationId,
+});
 
-export const EditDraftSchema = DraftContentSchema.extend({
+const PatchRecipientsSchema = z
+	.union([EmailAddressSchema, z.array(EmailAddressSchema)])
+	.transform((value) => (Array.isArray(value) ? value : [value]));
+export const EditDraftSchema = z.object({
+	operationId: SendEmailSchema.shape.operationId,
 	uidValidity: UidValiditySchema,
-	uid: UidSchema.describe("IMAP UID of the existing draft message to replace."),
+	uid: UidSchema,
+	expectedRevision: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.describe("Revision returned by get_draft. Rejects stale edits."),
+	to: PatchRecipientsSchema.optional().describe(
+		"Omit to preserve; [] clears recipients.",
+	),
+	cc: PatchRecipientsSchema.optional(),
+	bcc: PatchRecipientsSchema.optional(),
+	subject: SubjectSchema.optional(),
+	text: TextSchema.optional(),
 });
 
 const MailboxSchema = z
@@ -120,10 +137,15 @@ export const SendDraftSchema = z.object({
 	uidValidity: UidValiditySchema,
 	uid: UidSchema,
 });
+export const ListOperationsSchema = z.object({
+	limit: z.number().int().min(1).max(100).default(50),
+	offset: z.number().int().min(0).default(0),
+});
 export const GetSendOperationSchema = z.object({
 	operationId: SendEmailSchema.shape.operationId,
 });
 export const CreateReplyDraftSchema = GetMessageSchema.extend({
+	operationId: SendEmailSchema.shape.operationId,
 	replyAll: z
 		.boolean()
 		.default(false)

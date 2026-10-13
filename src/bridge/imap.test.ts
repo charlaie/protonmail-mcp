@@ -1,8 +1,13 @@
 import { strict as assert } from "node:assert";
-import { test } from "node:test";
+import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
 import { simpleParser } from "mailparser";
 import { canReadMessage } from "../policy/enforcement.js";
 import { createReadPolicy } from "../policy/schema.js";
+import { hashContent } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
 import { createImapService } from "./imap.js";
 import {
@@ -15,6 +20,22 @@ import { messageSummary, parsedAddressText } from "./serializers.js";
 import { createImapSession } from "./session.js";
 import { FakeImap, fixtureMessage, testConfig } from "./test-fixtures.js";
 
+const journalDirectory = mkdtempSync(join(tmpdir(), "protonmail-imap-drafts-"));
+const previousJournalDirectory = process.env.PROTONMAIL_MCP_OPERATIONS_DIR;
+process.env.PROTONMAIL_MCP_OPERATIONS_DIR = journalDirectory;
+after(() => {
+	rmSync(journalDirectory, { recursive: true, force: true });
+	if (previousJournalDirectory === undefined)
+		delete process.env.PROTONMAIL_MCP_OPERATIONS_DIR;
+	else process.env.PROTONMAIL_MCP_OPERATIONS_DIR = previousJournalDirectory;
+});
+function editInput(original: ReturnType<typeof fixtureMessage>, input: object) {
+	return EditDraftSchema.parse({
+		operationId: randomUUID(),
+		expectedRevision: hashContent(original.source?.toString("base64")),
+		...input,
+	});
+}
 function service(client: FakeImap) {
 	return createImapService(testConfig, async (operation) => operation(client));
 }
@@ -184,7 +205,10 @@ test("thread reconstruction expands successive reply generations and label dupli
 test("draft creation sets Draft and retains Bcc, including an empty composition", async () => {
 	const client = new FakeImap();
 	await service(client).createDraft({
-		...CreateDraftSchema.parse({ bcc: "hidden@example.com" }),
+		...CreateDraftSchema.parse({
+			operationId: randomUUID(),
+			bcc: "hidden@example.com",
+		}),
 		mailbox: "Drafts",
 	});
 	const appended = client.appends[0];
@@ -203,16 +227,16 @@ test("draft edit preserves reply identity and reports a saved replacement after 
 	client.mailboxes.set("Drafts", [original]);
 	client.deleteFailure = "throw";
 	const result = await service(client).editDraft({
-		...EditDraftSchema.parse({ uid: 31, uidValidity: "7", text: "New body" }),
+		...editInput(original, { uid: 31, uidValidity: "7", text: "New body" }),
 		mailbox: "Drafts",
 	});
-	assert.equal(result.status, "replacement_created_old_delete_failed");
-	assert.ok("newUid" in result);
-	assert.equal(result.newUid, 99);
+	assert.equal(result.outcome.status, "cleanup_failed");
+	assert.ok("identity" in result.outcome);
+	assert.equal(result.outcome.identity.uid, 99);
 	const appended = client.appends[0];
 	assert.ok(appended);
 	const parsed = await simpleParser(appended.content);
-	assert.equal(parsed.messageId, "<draft@example.com>");
+	assert.match(parsed.messageId ?? "", new RegExp(result.operationId));
 	assert.equal(parsed.inReplyTo, "<parent@example.com>");
 	assert.deepEqual(parsed.references, [
 		"<root@example.com>",
@@ -229,13 +253,10 @@ test("rich drafts and stale identities are blocked before any mutation", async (
 	);
 	client.mailboxes.set("Drafts", [original]);
 	const input = {
-		...EditDraftSchema.parse({ uid: 1, uidValidity: "7", text: "Replacement" }),
+		...editInput(original, { uid: 1, uidValidity: "7", text: "Replacement" }),
 		mailbox: "Drafts",
 	};
-	assert.equal(
-		(await service(client).editDraft(input)).status,
-		"blocked_unsupported_draft",
-	);
+	await assert.rejects(service(client).editDraft(input), /HTML or attachments/);
 	await assert.rejects(
 		service(client).editDraft({ ...input, uidValidity: "8" }),
 		/UIDVALIDITY changed/,
@@ -367,12 +388,12 @@ test("a socket error after APPEND retains replacement recovery details through t
 		createImapSession(testConfig, () => client),
 	);
 	const result = await imap.editDraft({
-		...EditDraftSchema.parse({ uid: 32, uidValidity: "7", text: "Updated" }),
+		...editInput(original, { uid: 32, uidValidity: "7", text: "Updated" }),
 		mailbox: "Drafts",
 	});
-	assert.equal(result.status, "replacement_created_old_delete_failed");
-	assert.ok("newUid" in result);
-	assert.equal(result.newUid, 99);
+	assert.equal(result.outcome.status, "cleanup_failed");
+	assert.ok("identity" in result.outcome);
+	assert.equal(result.outcome.identity.uid, 99);
 	const appended = client.appends[0];
 	assert.ok(appended);
 	assert.equal(
@@ -389,11 +410,13 @@ test("attached drafts are never replaced", async () => {
 		"MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nBody\r\n--x\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=file.txt\r\n\r\nKeep attachment\r\n--x--",
 	);
 	client.mailboxes.set("Drafts", [original]);
-	const result = await service(client).editDraft({
-		...EditDraftSchema.parse({ uid: 1, uidValidity: "7", text: "Replacement" }),
-		mailbox: "Drafts",
-	});
-	assert.equal(result.status, "blocked_unsupported_draft");
+	await assert.rejects(
+		service(client).editDraft({
+			...editInput(original, { uid: 1, uidValidity: "7", text: "Replacement" }),
+			mailbox: "Drafts",
+		}),
+		/HTML or attachments/,
+	);
 	assert.equal(client.appends.length, 0);
 	assert.equal(client.deletions, 0);
 });
@@ -410,16 +433,21 @@ test("simultaneous edits on separate IMAP connections create only one replacemen
 		return operation(client);
 	});
 	const input = {
-		...EditDraftSchema.parse({ uid: 1, uidValidity: "7", text: "Changed" }),
+		...editInput(fixtureMessage(1, { sender: testConfig.user }), {
+			uid: 1,
+			uidValidity: "7",
+			text: "Changed",
+		}),
 		mailbox: "Drafts",
 	};
 	const results = await Promise.all([
 		imap.editDraft(input),
 		imap.editDraft(input),
 	]);
-	assert.deepEqual(
-		results.map((result) => result.status),
-		["updated", "not_found"],
+	assert.equal(results[0].operationId, results[1].operationId);
+	assert.equal(
+		(await imap.getDraftOperation(input.operationId)).outcome.status,
+		"completed",
 	);
 	assert.equal(
 		clients.reduce((total, client) => total + client.appends.length, 0),
@@ -445,16 +473,26 @@ test("queued edits retain one replacement and its identity after every deletion 
 				return createImapSession(testConfig, () => client)(operation);
 			});
 			const input = {
-				...EditDraftSchema.parse({ uid, uidValidity: "7", text: "Changed" }),
+				...editInput(fixtureMessage(uid, { sender: testConfig.user }), {
+					uid,
+					uidValidity: "7",
+					text: "Changed",
+				}),
 				mailbox: "Drafts",
 			};
 			const results = await Promise.all([
 				imap.editDraft(input),
 				imap.editDraft(input),
 			]);
-			assert.equal(results[0].status, "replacement_created_old_delete_failed");
-			assert.deepEqual(results[1], results[0]);
-			assert.deepEqual(await imap.editDraft(input), results[0]);
+			assert.equal(
+				(await imap.getDraftOperation(input.operationId)).outcome.status,
+				"cleanup_failed",
+			);
+			assert.equal(results[1].operationId, results[0].operationId);
+			assert.equal(
+				(await imap.editDraft(input)).outcome.status,
+				"cleanup_failed",
+			);
 			assert.equal(
 				clients.reduce((total, client) => total + client.appends.length, 0),
 				1,

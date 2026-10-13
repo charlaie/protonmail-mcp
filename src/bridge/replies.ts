@@ -75,6 +75,7 @@ export function composeReplyDraft(
 			"never",
 		);
 	return {
+		operationId: input.operationId,
 		mailbox,
 		from,
 		to,

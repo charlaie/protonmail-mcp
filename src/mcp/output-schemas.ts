@@ -3,6 +3,8 @@ import {
 	MessageBodySchema,
 	MessageSummarySchema,
 } from "../bridge/message-model.js";
+import { GetMessageSchema } from "../bridge/schemas.js";
+import { DraftOperationSchema } from "../drafts/model.js";
 import { SendOperationSchema } from "../sending/model.js";
 import { RetrySchema, ToolErrorSchema } from "../shared/mail-error.js";
 
@@ -47,43 +49,29 @@ export const MailboxesOutputSchema = z.union([
 	ToolErrorSchema,
 ]);
 
-export const CreateDraftOutputSchema = z.union([
+export const DraftRecordOutputSchema = DraftOperationSchema.omit({
+	requestHash: true,
+}).extend({ retry: RetrySchema });
+export const DraftOperationOutputSchema = z.union([
+	DraftRecordOutputSchema,
+	ToolErrorSchema,
+]);
+export const ListDraftOperationsOutputSchema = z.union([
 	z.object({
-		status: z.literal("created"),
-		mailbox: z.string(),
-		uid: z.number().optional(),
-		uidValidity: z.string().optional(),
-		seq: z.number().optional(),
-		messageId: z.string(),
+		operations: z.array(DraftRecordOutputSchema),
+		nextOffset: z.number().int().nullable(),
 	}),
 	ToolErrorSchema,
 ]);
-const ReplacementFields = {
-	mailbox: z.string(),
-	oldUid: z.number(),
-	newUid: z.number().optional(),
-	newUidValidity: z.string().optional(),
-	newSeq: z.number().optional(),
-	messageId: z.string(),
-};
-export const EditDraftOutputSchema = z.union([
-	z.object({ status: z.literal("updated"), ...ReplacementFields }),
-	z.object({
-		status: z.literal("replacement_created_old_delete_failed"),
-		...ReplacementFields,
-		reason: z.string(),
-		retry: z.literal("reconcile"),
-	}),
-	z.object({
-		status: z.enum([
-			"blocked_uidplus_required",
-			"blocked_unsupported_draft",
-			"not_found",
-		]),
-		mailbox: z.string(),
-		oldUid: z.number(),
-		reason: z.string(),
-		retry: RetrySchema,
+export const GetDraftOutputSchema = z.union([
+	GetMessageSchema.extend({
+		revision: z.string(),
+		from: z.string(),
+		to: z.array(z.string()),
+		cc: z.array(z.string()),
+		bcc: z.array(z.string()),
+		subject: z.string(),
+		text: z.string(),
 	}),
 	ToolErrorSchema,
 ]);
@@ -115,9 +103,17 @@ export const ThreadOutputSchema = z.union([
 	}),
 	ToolErrorSchema,
 ]);
+export const SendRecordOutputSchema = SendOperationSchema.omit({
+	requestHash: true,
+}).extend({ retry: RetrySchema });
 export const SendOutputSchema = z.union([
-	SendOperationSchema.omit({ requestHash: true }).extend({
-		retry: RetrySchema,
+	SendRecordOutputSchema,
+	ToolErrorSchema,
+]);
+export const ListSendOperationsOutputSchema = z.union([
+	z.object({
+		operations: z.array(SendRecordOutputSchema),
+		nextOffset: z.number().int().nullable(),
 	}),
 	ToolErrorSchema,
 ]);

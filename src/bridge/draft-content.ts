@@ -1,4 +1,4 @@
-import { simpleParser } from "mailparser";
+import { type ParsedMail, simpleParser } from "mailparser";
 import { hashContent, OutgoingMessageSchema } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
 import type { BridgeConfig } from "./config.js";
@@ -10,8 +10,27 @@ import {
 	SUMMARY_FIELDS,
 } from "./messages.js";
 import type { GetMessageInput } from "./schemas.js";
-import { messageSummary, parsedAddressEmails } from "./serializers.js";
+import {
+	messageSummary,
+	parsedAddressEmails,
+	parsedAddressText,
+} from "./serializers.js";
 import type { ImapClient } from "./session.js";
+
+export function draftContentHash(original: ParsedMail) {
+	return hashContent({
+		messageId: original.messageId,
+		from: parsedAddressText(original.from),
+		to: parsedAddressText(original.to),
+		cc: parsedAddressText(original.cc),
+		bcc: parsedAddressText(original.bcc),
+		replyTo: parsedAddressText(original.replyTo),
+		subject: original.subject ?? "",
+		text: original.text ?? "",
+		inReplyTo: parseMessageIds(original.inReplyTo),
+		references: parseMessageIds(original.references),
+	});
+}
 
 export async function inspectDraft(
 	client: ImapClient,
@@ -51,11 +70,17 @@ export async function inspectDraft(
 		{ uid: true, source: true },
 		{ uid: true },
 	);
-	if (full === false || !full.source)
+	if (full === false)
 		throw new MailError(
 			"NOT_FOUND",
-			"Draft content is unavailable. Search Drafts again.",
+			"Draft no longer exists. Search Drafts again.",
 			"refresh_identity",
+		);
+	if (!full.source)
+		throw new MailError(
+			"OPERATION_FAILED",
+			"Draft exists but its content is unavailable. Restore Bridge access before retrying cleanup.",
+			"reconcile",
 		);
 	if (full.source.length > 10 * 1024 * 1024)
 		throw new MailError(
@@ -72,6 +97,19 @@ export async function inspectDraft(
 			"UNSUPPORTED_CONTENT",
 			"Draft has HTML or attachments. Use Proton Mail to preserve its content.",
 			"never",
+		);
+	if (
+		!accepts(input.mailbox, {
+			...messageSummary(summary, input.uidValidity),
+			senderEmails: parsedAddressEmails(original.from).map((address) =>
+				address.toLowerCase(),
+			),
+		})
+	)
+		throw new MailError(
+			"POLICY_DENIED",
+			"Fetched draft sender is not allowed by the read policy.",
+			"configure",
 		);
 	return { original, fingerprint: hashContent(full.source.toString("base64")) };
 }
@@ -107,5 +145,9 @@ export async function readDraftSnapshot(
 			"Draft has invalid recipients, unsafe headers, or a body exceeding 100,000 characters. Edit it in Proton Mail.",
 			"never",
 		);
-	return { fingerprint, message: message.data };
+	return {
+		fingerprint,
+		message: message.data,
+		draftMessageId: original.messageId,
+	};
 }

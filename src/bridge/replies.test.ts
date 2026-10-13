@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { readMessage } from "./messages.js";
 import { composeReplyDraft } from "./replies.js";
@@ -13,6 +14,7 @@ test("reply drafts respect Reply-To, deduplicate reply-all, exclude self and Bcc
 	);
 	client.mailboxes.set("INBOX", [source]);
 	const input = CreateReplyDraftSchema.parse({
+		operationId: randomUUID(),
 		mailbox: "INBOX",
 		uid: 1,
 		uidValidity: "7",
@@ -55,6 +57,7 @@ test("replying to own sent mail follows up with its recipients and preserves an 
 	);
 	client.mailboxes.set("Sent", [source]);
 	const input = CreateReplyDraftSchema.parse({
+		operationId: randomUUID(),
 		mailbox: "Sent",
 		uid: 1,
 		uidValidity: "7",
@@ -74,6 +77,7 @@ test("reply-all expands To and Cc groups, excludes own aliases inside groups, an
 	);
 	client.mailboxes.set("INBOX", [source]);
 	const input = CreateReplyDraftSchema.parse({
+		operationId: randomUUID(),
 		mailbox: "INBOX",
 		uid: 1,
 		uidValidity: "7",

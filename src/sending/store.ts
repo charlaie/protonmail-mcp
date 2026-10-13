@@ -1,13 +1,11 @@
-import { chmod, mkdir, open } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { GetMessageInput } from "../bridge/schemas.js";
-import { getPolicyFilePath } from "../policy/store.js";
+import { createOperationDatabase } from "../operations/database.js";
+import { assertDraftMutable } from "../operations/draft-claims.js";
 import { MailError } from "../shared/mail-error.js";
 import {
 	type DraftCleanup,
-	hashContent,
 	type SendOperation,
 	SendOperationSchema,
 	type SmtpOutcome,
@@ -15,37 +13,11 @@ import {
 
 const RowSchema = z.object({ record: z.string() });
 
-export function createSendStore(
-	account: string,
-	directory = process.env.PROTONMAIL_MCP_OPERATIONS_DIR?.trim() ||
-		join(dirname(getPolicyFilePath()), "send-operations"),
-) {
-	const path = join(directory, `${hashContent(account)}.sqlite`);
-	async function use<T>(operation: (db: DatabaseSync) => T): Promise<T> {
-		try {
-			await mkdir(directory, { recursive: true, mode: 0o700 });
-			const file = await open(path, "a", 0o600);
-			await file.close();
-			await chmod(path, 0o600);
-			const db = new DatabaseSync(path);
-			try {
-				db.exec(
-					"PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS sends (id TEXT PRIMARY KEY, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL);",
-				);
-				return operation(db);
-			} finally {
-				db.close();
-			}
-		} catch (error) {
-			if (error instanceof MailError) throw error;
-			throw new MailError(
-				"STORAGE_FAILED",
-				"Send journal could not be accessed. Do not resend an attempted operation; restore access and inspect its operation ID.",
-				"configure",
-				{ cause: error },
-			);
-		}
-	}
+export function createSendStore(account: string, directory?: string) {
+	const { path, use, transaction } = createOperationDatabase(
+		account,
+		directory,
+	);
 	function read(db: DatabaseSync, id: string) {
 		const row = db.prepare("SELECT record FROM sends WHERE id = ?").get(id);
 		return row
@@ -73,22 +45,20 @@ export function createSendStore(
 		);
 		return next;
 	}
-	function transaction<T>(operation: (db: DatabaseSync) => T) {
-		return use((db) => {
-			db.exec("BEGIN IMMEDIATE");
-			try {
-				const result = operation(db);
-				db.exec("COMMIT");
-				return result;
-			} catch (error) {
-				db.exec("ROLLBACK");
-				throw error;
-			}
-		});
-	}
 	return {
 		path,
 		get: (id: string) => use((db) => read(db, id)),
+		list: (limit: number, offset: number) =>
+			use((db) =>
+				db
+					.prepare(
+						"SELECT record FROM sends WHERE json_extract(record, '$.outcome.status') IN ('prepared', 'submitting', 'uncertain', 'partially_accepted') OR (json_extract(record, '$.outcome.status') = 'accepted' AND json_extract(record, '$.draftCleanup.status') IN ('pending', 'failed', 'retained')) ORDER BY id LIMIT ? OFFSET ?",
+					)
+					.all(limit, offset)
+					.map((row) =>
+						SendOperationSchema.parse(JSON.parse(RowSchema.parse(row).record)),
+					),
+			),
 		prepare: (record: SendOperation) =>
 			transaction((db) => {
 				const validated = SendOperationSchema.parse(record);
@@ -118,30 +88,12 @@ export function createSendStore(
 						"never",
 					);
 				if (stored.source.kind === "draft") {
-					const key = hashContent({
-						mailbox: stored.source.mailbox,
-						uidValidity: stored.source.uidValidity,
-						uid: stored.source.uid,
-					});
-					const owner = db
-						.prepare("SELECT operation_id FROM draft_claims WHERE identity = ?")
-						.get(key);
-					if (owner) {
-						const ownerId = z
-							.object({ operation_id: z.string() })
-							.parse(owner).operation_id;
-						const previous = requireRecord(db, ownerId);
-						if (
-							previous.outcome.status !== "rejected" ||
-							previous.sentCopies.length
-						)
-							throw new MailError(
-								"OPERATION_CONFLICT",
-								`This draft already has an attempted send ${ownerId}. Inspect that operation before considering another send.`,
-								"reconcile",
-							);
-						db.prepare("DELETE FROM draft_claims WHERE identity = ?").run(key);
-					}
+					const key = assertDraftMutable(
+						db,
+						stored.source,
+						stored.source.draftMessageId,
+					);
+					db.prepare("DELETE FROM draft_claims WHERE identity = ?").run(key);
 					db.prepare(
 						"INSERT INTO draft_claims (identity, operation_id) VALUES (?, ?)",
 					).run(key, id);
@@ -169,7 +121,8 @@ export function createSendStore(
 		updateCleanup: (id: string, draftCleanup: DraftCleanup) =>
 			transaction((db) => {
 				const stored = requireRecord(db, id);
-				return stored.outcome.status === "accepted"
+				return stored.outcome.status === "accepted" &&
+					stored.draftCleanup.status !== "deleted"
 					? save(db, { ...stored, draftCleanup })
 					: stored;
 			}),

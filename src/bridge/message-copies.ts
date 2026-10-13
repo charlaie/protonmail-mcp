@@ -8,7 +8,7 @@ import {
 import { messageSummary } from "./serializers.js";
 import type { ImapClient } from "./session.js";
 
-export async function findSentCopies(
+export async function findMessageCopies(
 	client: ImapClient,
 	mailbox: string,
 	messageId: string,
@@ -22,13 +22,13 @@ export async function findSentCopies(
 	if (uids === false)
 		throw new MailError(
 			"CONNECTION_FAILED",
-			"Could not search Sent. The send remains uncertain.",
+			"Could not search the mailbox. The operation remains uncertain.",
 			"safe",
 		);
 	if (uids.length > 1000)
 		throw new MailError(
 			"OPERATION_FAILED",
-			"Sent reconciliation found too many candidates. Inspect Sent manually; the send remains uncertain.",
+			"Message-ID reconciliation found too many candidates. Inspect the mailbox manually; the operation remains uncertain.",
 			"reconcile",
 		);
 	const matches: { mailbox: string; uid: number; uidValidity: string }[] = [];

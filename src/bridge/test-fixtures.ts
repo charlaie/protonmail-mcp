@@ -192,6 +192,9 @@ export class FakeImap extends EventEmitter implements ImapClient {
 		const saved = fixtureMessage(98 + this.appends.length);
 		saved.source = Buffer.isBuffer(content) ? content : Buffer.from(content);
 		saved.size = saved.source.length;
+		saved.headers = Buffer.from(
+			saved.source.toString().split("\r\n\r\n")[0] ?? "",
+		);
 		saved.flags = new Set(flags);
 		this.mailboxes.set(path, [...(this.mailboxes.get(path) ?? []), saved]);
 		return {
