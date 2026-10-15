@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import type { GetMessageInput } from "../bridge/schemas.js";
-import { DraftOperationSchema } from "../drafts/model.js";
+import { StoredDraftOperationSchema } from "../drafts/model.js";
 import { hashContent, SendOperationSchema } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
 
@@ -56,8 +56,9 @@ export function assertMessageMutable(
 		.get(identity.mailbox, identity.uidValidity, identity.uid);
 	if (target)
 		conflict(
-			DraftOperationSchema.parse(JSON.parse(RowSchema.parse(target).record))
-				.operationId,
+			StoredDraftOperationSchema.parse(
+				JSON.parse(RowSchema.parse(target).record),
+			).operationId,
 		);
 	if (messageId) {
 		const inboxProjection = db
@@ -78,7 +79,7 @@ export function assertMessageMutable(
 			.prepare("SELECT record FROM drafts WHERE message_id = ?")
 			.get(messageId);
 		if (row) {
-			const record = DraftOperationSchema.parse(
+			const record = StoredDraftOperationSchema.parse(
 				JSON.parse(RowSchema.parse(row).record),
 			);
 			if (

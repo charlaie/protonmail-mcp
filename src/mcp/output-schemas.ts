@@ -3,7 +3,7 @@ import {
 	MessageBodySchema,
 	MessageSummarySchema,
 } from "../bridge/message-model.js";
-import { GetMessageSchema } from "../bridge/schemas.js";
+import { DraftIdSchema, GetMessageSchema } from "../bridge/schemas.js";
 import { DraftOperationSchema } from "../drafts/model.js";
 import { MediaMetadataSchema } from "../outgoing/media.js";
 import { SendOperationSchema } from "../sending/model.js";
@@ -66,6 +66,7 @@ export const ListDraftOperationsOutputSchema = z.union([
 ]);
 export const GetDraftOutputSchema = z.union([
 	GetMessageSchema.extend({
+		draftId: DraftIdSchema,
 		revision: z.string(),
 		from: z.string(),
 		to: z.array(z.string()),
@@ -78,6 +79,8 @@ export const GetDraftOutputSchema = z.union([
 	ToolErrorSchema,
 ]);
 const ThreadSummarySchema = MessageSummarySchema.extend({
+	bridgeInternalId: z.string().optional(),
+	bridgeExternalId: z.string().optional(),
 	mailbox: z.string(),
 	messageId: z.string().optional(),
 	references: z.array(z.string()),

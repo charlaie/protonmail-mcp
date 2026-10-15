@@ -6,6 +6,7 @@ import type { BridgeConfig } from "./config.js";
 export type ImapClient = Pick<
 	ImapFlow,
 	| "list"
+	| "mailboxCreate"
 	| "mailboxOpen"
 	| "search"
 	| "fetchAll"

@@ -130,7 +130,9 @@ export class FakeImap extends EventEmitter implements ImapClient {
 			parentPath: "",
 			name: path,
 			delimiter: "/",
-			flags: new Set<string>(),
+			flags: new Set<string>(
+				["Folders", "Labels"].includes(path) ? ["\\Noselect"] : [],
+			),
 			listed: true,
 			subscribed: true,
 			...(path === "Drafts"
@@ -139,6 +141,14 @@ export class FakeImap extends EventEmitter implements ImapClient {
 					? { specialUse: "\\Sent" }
 					: {}),
 		}));
+	}
+	mailboxCreations: string[] = [];
+	async mailboxCreate(path: string | string[]) {
+		if (typeof path !== "string") throw new Error("Expected a mailbox path");
+		this.mailboxCreations.push(path);
+		const created = !this.mailboxes.has(path);
+		if (created) this.mailboxes.set(path, []);
+		return { path, created };
 	}
 	async mailboxOpen(path: string | string[]) {
 		if (typeof path !== "string")

@@ -1,6 +1,7 @@
 import type { AttachmentPermission } from "../attachments/formats.js";
 import { createDraftService } from "../drafts/service.js";
 import type { DraftStore } from "../drafts/store.js";
+import { type CreateMailboxInput, createMailbox } from "../inbox/creation.js";
 import { createInboxService } from "../inbox/service.js";
 import type { InboxStore } from "../inbox/store.js";
 import { mediaManifest } from "../outgoing/media.js";
@@ -14,7 +15,11 @@ import {
 } from "./attachments.js";
 import type { MailWriteAuthorization } from "./authorization.js";
 import type { BridgeConfig } from "./config.js";
-import { inspectDraft, readDraftSnapshot } from "./draft-content.js";
+import {
+	draftContentHash,
+	inspectDraft,
+	readDraftSnapshot,
+} from "./draft-content.js";
 import type { CreateDraftLookupInput, EditDraftLookupInput } from "./drafts.js";
 import { findMessageCopies } from "./message-copies.js";
 import {
@@ -40,6 +45,10 @@ export function createImapService(
 ) {
 	const drafts = createDraftService(config, run, draftStore);
 	return {
+		createMailbox: (
+			input: CreateMailboxInput,
+			authorize: () => Promise<void>,
+		) => createMailbox(run, input, authorize),
 		inbox: createInboxService(config, run, inboxStore),
 		listMailboxes: () =>
 			run(async (client) =>
@@ -82,7 +91,9 @@ export function createImapService(
 			input: EditDraftLookupInput,
 			accepts: MessageFilter = allowAllMessages,
 			authorize?: MailWriteAuthorization,
-		) => drafts.edit(input, accepts, authorize),
+			request: object = input,
+		) => drafts.edit(input, accepts, authorize, request),
+		resolveDraftIdentity: drafts.resolve,
 		getDraftOperation: drafts.get,
 		existingDraftOperation: drafts.existing,
 		listDraftOperations: drafts.list,
@@ -97,6 +108,10 @@ export function createImapService(
 				);
 				return {
 					...input,
+					draftId: await drafts.identify(input, {
+						messageId: original.messageId,
+						contentHash: draftContentHash(original),
+					}),
 					revision: fingerprint,
 					from: original.from?.text ?? "",
 					to: parsedAddressEmails(original.to),

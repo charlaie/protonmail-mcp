@@ -10,14 +10,17 @@ import {
 import type { GetThreadInput } from "./schemas.js";
 import { messageSummary } from "./serializers.js";
 import type { ImapClient } from "./session.js";
+import {
+	bridgeThreadIdentity,
+	normalizeThreadId,
+	THREAD_HEADERS,
+	threadIdentityIds,
+	threadSearchTerms,
+} from "./thread-identity.js";
 
 export type ThreadLookupInput = Omit<GetThreadInput, "mailboxes"> & {
 	mailboxes: string[];
 };
-const THREAD_HEADERS = ["Message-ID", "References", "In-Reply-To"];
-function normalizeId(value: string | undefined) {
-	return value?.trim().replace(/^<|>$/g, "");
-}
 
 async function fetchThreadMessages(
 	client: ImapClient,
@@ -41,13 +44,18 @@ async function fetchThreadMessages(
 				: undefined;
 			const messageId = parsed?.messageId ?? message.envelope?.messageId;
 			const references = parseMessageIds(parsed?.references);
+			const identity = { messageId, ...bridgeThreadIdentity(parsed?.headers) };
+			const ownIds = threadIdentityIds(identity);
+			const rootReference = references.find(
+				(id) => !ownIds.includes(normalizeThreadId(id) ?? ""),
+			);
 			return {
 				...messageSummary(message, uidValidity),
 				mailbox,
-				messageId,
+				...identity,
 				references,
 				inReplyTo: parsed?.inReplyTo ?? message.envelope?.inReplyTo,
-				threadKey: normalizeId(references[0]) ?? normalizeId(messageId),
+				threadKey: normalizeThreadId(rootReference) ?? ownIds[0],
 			};
 		}),
 	);
@@ -99,11 +107,11 @@ async function readThreadBodies(
 }
 function relatedIds(message: ThreadMessage) {
 	return [
-		message.messageId,
+		...threadIdentityIds(message),
 		...parseMessageIds(message.inReplyTo),
 		...message.references,
 	].flatMap((value) => {
-		const id = normalizeId(value);
+		const id = normalizeThreadId(value);
 		return id ? [id] : [];
 	});
 }
@@ -124,17 +132,32 @@ export async function getThread(
 	if (!anchor) return { kind: "not_found" } as const;
 	if (!accepts(input.mailbox, anchor)) return { kind: "denied" } as const;
 	const messages = new Map<string, ThreadMessage>();
+	const identityLocations = new Map<string, string>();
 	const candidates = new Map<string, ThreadMessage>();
 	const deniedLocations = new Set<string>();
 	const searchedIds = new Set<string>();
 	const pendingIds = new Set<string>();
 	const mailboxes = [...new Set([input.mailbox, ...input.mailboxes])];
 	function add(message: ThreadMessage) {
+		const ownIds = threadIdentityIds(message);
+		const existingKeys = new Set(
+			ownIds.flatMap((id) => {
+				const location = identityLocations.get(id);
+				return location ? [location] : [];
+			}),
+		);
 		const key =
-			normalizeId(message.messageId) ??
+			existingKeys.values().next().value ??
 			JSON.stringify([message.mailbox, message.uid]);
-		if (messages.has(key)) return;
-		messages.set(key, message);
+		// A projection can reveal aliases or reply links missing from another copy.
+		for (const duplicate of existingKeys) {
+			if (duplicate === key) continue;
+			messages.delete(duplicate);
+			for (const [id, location] of identityLocations)
+				if (location === duplicate) identityLocations.set(id, key);
+		}
+		if (!messages.has(key)) messages.set(key, message);
+		for (const id of ownIds) identityLocations.set(id, key);
 		for (const id of relatedIds(message))
 			if (!searchedIds.has(id)) pendingIds.add(id);
 	}
@@ -156,9 +179,7 @@ export async function getThread(
 			const selected = await client.mailboxOpen(mailbox, { readOnly: true });
 			const uids = await client.search(
 				{
-					or: ids.flatMap((id) =>
-						THREAD_HEADERS.map((header) => ({ header: { [header]: id } })),
-					),
+					or: ids.flatMap(threadSearchTerms),
 				},
 				{ uid: true },
 			);

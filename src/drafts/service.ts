@@ -133,7 +133,7 @@ export function createDraftService(
 				);
 			const composed = await composeDraft(config, input, inspected?.original);
 			const now = new Date().toISOString();
-			const record: DraftOperation = {
+			const record: Omit<DraftOperation, "draftId"> = {
 				operationId: input.operationId,
 				requestHash: hashContent(request),
 				messageId: composed.messageId,
@@ -208,6 +208,8 @@ export function createDraftService(
 			);
 	}
 	return {
+		identify: store.identify,
+		resolve: store.resolve,
 		get,
 		existing,
 		list: store.list,
@@ -221,7 +223,8 @@ export function createDraftService(
 			input: EditDraftLookupInput,
 			accepts: MessageFilter,
 			authorize?: MailWriteAuthorization,
-		) => write(input, input, accepts, authorize),
+			request: object = input,
+		) => write(input, request, accepts, authorize),
 		async reconcile(operationId: string, accepts: MessageFilter) {
 			let record = await get(operationId);
 			if (record.outcome.status !== "appending") return record;

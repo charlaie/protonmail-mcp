@@ -5,6 +5,10 @@ import {
 	ListOperationsSchema,
 } from "../bridge/schemas.js";
 import {
+	CreateMailboxOutputSchema,
+	CreateMailboxSchema,
+} from "../inbox/creation.js";
+import {
 	InboxCapabilitiesOutputSchema,
 	type InboxOperation,
 	InboxOperationOutputSchema,
@@ -37,6 +41,19 @@ export function registerInboxTools(input: {
 	readService: () => Promise<Awaited<ReturnType<typeof createReadService>>>;
 }) {
 	const { server, imap, readService } = input;
+	server.registerTool(
+		"create_mailbox",
+		{
+			title: "Create folder or label",
+			inputSchema: CreateMailboxSchema,
+			outputSchema: CreateMailboxOutputSchema,
+			annotations: { ...read, readOnlyHint: false },
+			description:
+				"Ensure a custom folder or label exists under Bridge's advertised Folders or Labels namespace. Supply a single name and kind; folders may specify an existing custom parent path. Requires explicit tool and creation-kind grants. An existing selectable path is success. Retry with the same arguments after refreshing list_mailboxes. Creating a mailbox does not grant read or message-write access to it; use local setup for those permissions. Never deletes or renames mailboxes.",
+		},
+		async (request) =>
+			jsonResponse(await (await readService()).createMailbox(request)),
+	);
 	server.registerTool(
 		"get_inbox_capabilities",
 		{

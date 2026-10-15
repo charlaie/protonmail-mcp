@@ -51,6 +51,8 @@ The [policy example](../policy.example.json) shows version 3. `allowedTools` is 
 
 `inboxWrites` is disabled by default. An enabled policy grants individual actions and exact writable mailbox paths, each of which must already be readable. Inbox changes also require `manage_message` in `allowedTools`. These actions have no per-action human approval. Sending always has a separate mandatory approval.
 
+Folder and label creation requires `create_mailbox` in `allowedTools` and the corresponding kind in `mailboxCreation`, such as `["folder", "label"]`. The default is `[]`, including for existing policies. Setup offers these grants separately from message actions. Creation applies to custom mailboxes under Bridge's advertised `Folders` and `Labels` namespaces. It does not grant read or message-write access to the resulting path. Add those exact paths through setup before reading or organizing mail in them. Creation has no per-action approval once granted.
+
 Draft creation and editing require their individual tool grants and readable Drafts access. Sending a draft includes deletion of its unchanged snapshot after full acceptance; editing a draft includes deletion of its unchanged original. Cleanup retry tools have separate grants. Read-only mode excludes all of these mail-changing tools.
 
 Tool grants are reloaded at invocation and immediately before mail writes, including after approval, preflight, and journal claims. Revocation stops writes that have not yet been dispatched; it cannot undo a command already sent to Bridge. Inbox reconciliation requires its own tool grant and mailbox/sender read access, so uncertain prior writes can be inspected after switching to read-only mode.

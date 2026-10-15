@@ -22,6 +22,15 @@ import { createImapSession } from "./session.js";
 import { FakeImap, fixtureMessage, testConfig } from "./test-fixtures.js";
 
 const journalDirectory = mkdtempSync(join(tmpdir(), "protonmail-imap-drafts-"));
+const mailboxJournals = new WeakMap<FakeImap["mailboxes"], string>();
+function journalFor(mailboxes: FakeImap["mailboxes"]) {
+	let directory = mailboxJournals.get(mailboxes);
+	if (!directory) {
+		directory = mkdtempSync(join(journalDirectory, "mailbox-"));
+		mailboxJournals.set(mailboxes, directory);
+	}
+	return directory;
+}
 after(() => {
 	rmSync(journalDirectory, { recursive: true, force: true });
 });
@@ -36,7 +45,7 @@ function service(client: FakeImap) {
 	return createImapService(
 		testConfig,
 		async (operation) => operation(client),
-		createDraftStore(testConfig.user, journalDirectory),
+		createDraftStore(testConfig.user, journalFor(client.mailboxes)),
 	);
 }
 const policy = createReadPolicy({
@@ -386,7 +395,7 @@ test("a socket error after APPEND retains replacement recovery details through t
 	const imap = createImapService(
 		testConfig,
 		createImapSession(testConfig, () => client),
-		createDraftStore(testConfig.user, journalDirectory),
+		createDraftStore(testConfig.user, journalFor(client.mailboxes)),
 	);
 	const result = await imap.editDraft({
 		...editInput(original, { uid: 32, uidValidity: "7", text: "Updated" }),
@@ -439,7 +448,7 @@ test("simultaneous edits on separate IMAP connections create only one replacemen
 			clients.push(client);
 			return operation(client);
 		},
-		createDraftStore(testConfig.user, journalDirectory),
+		createDraftStore(testConfig.user, journalFor(shared)),
 	);
 	const input = {
 		...editInput(fixtureMessage(1, { sender: testConfig.user }), {
@@ -483,7 +492,7 @@ test("queued edits retain one replacement and its identity after every deletion 
 					clients.push(client);
 					return createImapSession(testConfig, () => client)(operation);
 				},
-				createDraftStore(testConfig.user, journalDirectory),
+				createDraftStore(testConfig.user, journalFor(shared)),
 			);
 			const input = {
 				...editInput(fixtureMessage(uid, { sender: testConfig.user }), {

@@ -12,6 +12,7 @@ Automated regressions simulate IMAP boundaries and use a local SMTP server. They
 
 ## Draft synchronization
 
+- Keep one `draftId` through repeated edits that change the UID, restart the server, then read/edit/send by that ID. Adopt an existing Proton draft and repeat. Check stale revisions, account/mailbox/sender restrictions and UIDVALIDITY resets. Interrupt an edit APPEND, verify ID resolution stays blocked until reconciliation, and verify cleanup failures retain both copies and their mutation protections. Upgrade a journal containing prior edits and confirm lineage and operation replay hashes survive.
 - Create an empty draft, a draft with To/Cc/Bcc, and a long Unicode body. Verify each appears once in Proton web and mobile, with the same subject, recipients and text.
 - Read its revision and patch only the body. Verify recipients and subject remain intact. Clear recipient arrays and strings explicitly, then verify the unfinished draft remains readable.
 - Verify reply and reply-all honor Reply-To, deduplicate grouped recipients, omit original Bcc, exclude own addresses and select configured aliases. Check threading in Proton web and mobile.
@@ -35,12 +36,17 @@ Automated regressions simulate IMAP boundaries and use a local SMTP server. They
 
 ## Inbox management
 
+- Create a folder, nested folder and label through Bridge; verify they appear in Proton web/mobile. Repeat the same names without duplicates. Interrupt a CREATE or SUBSCRIBE acknowledgement and verify retry discovers the existing mailbox. Verify old policies and read-only mode disable creation, folder/label kind grants are independent, and creation does not grant read or message-write access to new paths.
 - Confirm old policies disable writes. Grant only selected actions and source/destination paths through setup. Verify denied actions, senders and destinations cannot change mail; revoke policy before execution and verify refusal.
 - Verify read/unread and star/unstar synchronize to Proton web/mobile and preserve unrelated flags. Test unstar from Starred and read state through All Mail. Confirm placement actions refuse both views.
 - Archive, move and Trash controlled messages through native MOVE. Verify source/destination identities and web/mobile placement. Confirm Bridge advertises MOVE and permanent Seen/Flagged support; lack of support must refuse the relevant action.
 - Apply an existing label from an ordinary folder and verify that folder remains unchanged. Remove the label to an explicit ordinary folder and verify both label removal and the chosen folder. Verify generic moves cannot implicitly change labels.
 - Restart and repeat completed operation UUIDs without another write. Revoke permission or change the source before dispatch, verify `aborted` with no write and a released claim, and confirm the UUID remains terminal. Interrupt a MOVE or STORE acknowledgment, verify uncertainty and retained claims, and reconcile only with positive evidence. Verify missing or duplicate evidence cannot release a claim. Keep active `reserved` and `submitting` operations reserved until manual inspection with all account processes stopped.
 - Compete inbox operations across processes and folder/label projections. Verify draft/send claims block inbox writes and unresolved inbox claims block competing writes. Confirm these tools cannot mutate Drafts or permanently delete mail.
+
+## Thread reconstruction
+
+- Inspect Bridge's actual `X-Pm-Internal-Id`, `X-Pm-External-Id`, Message-ID, References and In-Reply-To headers for replies made in Proton and an IMAP client. Verify synthetic internal references connect to the right parent and folder/label appearances occur once. Check a Bridge version or message without extra IDs still follows standard headers. Denied mailboxes and senders must remain excluded in both cases. Record differences from Proton's conversation view; Bridge message IDs do not establish native conversation membership.
 
 ## Failure and recovery
 

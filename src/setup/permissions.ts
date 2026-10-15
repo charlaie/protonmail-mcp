@@ -1,5 +1,6 @@
 import * as prompts from "@clack/prompts";
 import type { ImapService } from "../bridge/imap.js";
+import { MailboxCreationKindSchema } from "../inbox/creation.js";
 import {
 	InboxActionNameSchema,
 	type InboxWritePolicy,
@@ -222,6 +223,20 @@ export async function configurePermissions(
 			allowedTools = allowedTools.filter((name) => name !== "get_attachment");
 	}
 	let inboxWrites: InboxWritePolicy = { mode: "disabled" };
+	const mailboxCreation = allowedTools.includes("create_mailbox")
+		? await answer(
+				prompts.multiselect({
+					message:
+						"Which kinds of mailboxes may the assistant create? Reading or moving mail into new mailboxes still requires separate grants.",
+					options: MailboxCreationKindSchema.options.map((value) => ({
+						value,
+						label: value === "folder" ? "Custom folders" : "Labels",
+					})),
+					initialValues: existing?.mailboxCreation ?? [],
+					required: true,
+				}),
+			)
+		: [];
 	if (allowedTools.includes("manage_message")) {
 		const actions = await answer(
 			prompts.multiselect({
@@ -302,6 +317,7 @@ export async function configurePermissions(
 		allowedAttachmentExtensions,
 		requireAttachmentApproval,
 		inboxWrites,
+		mailboxCreation,
 		createdAt: existing?.createdAt,
 	});
 }
@@ -314,6 +330,7 @@ export function permissionReview(policy: ReturnType<typeof createReadPolicy>) {
 		`Attachments: ${policy.allowedAttachmentExtensions.join(", ") || "Disabled"}`,
 		`Attachment approval: ${policy.allowedAttachmentExtensions.length ? (policy.requireAttachmentApproval ? "Every download" : "Not required") : "Not applicable"}`,
 		`Inbox changes: ${policy.inboxWrites.mode === "enabled" ? `${policy.inboxWrites.actions.join(", ")} in ${policy.inboxWrites.mailboxes.join(", ")}` : "Disabled"}`,
+		`Mailbox creation: ${policy.mailboxCreation.join(", ") || "Disabled"}. New mailboxes need separate read and message-write grants.`,
 		"Enabled tools:",
 		...policy.allowedTools.map(
 			(name: ToolName) => `  ${TOOL_DEFINITIONS[name].label} (${name})`,

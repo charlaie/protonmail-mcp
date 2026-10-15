@@ -64,25 +64,36 @@ export const CreateDraftSchema = DraftContentSchema.safeExtend({
 const PatchRecipientsSchema = z
 	.union([EmailAddressSchema, z.array(EmailAddressSchema)])
 	.transform((value) => (Array.isArray(value) ? value : [value]));
-export const EditDraftSchema = z
-	.object({
-		...MediaInputFields,
-		operationId: SendEmailSchema.shape.operationId,
-		uidValidity: UidValiditySchema,
-		uid: UidSchema,
-		expectedRevision: z
-			.string()
-			.regex(/^[a-f0-9]{64}$/)
-			.describe("Revision returned by get_draft. Rejects stale edits."),
-		to: PatchRecipientsSchema.optional().describe(
-			"Omit to preserve; [] clears recipients.",
-		),
-		cc: PatchRecipientsSchema.optional(),
-		bcc: PatchRecipientsSchema.optional(),
-		subject: SubjectSchema.optional(),
-		text: TextSchema.optional(),
-	})
-	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
+const DraftPatchSchema = z.object({
+	...MediaInputFields,
+	operationId: SendEmailSchema.shape.operationId,
+	expectedRevision: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.describe("Revision returned by get_draft. Rejects stale edits."),
+	to: PatchRecipientsSchema.optional().describe(
+		"Omit to preserve; [] clears recipients.",
+	),
+	cc: PatchRecipientsSchema.optional(),
+	bcc: PatchRecipientsSchema.optional(),
+	subject: SubjectSchema.optional(),
+	text: TextSchema.optional(),
+});
+export const EditDraftSchema = DraftPatchSchema.extend({
+	uidValidity: UidValiditySchema,
+	uid: UidSchema,
+}).refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
+export const DraftIdSchema = z
+	.uuid()
+	.describe(
+		"Stable logical draft ID returned by get_draft or a draft operation. Scoped to this account's journal and preserved across server-managed edits.",
+	);
+export const EditDraftRequestSchema = z.union([
+	EditDraftSchema.strict(),
+	DraftPatchSchema.extend({ draftId: DraftIdSchema })
+		.strict()
+		.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts."),
+]);
 
 const MailboxSchema = z
 	.string()
@@ -141,6 +152,12 @@ export const GetMessageSchema = z.object({
 		"IMAP UID of the message, usually returned by search_messages.",
 	),
 });
+export const GetDraftSchema = z.union([
+	GetMessageSchema.strict(),
+	z.strictObject({ draftId: DraftIdSchema }),
+]);
+export type GetDraftInput = z.infer<typeof GetDraftSchema>;
+export type EditDraftRequest = z.infer<typeof EditDraftRequestSchema>;
 
 export const ForwardEmailSchema = z
 	.object({
@@ -162,6 +179,13 @@ export const SendDraftSchema = z.object({
 	uidValidity: UidValiditySchema,
 	uid: UidSchema,
 });
+export const SendDraftRequestSchema = z.union([
+	SendDraftSchema.strict(),
+	z.strictObject({
+		operationId: SendEmailSchema.shape.operationId,
+		draftId: DraftIdSchema,
+	}),
+]);
 export const ListOperationsSchema = z.object({
 	limit: z.number().int().min(1).max(100).default(50),
 	offset: z.number().int().min(0).default(0),

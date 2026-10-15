@@ -3,13 +3,15 @@ import type { MailWriteAuthorization } from "../bridge/authorization.js";
 import type { ImapService } from "../bridge/imap.js";
 import type { ReadResult } from "../bridge/messages.js";
 import type {
-	EditDraftInput,
+	EditDraftRequest,
 	GetAttachmentInput,
+	GetDraftInput,
 	GetMessageInput,
 	GetThreadInput,
 	SearchMessagesInput,
 } from "../bridge/schemas.js";
 import type { MessageSummary } from "../bridge/serializers.js";
+import type { CreateMailboxInput } from "../inbox/creation.js";
 import type { ManageMessageInput } from "../inbox/model.js";
 import { hashContent } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
@@ -116,6 +118,14 @@ export async function createReadService(
 		requireMailbox(mailbox.path);
 		return mailbox.path;
 	}
+	async function resolveDraftReference(input: GetDraftInput) {
+		const identity =
+			"draftId" in input
+				? await imap.resolveDraftIdentity(input.draftId)
+				: input;
+		requireMailbox(identity.mailbox);
+		return identity;
+	}
 	function authorizeMailWrite(
 		tool: ToolName,
 		requiredReads: { mailbox: string; message: MessageSummary }[] = [],
@@ -138,6 +148,19 @@ export async function createReadService(
 		};
 	}
 	return {
+		resolveDraftReference,
+		async createMailbox(input: CreateMailboxInput) {
+			return imap.createMailbox(input, async () => {
+				const current = await requireReadPolicy(bridgeUser, policyFile);
+				requireToolPermission(current, bridgeUser, "create_mailbox");
+				if (!current.mailboxCreation.includes(input.kind))
+					throw new MailError(
+						"POLICY_DENIED",
+						`Creation of ${input.kind} mailboxes is disabled. Run setup to grant creation permission.`,
+						"configure",
+					);
+			});
+		},
 		authorizeMailWrite,
 		async getInboxCapabilities() {
 			const capabilities = await imap.inbox.capabilities();
@@ -188,18 +211,35 @@ export async function createReadService(
 					canReadMessage(currentPolicy, { mailbox, message });
 			});
 		},
-		async getDraft(input: GetMessageInput) {
-			requireMailbox(input.mailbox);
-			return imap.getDraft(input, accepts);
+		async getDraft(input: GetDraftInput) {
+			return imap.getDraft(await resolveDraftReference(input), accepts);
 		},
-		async editDraft(input: EditDraftInput) {
+		async editDraft(input: EditDraftRequest) {
+			const mailbox = await requireSpecialMailbox("\\Drafts", "Drafts");
+			const request = { ...input, mailbox };
+			const previous = await imap.existingDraftOperation(
+				input.operationId,
+				request,
+			);
+			if (previous) return previous;
+			const identity =
+				"draftId" in input
+					? await resolveDraftReference({ draftId: input.draftId })
+					: { mailbox, uid: input.uid, uidValidity: input.uidValidity };
+			if (identity.mailbox !== mailbox)
+				throw new MailError(
+					"POLICY_DENIED",
+					"Logical draft is outside the configured Drafts mailbox.",
+					"configure",
+				);
 			return imap.editDraft(
 				{
 					...input,
-					mailbox: await requireSpecialMailbox("\\Drafts", "Drafts"),
+					...identity,
 				},
 				accepts,
 				authorizeMailWrite("edit_draft"),
+				request,
 			);
 		},
 		async reconcileDraftOperation(operationId: string) {

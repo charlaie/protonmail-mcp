@@ -7,6 +7,15 @@ import {
 	messageIdentityKey,
 } from "../operations/message-claims.js";
 import { MailError } from "../shared/mail-error.js";
+import {
+	bindDraftIdentity,
+	draftIdentitiesReady,
+	identifyDraft,
+	identifyDraftSnapshot,
+	migrateDraftIdentities,
+	requireUnusedDraftId,
+	resolveDraftIdentity,
+} from "./identities.js";
 import { type DraftOperation, DraftOperationSchema } from "./model.js";
 
 const RowSchema = z.object({ record: z.string() });
@@ -17,10 +26,30 @@ function read(db: DatabaseSync, id: string) {
 		: null;
 }
 export function createDraftStore(account: string, directory?: string) {
-	const { path, use, transaction } = createOperationDatabase(
-		account,
-		directory,
-	);
+	const {
+		path,
+		use: readDatabase,
+		transaction: transact,
+	} = createOperationDatabase(account, directory);
+	let initialization: Promise<void> | undefined;
+	function ready() {
+		initialization ??= (async () => {
+			if (!(await readDatabase(draftIdentitiesReady)))
+				await transact(migrateDraftIdentities);
+		})().catch((error) => {
+			initialization = undefined;
+			throw error;
+		});
+		return initialization;
+	}
+	async function use<T>(operation: (db: DatabaseSync) => T) {
+		await ready();
+		return readDatabase(operation);
+	}
+	async function transaction<T>(operation: (db: DatabaseSync) => T) {
+		await ready();
+		return transact(operation);
+	}
 	function save(db: DatabaseSync, record: DraftOperation) {
 		const validated = DraftOperationSchema.parse({
 			...record,
@@ -35,6 +64,12 @@ export function createDraftStore(account: string, directory?: string) {
 	return {
 		path,
 		get: (id: string) => use((db) => read(db, id)),
+		identify: (
+			identity: GetMessageInput,
+			evidence: Parameters<typeof identifyDraftSnapshot>[2],
+		) => transaction((db) => identifyDraftSnapshot(db, identity, evidence)),
+		resolve: (draftId: string) =>
+			use((db) => resolveDraftIdentity(db, draftId)),
 		list: (limit: number, offset: number) =>
 			use((db) =>
 				db
@@ -46,7 +81,10 @@ export function createDraftStore(account: string, directory?: string) {
 						DraftOperationSchema.parse(JSON.parse(RowSchema.parse(row).record)),
 					),
 			),
-		claim: (record: DraftOperation, sourceMessageId?: string) =>
+		claim: (
+			record: Omit<DraftOperation, "draftId">,
+			sourceMessageId?: string,
+		) =>
 			transaction((db) => {
 				const existing = read(db, record.operationId);
 				if (existing) {
@@ -64,7 +102,11 @@ export function createDraftStore(account: string, directory?: string) {
 						"INSERT INTO draft_mutations (identity, operation_id) VALUES (?, ?)",
 					).run(messageIdentityKey(record.source), record.operationId);
 				}
-				const validated = DraftOperationSchema.parse(record);
+				const draftId =
+					record.source.kind === "edit"
+						? identifyDraft(db, record.source, record.operationId)
+						: requireUnusedDraftId(db, record.operationId);
+				const validated = DraftOperationSchema.parse({ ...record, draftId });
 				db.prepare(
 					"INSERT INTO drafts (id, message_id, record) VALUES (?, ?, ?)",
 				).run(
@@ -104,6 +146,7 @@ export function createDraftStore(account: string, directory?: string) {
 						"never",
 					);
 				if (record.outcome.status !== "appending") return record;
+				bindDraftIdentity(db, identity, record.draftId);
 				return save(db, {
 					...record,
 					outcome: {

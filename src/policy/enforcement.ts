@@ -26,6 +26,7 @@ export function summarizeReadPolicy(policy: ReadPolicy) {
 			policy.version !== 1 && policy.requireAttachmentApproval,
 		inboxWrites:
 			policy.version !== 1 ? policy.inboxWrites : { mode: "disabled" },
+		mailboxCreation: policy.version !== 1 ? policy.mailboxCreation : [],
 		createdAt: policy.createdAt,
 		updatedAt: policy.updatedAt,
 	};

@@ -3,6 +3,7 @@ import {
 	type AttachmentPermission,
 	AttachmentPermissionSchema,
 } from "../attachments/formats.js";
+import { MailboxCreationKindSchema } from "../inbox/creation.js";
 import {
 	type InboxWritePolicy,
 	InboxWritePolicySchema,
@@ -34,6 +35,7 @@ const AccountReadPolicyFields = {
 	allowedAttachmentExtensions: z.array(AttachmentPermissionSchema).default([]),
 	requireAttachmentApproval: z.boolean().default(false),
 	inboxWrites: InboxWritePolicySchema.default({ mode: "disabled" }),
+	mailboxCreation: z.array(MailboxCreationKindSchema).default([]),
 };
 
 const AccountReadPolicySchema = z
@@ -89,6 +91,7 @@ export function createReadPolicy(input: {
 	allowedAttachmentExtensions?: AttachmentPermission[];
 	requireAttachmentApproval?: boolean;
 	inboxWrites?: InboxWritePolicy;
+	mailboxCreation?: z.infer<typeof MailboxCreationKindSchema>[];
 }) {
 	const now = new Date().toISOString();
 
@@ -97,6 +100,7 @@ export function createReadPolicy(input: {
 		allowedTools: [...new Set(input.allowedTools ?? READ_ONLY_TOOLS)],
 		bridgeUser: input.bridgeUser,
 		inboxWrites: input.inboxWrites,
+		mailboxCreation: input.mailboxCreation,
 		requireAttachmentApproval: input.requireAttachmentApproval,
 		allowedAttachmentExtensions: [
 			...new Set(input.allowedAttachmentExtensions ?? []),

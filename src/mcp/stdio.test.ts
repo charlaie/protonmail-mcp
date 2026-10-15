@@ -13,6 +13,7 @@ import {
 	type JSONRPCResultResponse,
 	parseJSONRPCMessage,
 } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import { SearchMessagesSchema, SendEmailSchema } from "../bridge/schemas.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
@@ -120,6 +121,7 @@ test("stdio loads an explicit JSON config, advertises grants, and checks policy 
 		listed.result.tools.map((tool) => tool.name).sort(),
 		[
 			"create_draft",
+			"create_mailbox",
 			"create_reply_draft",
 			"edit_draft",
 			"forward_email",
@@ -151,7 +153,6 @@ test("stdio loads an explicit JSON config, advertises grants, and checks policy 
 	for (const name of [
 		"create_draft",
 		"create_reply_draft",
-		"edit_draft",
 		"forward_email",
 		"manage_message",
 	]) {
@@ -166,9 +167,35 @@ test("stdio loads an explicit JSON config, advertises grants, and checks policy 
 		(tool) => tool.name === "edit_draft",
 	);
 	assert.ok(editDraft);
-	assert.ok(editDraft.inputSchema.required?.includes("expectedRevision"));
-	assert.equal(editDraft.inputSchema.required?.includes("text"), false);
-	assert.equal(editDraft.inputSchema.required?.includes("subject"), false);
+	const editVariants = z
+		.array(z.object({ required: z.array(z.string()) }))
+		.parse(editDraft.inputSchema.anyOf);
+	assert.equal(editVariants.length, 2);
+	assert.ok(
+		editVariants.every(
+			(variant) =>
+				variant.required.includes("operationId") &&
+				variant.required.includes("expectedRevision"),
+		),
+	);
+	assert.ok(
+		editVariants.some((variant) => variant.required.includes("draftId")),
+	);
+	assert.ok(
+		editVariants.some(
+			(variant) =>
+				variant.required.includes("uid") &&
+				variant.required.includes("uidValidity"),
+		),
+	);
+	assert.ok(
+		editVariants.every(
+			(variant) =>
+				!variant.required.includes("text") &&
+				!variant.required.includes("subject"),
+		),
+	);
+	assert.equal(editDraft.annotations?.idempotentHint, true);
 	const getDraft = listed.result.tools.find(
 		(tool) => tool.name === "get_draft",
 	);

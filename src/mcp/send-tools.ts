@@ -5,7 +5,7 @@ import {
 	ForwardEmailSchema,
 	GetSendOperationSchema,
 	ListOperationsSchema,
-	SendDraftSchema,
+	SendDraftRequestSchema,
 	SendEmailSchema,
 } from "../bridge/schemas.js";
 import type { ToolAccess } from "../policy/access.js";
@@ -208,23 +208,19 @@ export function registerSendTools(input: {
 		"send_draft",
 		{
 			title: "Send draft",
-			inputSchema: SendDraftSchema,
+			inputSchema: SendDraftRequestSchema,
 			outputSchema: SendOutputSchema,
 			annotations: write,
 			description:
-				"Approve and send a supported Drafts snapshot by UID and UIDVALIDITY. A new operationId UUID binds the snapshot, recipients, sender, body, and reply headers. Changes require a new operation and approval. Reuse the same ID on retries. Arbitrary HTML and unsupported media are refused; supported file/image bytes and metadata are bound to approval. Draft deletion is a separate reported outcome after full SMTP acceptance; partial or uncertain sends retain the draft.",
+				"Approve and send a supported Drafts snapshot by stable draftId or by UID and UIDVALIDITY. The logical ID is resolved once; approval and rechecks bind that exact physical snapshot. A new operationId UUID binds the snapshot, recipients, sender, body, and reply headers. Changes require a new operation and approval. Reuse the same operation ID and arguments on retries. Arbitrary HTML and unsupported media are refused; supported file/image bytes and metadata are bound to approval. Draft deletion is a separate reported outcome after full SMTP acceptance; partial or uncertain sends retain the draft.",
 		},
 		async (request, ctx) => {
 			const reads = await readService();
-			const identity = {
-				mailbox: await reads.requireDraftsMailbox(),
-				uid: request.uid,
-				uidValidity: request.uidValidity,
-			};
+			const mailbox = await reads.requireDraftsMailbox();
 			const requestIdentity = {
 				kind: "draft",
 				...request,
-				mailbox: identity.mailbox,
+				mailbox,
 			};
 			const existing = await sends.existing(
 				request.operationId,
@@ -232,6 +228,16 @@ export function registerSendTools(input: {
 			);
 			if (existing && existing.outcome.status !== "prepared")
 				return sendOperationResponse(existing);
+			const identity =
+				"draftId" in request
+					? await reads.resolveDraftReference({ draftId: request.draftId })
+					: { mailbox, uid: request.uid, uidValidity: request.uidValidity };
+			if (identity.mailbox !== mailbox)
+				throw new MailError(
+					"POLICY_DENIED",
+					"Logical draft is outside the configured Drafts mailbox.",
+					"configure",
+				);
 			const snapshot = await reads.getDraftSnapshot(identity);
 			const source = {
 				kind: "draft" as const,

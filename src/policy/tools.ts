@@ -9,6 +9,7 @@ export const ToolNameSchema = z.enum([
 	"get_attachment",
 	"get_inbox_capabilities",
 	"manage_message",
+	"create_mailbox",
 	"get_inbox_operation",
 	"list_inbox_operations",
 	"reconcile_inbox_operation",
@@ -96,6 +97,11 @@ export const TOOL_DEFINITIONS = {
 	},
 	manage_message: {
 		label: "Organize messages using selected actions",
+		group: "Inbox",
+		changesMail: true,
+	},
+	create_mailbox: {
+		label: "Create folders and labels using selected kinds",
 		group: "Inbox",
 		changesMail: true,
 	},

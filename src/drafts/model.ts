@@ -6,7 +6,8 @@ export const DraftSourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("create") }),
 	GetMessageSchema.extend({ kind: z.literal("edit"), revision: z.string() }),
 ]);
-export const DraftOperationSchema = z.object({
+export const StoredDraftOperationSchema = z.object({
+	draftId: z.uuid().optional(),
 	operationId: SendEmailSchema.shape.operationId,
 	requestHash: z.string(),
 	messageId: z.string(),
@@ -36,5 +37,8 @@ export const DraftOperationSchema = z.object({
 			reason: z.string(),
 		}),
 	]),
+});
+export const DraftOperationSchema = StoredDraftOperationSchema.required({
+	draftId: true,
 });
 export type DraftOperation = z.infer<typeof DraftOperationSchema>;

@@ -11,10 +11,11 @@ This tracks gaps after the draft/send reliability work. Automated checks passed,
 ## Other capability gaps
 
 - [ ] General HTML composition and editing arbitrary rich drafts, if a concrete use case justifies them.
-- [ ] Label/folder creation and permanent deletion, if needed. Current inbox actions use existing mailboxes and Trash. Placement changes through All Mail and Starred views are refused; use the ordinary source folder.
+- [x] Support creating folders and labels. `create_mailbox` uses explicit tool and creation-kind grants, supports nested folders, and checks existing paths before creation. New mailboxes require separate read and message-write grants. Live Bridge synchronization checks remain outstanding.
+- [ ] Support archive, Trash, move, and label actions starting from All Mail and Starred. Resolve the message to its actual source folder and recheck identity and source/destination permissions before writing. Refuse ambiguous matches and preserve unrelated labels and stars. These placement actions currently require the source folder; read/star changes already work through views.
 - [ ] Search pagination, unread/flag filters, batch reads, and reliable traversal beyond the current 100-result limit per mailbox.
-- [ ] Improve thread reconstruction where Bridge provides useful metadata. Current threading is a best-effort reconstruction from Message-ID, References, and In-Reply-To.
-- [ ] Add a stable logical draft identifier across edits. IMAP replacement currently creates a new UID, so clients must use the returned replacement identity.
+- [x] Use Bridge metadata for better message identity and thread reconstruction. Optional `X-Pm-Internal-Id` and `X-Pm-External-Id` aliases connect synthetic reply references and deduplicate mailbox appearances. Standard Message-ID, References, and In-Reply-To traversal remains the fallback. Mailbox and sender restrictions apply to both paths; this remains best-effort reconstruction, not Proton's native conversation grouping. Live Bridge header checks remain outstanding.
+- [x] Add a stable logical draft identifier across edits. Draft reads and operation records expose an account-local `draftId`; read/edit/send tools accept it and resolve the latest confirmed replacement through the shared journal. Existing physical identities remain supported. Uncertain APPEND blocks resolution, and revision, UIDVALIDITY, policy and send protections still apply. Live Bridge checks remain outstanding.
 - [ ] Allow choosing a configured sender alias for new compositions and setting Reply-To. Consider importance and sensitivity separately according to Bridge support.
 - [x] Remove the fixed incoming attachment extension registry. Raw downloads support arbitrary extensions and extensionless files under an explicit wildcard or specific suffix grants, preserve declared MIME types, and use a uniform 5 MiB decoded limit. Existing policies keep their restrictions.
 - [ ] Improve client attachment delivery and previews. The receiving client still handles parsing, rendering, and OCR; named inline text parts that the downloader may transform remain refused.
@@ -33,6 +34,7 @@ This tracks gaps after the draft/send reliability work. Automated checks passed,
 
 ## Limits that remain part of the contract
 
+- Message removal uses Trash. Permanent deletion is out of scope; Trash retention follows the account's Proton Mail settings.
 - The server allows at most one SMTP attempt per operation ID against an intact journal shared by all processes for the account. This is not an exactly-once delivery guarantee.
 - SMTP acceptance means Bridge accepted submission. It does not prove delivery to every recipient. Sent-copy evidence also does not establish per-recipient delivery.
 - Replacing operation IDs, deleting the journal, restoring an old backup, or manually copying messages can defeat identity-based replay protection.
