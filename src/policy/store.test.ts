@@ -87,7 +87,9 @@ test("policy persistence stays complete and private; legacy/account mismatch is 
 	assert.equal(await hasReadPolicyFile(policyFile), true);
 	await resetReadPolicy(policyFile);
 	assert.equal(await hasReadPolicyFile(policyFile), false);
-	assert.ok(getPolicyFilePath().endsWith("protonmail-mcp/read-policy.json"));
+	assert.ok(
+		getPolicyFilePath().endsWith(join("protonmail-mcp", "read-policy.json")),
+	);
 });
 
 test("setup rejects invalid selections and sender entries without broadening access", () => {

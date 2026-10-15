@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,6 +57,7 @@ test("stdio loads an explicit JSON config, advertises grants, and checks policy 
 			stdio: "pipe",
 		},
 	);
+	const childClosed = once(child, "close");
 	const lines = createInterface({ input: child.stdout });
 	let stderr = "";
 	child.stderr.on("data", (data) => {
@@ -64,6 +66,7 @@ test("stdio loads an explicit JSON config, advertises grants, and checks policy 
 	t.after(async () => {
 		lines.close();
 		child.kill();
+		await childClosed;
 		await rm(directory, { recursive: true, force: true });
 	});
 	let nextId = 0;
