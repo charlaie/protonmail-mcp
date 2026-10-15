@@ -12,6 +12,7 @@ import {
 } from "../bridge/test-fixtures.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
+import { ToolNameSchema } from "../policy/tools.js";
 import { createApprovalController } from "./elicitation.js";
 import { createServer } from "./server.js";
 import { createTestClient } from "./test-client.js";
@@ -39,15 +40,15 @@ export async function attachmentFixture(
 	} = {},
 ) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-attachment-mcp-"));
-	const previousPath = process.env.PROTONMAIL_MCP_POLICY_FILE;
-	process.env.PROTONMAIL_MCP_POLICY_FILE = join(directory, "policy.json");
+	const policyFile = join(directory, "policy.json");
 	const policy = createReadPolicy({
 		bridgeUser: testConfig.user,
+		allowedTools: ToolNameSchema.options,
 		allowedMailboxes: [attachmentIdentity.mailbox],
 		allowedAttachmentExtensions: options.allowedExtensions ?? [".pdf", ".txt"],
 		requireAttachmentApproval: options.requireApproval,
 	});
-	await saveReadPolicy(policy);
+	await saveReadPolicy(policy, policyFile);
 	const imap = new FakeImap();
 	const filename =
 		options.filename ?? (options.text ? "notes.txt" : "scan.pdf");
@@ -79,11 +80,14 @@ export async function attachmentFixture(
 	);
 	const approval = createApprovalController();
 	const factory = () =>
-		createServer({ config: testConfig, imap: service, approval });
+		createServer({
+			config: testConfig,
+			policyFile,
+			operationsDirectory: directory,
+			imap: service,
+			approval,
+		});
 	t.after(async () => {
-		if (previousPath === undefined)
-			delete process.env.PROTONMAIL_MCP_POLICY_FILE;
-		else process.env.PROTONMAIL_MCP_POLICY_FILE = previousPath;
 		await rm(directory, { recursive: true, force: true });
 	});
 	const client = await createTestClient(t, factory, options);
@@ -93,6 +97,7 @@ export async function attachmentFixture(
 		message,
 		bytes,
 		policy,
+		policyFile,
 		approval,
 		async call(metadata?: Record<string, unknown>) {
 			const response = await client.request("tools/call", {

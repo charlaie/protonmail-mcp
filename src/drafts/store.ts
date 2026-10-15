@@ -39,7 +39,7 @@ export function createDraftStore(account: string, directory?: string) {
 			use((db) =>
 				db
 					.prepare(
-						"SELECT record FROM drafts WHERE json_extract(record, '$.outcome.status') != 'completed' ORDER BY id LIMIT ? OFFSET ?",
+						"SELECT record FROM drafts WHERE json_extract(record, '$.outcome.status') IN ('appending', 'saved', 'cleanup_failed') ORDER BY id LIMIT ? OFFSET ?",
 					)
 					.all(limit, offset)
 					.map((row) =>
@@ -73,6 +73,26 @@ export function createDraftStore(account: string, directory?: string) {
 					JSON.stringify(validated),
 				);
 				return true;
+			}),
+		reject: (id: string, reason: string) =>
+			transaction((db) => {
+				const record = read(db, id);
+				if (!record)
+					throw new MailError(
+						"NOT_FOUND",
+						"Draft operation was not found.",
+						"never",
+					);
+				if (record.outcome.status !== "appending") return record;
+				const next = save(db, {
+					...record,
+					outcome: { status: "rejected", reason },
+				});
+				if (record.source.kind === "edit")
+					db.prepare(
+						"DELETE FROM draft_mutations WHERE identity = ? AND operation_id = ?",
+					).run(messageIdentityKey(record.source), id);
+				return next;
 			}),
 		saved: (id: string, identity: GetMessageInput, revision: string) =>
 			transaction((db) => {
@@ -109,6 +129,7 @@ export function createDraftStore(account: string, directory?: string) {
 					);
 				if (
 					record.outcome.status === "appending" ||
+					record.outcome.status === "rejected" ||
 					record.outcome.status === "completed"
 				)
 					return record;

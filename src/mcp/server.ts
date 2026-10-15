@@ -1,16 +1,20 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { type BridgeConfig, loadBridgeConfig } from "../bridge/config.js";
+import type { BridgeConfig } from "../bridge/config.js";
 import { createImapService, type ImapService } from "../bridge/imap.js";
 import {
 	GetMessageSchema,
 	GetThreadSchema,
 	SearchMessagesSchema,
 } from "../bridge/schemas.js";
+import { createDraftStore } from "../drafts/store.js";
+import { createInboxStore } from "../inbox/store.js";
+import { createToolAccess } from "../policy/access.js";
 import { canReadMailbox, readPolicyStatus } from "../policy/enforcement.js";
 import { createReadService } from "../policy/service.js";
 import { loadReadPolicy } from "../policy/store.js";
 import { createSendService, type SendService } from "../sending/service.js";
+import { createSendStore } from "../sending/store.js";
 import { registerAttachmentTools } from "./attachments.js";
 import { registerDraftTools } from "./draft-tools.js";
 import {
@@ -24,8 +28,9 @@ import {
 	SearchOutputSchema,
 	ThreadOutputSchema,
 } from "./output-schemas.js";
-import { errorResponse, jsonResponse } from "./responses.js";
+import { jsonResponse } from "./responses.js";
 import { registerSendTools } from "./send-tools.js";
+import { ToolRegistry } from "./tool-registry.js";
 
 const READ_ONLY = {
 	readOnlyHint: true,
@@ -33,38 +38,46 @@ const READ_ONLY = {
 	idempotentHint: true,
 	openWorldHint: true,
 };
-async function respond(operation: () => Promise<object>) {
-	try {
-		return jsonResponse(await operation());
-	} catch (error) {
-		return errorResponse(error);
-	}
-}
-
-export function createServer(
-	options: {
-		config?: BridgeConfig;
-		imap?: ImapService;
-		sends?: SendService;
-		approval?: ApprovalController;
-	} = {},
-) {
-	const config = options.config ?? loadBridgeConfig();
-	const imap = options.imap ?? createImapService(config);
-	const readService = () => createReadService(imap, config.user);
+export function createServer(options: {
+	config: BridgeConfig;
+	policyFile?: string;
+	operationsDirectory?: string;
+	imap?: ImapService;
+	sends?: SendService;
+	approval?: ApprovalController;
+}) {
+	const config = options.config;
+	const imap =
+		options.imap ??
+		createImapService(
+			config,
+			undefined,
+			createDraftStore(config.user, options.operationsDirectory),
+			createInboxStore(config.user, options.operationsDirectory),
+		);
+	const readService = () =>
+		createReadService(imap, config.user, options.policyFile);
 	const approval = options.approval ?? createApprovalController();
-	const server = new McpServer(
+	const mcp = new McpServer(
 		{ name: "protonmail-mcp", version: "1.0.0" },
 		{
 			requestState: { verify: approval.verifyRequestState },
 		},
 	);
 
+	const access = createToolAccess(config.user, options.policyFile);
+	const server = new ToolRegistry(mcp, access);
+
 	registerSendTools({
 		server,
 		config,
-		sends: options.sends ?? createSendService(config),
+		sends:
+			options.sends ??
+			createSendService(config, {
+				store: createSendStore(config.user, options.operationsDirectory),
+			}),
 		approval,
+		access,
 		readService,
 	});
 
@@ -78,23 +91,22 @@ export function createServer(
 			outputSchema: MailboxesOutputSchema,
 			annotations: READ_ONLY,
 		},
-		() =>
-			respond(async () => {
-				const policy = await loadReadPolicy();
-				const policyStatus = readPolicyStatus(policy, config.user);
-				return {
-					mailboxes: (await imap.listMailboxes()).map((mailbox) => ({
-						...mailbox,
-						selectable: !mailbox.flags.includes("\\Noselect"),
-						policyStatus,
-						allowedByReadPolicy:
-							policyStatus === "ok" &&
-							policy !== null &&
-							!mailbox.flags.includes("\\Noselect") &&
-							canReadMailbox(policy, mailbox.path),
-					})),
-				};
-			}),
+		async () => {
+			const policy = await loadReadPolicy(options.policyFile);
+			const policyStatus = readPolicyStatus(policy, config.user);
+			return jsonResponse({
+				mailboxes: (await imap.listMailboxes()).map((mailbox) => ({
+					...mailbox,
+					selectable: !mailbox.flags.includes("\\Noselect"),
+					policyStatus,
+					allowedByReadPolicy:
+						policyStatus === "ok" &&
+						policy !== null &&
+						!mailbox.flags.includes("\\Noselect") &&
+						canReadMailbox(policy, mailbox.path),
+				})),
+			});
+		},
 	);
 
 	registerDraftTools({ server, config, imap, readService });
@@ -109,11 +121,11 @@ export function createServer(
 			outputSchema: SearchOutputSchema,
 			annotations: READ_ONLY,
 		},
-		(input) =>
-			respond(async () => ({
+		async (input) =>
+			jsonResponse({
 				status: "ok",
 				messages: await (await readService()).searchMessages(input),
-			})),
+			}),
 	);
 
 	server.registerTool(
@@ -126,7 +138,8 @@ export function createServer(
 			outputSchema: GetMessageOutputSchema,
 			annotations: READ_ONLY,
 		},
-		(input) => respond(async () => (await readService()).getMessage(input)),
+		async (input) =>
+			jsonResponse(await (await readService()).getMessage(input)),
 	);
 
 	server.registerTool(
@@ -139,16 +152,16 @@ export function createServer(
 			outputSchema: ThreadOutputSchema,
 			annotations: READ_ONLY,
 		},
-		(input) =>
-			respond(async () => ({
+		async (input) =>
+			jsonResponse({
 				status: "ok",
 				reconstruction: "best_effort_message_headers",
 				...(await (await readService()).getThread(input)),
-			})),
+			}),
 	);
 
 	registerAttachmentTools({ server, readService, approval });
 	registerInboxTools({ server, imap, readService });
 
-	return server;
+	return mcp;
 }

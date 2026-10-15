@@ -160,10 +160,13 @@ test("metadata and policy changes invalidate a pending attachment approval", asy
 					client.message.envelope.subject = "Changed subject";
 					break;
 				case "policy":
-					await saveReadPolicy({
-						...client.policy,
-						allowedSenderEmails: ["trusted@example.com"],
-					});
+					await saveReadPolicy(
+						{
+							...client.policy,
+							allowedSenderEmails: ["trusted@example.com"],
+						},
+						client.policyFile,
+					);
 					break;
 			}
 			assert.equal(
@@ -205,10 +208,13 @@ test("approval is bound to the attachment ID and current sender policy", async (
 	const next = pendingSchema.parse(
 		await client.callTool("get_attachment", attachmentIdentity),
 	);
-	await saveReadPolicy({
-		...client.policy,
-		allowedSenderEmails: ["different@example.com"],
-	});
+	await saveReadPolicy(
+		{
+			...client.policy,
+			allowedSenderEmails: ["different@example.com"],
+		},
+		client.policyFile,
+	);
 	assert.equal(
 		refused(
 			await client.callTool("get_attachment", attachmentIdentity, {
@@ -292,12 +298,15 @@ test("legacy approval rechecks policy and attachment metadata before downloading
 						assert.ok(part);
 						part.size = 99;
 					} else {
-						await saveReadPolicy({
-							...client.policy,
-							...(change === "account"
-								? { bridgeUser: "different@example.com" }
-								: { allowedAttachmentExtensions: [] }),
-						});
+						await saveReadPolicy(
+							{
+								...client.policy,
+								...(change === "account"
+									? { bridgeUser: "different@example.com" }
+									: { allowedAttachmentExtensions: [] }),
+							},
+							client.policyFile,
+						);
 					}
 					return { action: "accept", content: { approve_attachment: true } };
 				},

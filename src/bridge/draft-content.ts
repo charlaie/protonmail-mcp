@@ -126,6 +126,12 @@ export async function inspectDraft(
 	return {
 		original,
 		media,
+		summary: {
+			...messageSummary(summary, input.uidValidity),
+			senderEmails: parsedAddressEmails(original.from).map((address) =>
+				address.toLowerCase(),
+			),
+		},
 		fingerprint: hashContent(full.source.toString("base64")),
 	};
 }
@@ -136,7 +142,7 @@ export async function readDraftSnapshot(
 	input: GetMessageInput,
 	accepts: MessageFilter,
 ) {
-	const { original, fingerprint, media } = await inspectDraft(
+	const { original, fingerprint, media, summary } = await inspectDraft(
 		client,
 		input,
 		accepts,
@@ -145,7 +151,7 @@ export async function readDraftSnapshot(
 	if (from.length !== 1 || !config.ownAddresses.includes(from[0].toLowerCase()))
 		throw new MailError(
 			"UNSUPPORTED_CONTENT",
-			"Draft sender must be one of this account's configured own addresses. Configure PROTONMAIL_BRIDGE_OWN_ADDRESSES for aliases.",
+			"Draft sender must be one of this account's configured own addresses. Configure bridge.ownAddresses in the server configuration for aliases.",
 			"configure",
 		);
 	const message = OutgoingMessageSchema.safeParse({
@@ -168,6 +174,7 @@ export async function readDraftSnapshot(
 		);
 	return {
 		fingerprint,
+		summary,
 		message: message.data,
 		draftMessageId: original.messageId,
 	};

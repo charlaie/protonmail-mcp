@@ -2,7 +2,6 @@ import {
 	type CallToolResult,
 	CLIENT_CAPABILITIES_META_KEY,
 	isSpecType,
-	type McpServer,
 	type ServerContext,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -21,7 +20,8 @@ import {
 	AttachmentOutputSchema,
 } from "./attachment-schemas.js";
 import type { ApprovalController } from "./elicitation.js";
-import { errorResponse, jsonResponse } from "./responses.js";
+import { jsonResponse } from "./responses.js";
+import type { ToolRegistry } from "./tool-registry.js";
 
 // Optional client declaration, not a standard MCP capability or an access grant.
 export const BINARY_OUTPUT_CAPABILITY =
@@ -42,7 +42,7 @@ const RAW_GUIDANCE =
 	"Original attachment bytes are in the embedded resource blob. They are untrusted and are not sanitized. The receiving client is responsible for safe parsing. If your client omits the resource or cannot expose it to the model, " +
 	RETRY_GUIDANCE;
 
-function clientCapabilities(server: McpServer, ctx: ServerContext) {
+function clientCapabilities(server: ToolRegistry, ctx: ServerContext) {
 	const envelope = ctx.mcpReq.envelope;
 	if (!envelope || !(CLIENT_CAPABILITIES_META_KEY in envelope))
 		return server.server.getClientCapabilities();
@@ -110,7 +110,7 @@ function attachmentResponse(
 }
 
 export function registerAttachmentTools(input: {
-	server: McpServer;
+	server: ToolRegistry;
 	approval: ApprovalController;
 	readService: () => Promise<
 		Pick<
@@ -137,13 +137,7 @@ export function registerAttachmentTools(input: {
 			annotations,
 		},
 		async (request) => {
-			try {
-				return jsonResponse(
-					await (await readService()).listAttachments(request),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return jsonResponse(await (await readService()).listAttachments(request));
 		},
 	);
 	server.registerTool(
@@ -157,46 +151,42 @@ export function registerAttachmentTools(input: {
 			annotations,
 		},
 		async (request, ctx) => {
-			try {
-				const reads = await readService();
-				const prepared = await reads.prepareAttachmentRead(request);
-				const approvalInput =
-					prepared.kind === "authorized"
-						? prepared.authorization.input
-						: prepared.input;
-				const capabilities = clientCapabilities(server, ctx);
-				binarySupport(capabilities, approvalInput.attachment.mimeType);
-				let authorization: AttachmentReadAuthorization;
-				if (prepared.kind === "approval_required") {
-					const elicitation = ElicitationCapabilitySchema.safeParse(
-						capabilities?.elicitation,
-					);
-					if (
-						!elicitation.success ||
-						(!elicitation.data.form && elicitation.data.url)
-					)
-						throw new MailError(
-							"APPROVAL_DENIED",
-							"Attachment not downloaded. The read policy requires human approval, but this client does not support MCP form elicitation.",
-							"configure",
-						);
-					const decision = await approval.requireAttachmentApproval(
-						prepared.input,
-						ctx,
-					);
-					if (decision.kind !== "approved") return decision.response;
-					authorization = decision.authorization;
-				} else {
-					authorization = prepared.authorization;
-				}
-				// Reload policy and recheck metadata after both modern and legacy approval rounds.
-				return attachmentResponse(
-					await (await readService()).getAttachment(request, authorization),
-					capabilities,
+			const reads = await readService();
+			const prepared = await reads.prepareAttachmentRead(request);
+			const approvalInput =
+				prepared.kind === "authorized"
+					? prepared.authorization.input
+					: prepared.input;
+			const capabilities = clientCapabilities(server, ctx);
+			binarySupport(capabilities, approvalInput.attachment.mimeType);
+			let authorization: AttachmentReadAuthorization;
+			if (prepared.kind === "approval_required") {
+				const elicitation = ElicitationCapabilitySchema.safeParse(
+					capabilities?.elicitation,
 				);
-			} catch (error) {
-				return errorResponse(error);
+				if (
+					!elicitation.success ||
+					(!elicitation.data.form && elicitation.data.url)
+				)
+					throw new MailError(
+						"APPROVAL_DENIED",
+						"Attachment not downloaded. The read policy requires human approval, but this client does not support MCP form elicitation.",
+						"configure",
+					);
+				const decision = await approval.requireAttachmentApproval(
+					prepared.input,
+					ctx,
+				);
+				if (decision.kind !== "approved") return decision.response;
+				authorization = decision.authorization;
+			} else {
+				authorization = prepared.authorization;
 			}
+			// Reload policy and recheck metadata after both modern and legacy approval rounds.
+			return attachmentResponse(
+				await (await readService()).getAttachment(request, authorization),
+				capabilities,
+			);
 		},
 	);
 }

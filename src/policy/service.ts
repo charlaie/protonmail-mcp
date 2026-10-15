@@ -1,4 +1,5 @@
 import type { AttachmentMetadata } from "../bridge/attachments.js";
+import type { MailWriteAuthorization } from "../bridge/authorization.js";
 import type { ImapService } from "../bridge/imap.js";
 import type { ReadResult } from "../bridge/messages.js";
 import type {
@@ -8,17 +9,19 @@ import type {
 	GetThreadInput,
 	SearchMessagesInput,
 } from "../bridge/schemas.js";
+import type { MessageSummary } from "../bridge/serializers.js";
 import type { ManageMessageInput } from "../inbox/model.js";
 import { hashContent } from "../sending/model.js";
 import { MailError } from "../shared/mail-error.js";
+import { requireToolPermission } from "./access.js";
 import {
 	canReadMailbox,
 	canReadMessage,
 	READ_POLICY_NOT_CONFIGURED,
-	readPolicyStatus,
 	requireInboxWrite,
 } from "./enforcement.js";
 import { loadReadPolicy } from "./store.js";
+import type { ToolName } from "./tools.js";
 
 export type AttachmentApprovalInput = {
 	bridgeUser: string;
@@ -37,15 +40,15 @@ type AttachmentReadPlan =
 			authorization: Extract<AttachmentReadAuthorization, { kind: "policy" }>;
 	  };
 
-async function requireReadPolicy(bridgeUser: string) {
-	const policy = await loadReadPolicy();
+async function requireReadPolicy(bridgeUser: string, policyFile?: string) {
+	const policy = await loadReadPolicy(policyFile);
 	if (!policy)
 		throw new MailError(
 			"POLICY_NOT_CONFIGURED",
 			READ_POLICY_NOT_CONFIGURED,
 			"configure",
 		);
-	if (readPolicyStatus(policy, bridgeUser) !== "ok")
+	if (policy.version !== 3 || policy.bridgeUser !== bridgeUser)
 		throw new MailError(
 			"ACCOUNT_MISMATCH",
 			"Read policy is not bound to this Bridge account. Run protonmail-mcp setup for this account to configure its access.",
@@ -54,11 +57,14 @@ async function requireReadPolicy(bridgeUser: string) {
 	return policy;
 }
 
-export async function createReadService(imap: ImapService, bridgeUser: string) {
-	const policy = await requireReadPolicy(bridgeUser);
+export async function createReadService(
+	imap: ImapService,
+	bridgeUser: string,
+	policyFile?: string,
+) {
+	const policy = await requireReadPolicy(bridgeUser, policyFile);
 	const attachmentOptions = {
-		allowedExtensions:
-			policy.version === 2 ? policy.allowedAttachmentExtensions : [],
+		allowedExtensions: policy.allowedAttachmentExtensions,
 	};
 	function requireMailbox(mailbox: string) {
 		if (!canReadMailbox(policy, mailbox))
@@ -110,13 +116,32 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 		requireMailbox(mailbox.path);
 		return mailbox.path;
 	}
+	function authorizeMailWrite(
+		tool: ToolName,
+		requiredReads: { mailbox: string; message: MessageSummary }[] = [],
+	): MailWriteAuthorization {
+		return async (mailbox, messages = []) => {
+			const current = await requireReadPolicy(bridgeUser, policyFile);
+			requireToolPermission(current, bridgeUser, tool);
+			if (
+				!canReadMailbox(current, mailbox) ||
+				[
+					...requiredReads,
+					...messages.map((message) => ({ mailbox, message })),
+				].some((read) => !canReadMessage(current, read))
+			)
+				throw new MailError(
+					"POLICY_DENIED",
+					"Current mailbox or sender permissions deny this mail change.",
+					"configure",
+				);
+		};
+	}
 	return {
+		authorizeMailWrite,
 		async getInboxCapabilities() {
 			const capabilities = await imap.inbox.capabilities();
-			const writePolicy =
-				policy.version === 2
-					? policy.inboxWrites
-					: { mode: "disabled" as const };
+			const writePolicy = policy.inboxWrites;
 			return {
 				nativeMoveSupported: capabilities.nativeMoveSupported,
 				writePolicy,
@@ -133,7 +158,8 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 		},
 		async manageInbox(input: ManageMessageInput) {
 			return imap.inbox.manage(input, async (destination) => {
-				const currentPolicy = await requireReadPolicy(bridgeUser);
+				const currentPolicy = await requireReadPolicy(bridgeUser, policyFile);
+				requireToolPermission(currentPolicy, bridgeUser, "manage_message");
 				requireInboxWrite(currentPolicy, input, destination);
 				return (mailbox, message) =>
 					canReadMessage(currentPolicy, { mailbox, message });
@@ -142,8 +168,22 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 		async reconcileInboxOperation(operationId: string) {
 			const record = await imap.inbox.get(operationId);
 			return imap.inbox.reconcile(operationId, async (destination) => {
-				const currentPolicy = await requireReadPolicy(bridgeUser);
-				requireInboxWrite(currentPolicy, record.request, destination);
+				const currentPolicy = await requireReadPolicy(bridgeUser, policyFile);
+				requireToolPermission(
+					currentPolicy,
+					bridgeUser,
+					"reconcile_inbox_operation",
+				);
+				for (const mailbox of destination
+					? [record.request.mailbox, destination]
+					: [record.request.mailbox]) {
+					if (!canReadMailbox(currentPolicy, mailbox))
+						throw new MailError(
+							"POLICY_DENIED",
+							`Mailbox ${mailbox} needs read permission for reconciliation.`,
+							"configure",
+						);
+				}
 				return (mailbox, message) =>
 					canReadMessage(currentPolicy, { mailbox, message });
 			});
@@ -159,6 +199,7 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 					mailbox: await requireSpecialMailbox("\\Drafts", "Drafts"),
 				},
 				accepts,
+				authorizeMailWrite("edit_draft"),
 			);
 		},
 		async reconcileDraftOperation(operationId: string) {
@@ -169,15 +210,28 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 		async retryDraftCleanup(operationId: string) {
 			const record = await imap.getDraftOperation(operationId);
 			requireMailbox(record.mailbox);
-			return imap.retryDraftCleanup(operationId, accepts);
+			return imap.retryDraftCleanup(
+				operationId,
+				accepts,
+				authorizeMailWrite("retry_draft_cleanup"),
+			);
 		},
 		async getDraftSnapshot(input: GetMessageInput) {
 			requireMailbox(input.mailbox);
 			return imap.getDraftSnapshot(input, accepts);
 		},
-		async deleteDraftSnapshot(input: GetMessageInput, fingerprint: string) {
+		async deleteDraftSnapshot(
+			input: GetMessageInput,
+			fingerprint: string,
+			tool: "send_draft" | "retry_send_cleanup" = "send_draft",
+		) {
 			requireMailbox(input.mailbox);
-			return imap.deleteDraftSnapshot(input, fingerprint, accepts);
+			return imap.deleteDraftSnapshot(
+				input,
+				fingerprint,
+				accepts,
+				authorizeMailWrite(tool),
+			);
 		},
 		async findSentCopies(messageId: string) {
 			return imap.findSentCopies(
@@ -221,7 +275,7 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 					input,
 				),
 			} satisfies AttachmentApprovalInput;
-			return policy.version === 2 && policy.requireAttachmentApproval
+			return policy.requireAttachmentApproval
 				? { kind: "approval_required", input: approvalInput }
 				: {
 						kind: "authorized",
@@ -235,9 +289,7 @@ export async function createReadService(imap: ImapService, bridgeUser: string) {
 			requireMailbox(input.mailbox);
 			const approved = authorization?.input;
 			if (
-				(policy.version === 2 &&
-					policy.requireAttachmentApproval &&
-					authorization?.kind !== "human") ||
+				(policy.requireAttachmentApproval && authorization?.kind !== "human") ||
 				(approved &&
 					(approved.bridgeUser !== bridgeUser ||
 						approved.policyFingerprint !== hashContent(policy)))

@@ -1,4 +1,3 @@
-import type { McpServer } from "@modelcontextprotocol/server";
 import type { BridgeConfig } from "../bridge/config.js";
 import type { ImapService } from "../bridge/imap.js";
 import { composeReplyDraft } from "../bridge/replies.js";
@@ -17,7 +16,8 @@ import {
 	GetDraftOutputSchema,
 	ListDraftOperationsOutputSchema,
 } from "./output-schemas.js";
-import { errorResponse, jsonResponse } from "./responses.js";
+import { jsonResponse } from "./responses.js";
+import type { ToolRegistry } from "./tool-registry.js";
 
 const write = {
 	readOnlyHint: false,
@@ -31,13 +31,15 @@ export function draftOperationResponse(record: DraftOperation) {
 	return {
 		...jsonResponse({
 			...publicRecord,
-			retry: record.outcome.status === "completed" ? "never" : "reconcile",
+			retry: ["completed", "rejected"].includes(record.outcome.status)
+				? "never"
+				: "reconcile",
 		}),
 		isError: record.outcome.status !== "completed",
 	};
 }
 export function registerDraftTools(input: {
-	server: McpServer;
+	server: ToolRegistry;
 	config: BridgeConfig;
 	imap: ImapService;
 	readService: () => Promise<Awaited<ReturnType<typeof createReadService>>>;
@@ -54,14 +56,15 @@ export function registerDraftTools(input: {
 				"Save a text draft with optional bounded base64 attachments and inline images without sending. Supply a new operationId UUID and reuse it with identical arguments on retries. Empty recipients, subject and body are allowed. Durable APPEND intent prevents duplicates after restart; appending means uncertain and requires reconciliation. Requires allowed Drafts mailbox access.",
 		},
 		async (request) => {
-			try {
-				const mailbox = await (await readService()).requireDraftsMailbox();
-				return draftOperationResponse(
-					await imap.createDraft({ ...request, mailbox }),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			const reads = await readService();
+			const mailbox = await reads.requireDraftsMailbox();
+			return draftOperationResponse(
+				await imap.createDraft(
+					{ ...request, mailbox },
+					undefined,
+					reads.authorizeMailWrite("create_draft"),
+				),
+			);
 		},
 	);
 	server.registerTool(
@@ -75,24 +78,23 @@ export function registerDraftTools(input: {
 				"Create a plain-text reply or reply-all using allowed source reads, Reply-To, own aliases, and reply headers. Never copies original Bcc or sends mail. Supply an operationId UUID; identical retries return the durable operation without creating another reply. Requires Drafts access.",
 		},
 		async (request) => {
-			try {
-				const reads = await readService();
-				const mailbox = await reads.requireDraftsMailbox();
-				const previous = await imap.existingDraftOperation(
-					request.operationId,
+			const reads = await readService();
+			const mailbox = await reads.requireDraftsMailbox();
+			const previous = await imap.existingDraftOperation(
+				request.operationId,
+				request,
+			);
+			if (previous) return draftOperationResponse(previous);
+			const original = await reads.getMessage(request);
+			return draftOperationResponse(
+				await imap.createDraft(
+					composeReplyDraft(config, original, request, mailbox),
 					request,
-				);
-				if (previous) return draftOperationResponse(previous);
-				const original = await reads.getMessage(request);
-				return draftOperationResponse(
-					await imap.createDraft(
-						composeReplyDraft(config, original, request, mailbox),
-						request,
-					),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+					reads.authorizeMailWrite("create_reply_draft", [
+						{ mailbox: request.mailbox, message: original },
+					]),
+				),
+			);
 		},
 	);
 	server.registerTool(
@@ -106,11 +108,7 @@ export function registerDraftTools(input: {
 				"Read a policy-authorized draft, including Bcc, byte-free file/image manifests and its revision token. Keep revision for edit_draft expectedRevision. Empty unfinished drafts are supported. Arbitrary HTML, unsupported media, oversized drafts, and disallowed senders are refused.",
 		},
 		async (request) => {
-			try {
-				return jsonResponse(await (await readService()).getDraft(request));
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return jsonResponse(await (await readService()).getDraft(request));
 		},
 	);
 	server.registerTool(
@@ -124,13 +122,9 @@ export function registerDraftTools(input: {
 				"Patch a readable supported draft using its UID, UIDVALIDITY and expectedRevision from get_draft. Omitted fields and attachment/inline-image groups are preserved; [] clears the specified recipient or payload group and an empty string clears subject or body. Requires a new operationId UUID, reused on retries. Preserves sender and reply headers. Drafts with an attempted send or unresolved replacement are blocked. Creates one replacement, then safely deletes the unchanged original. Uncertain results require recovery; never change IDs to retry.",
 		},
 		async (request) => {
-			try {
-				return draftOperationResponse(
-					await (await readService()).editDraft(request),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return draftOperationResponse(
+				await (await readService()).editDraft(request),
+			);
 		},
 	);
 	server.registerTool(
@@ -144,13 +138,9 @@ export function registerDraftTools(input: {
 				"Inspect this account's durable draft operation by UUID, including after restart. Returns recovery identity and status without message body. Does not append, send or delete mail.",
 		},
 		async (request) => {
-			try {
-				return draftOperationResponse(
-					await imap.getDraftOperation(request.operationId),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return draftOperationResponse(
+				await imap.getDraftOperation(request.operationId),
+			);
 		},
 	);
 	server.registerTool(
@@ -164,23 +154,19 @@ export function registerDraftTools(input: {
 				"List unresolved draft APPEND and cleanup operations for this account without body content. Paginate with limit and offset. Never modifies mail.",
 		},
 		async (request) => {
-			try {
-				const records = await imap.listDraftOperations(
-					request.limit,
-					request.offset,
-				);
-				return jsonResponse({
-					operations: records.map(
-						(record) => draftOperationResponse(record).structuredContent,
-					),
-					nextOffset:
-						records.length === request.limit
-							? request.offset + request.limit
-							: null,
-				});
-			} catch (error) {
-				return errorResponse(error);
-			}
+			const records = await imap.listDraftOperations(
+				request.limit,
+				request.offset,
+			);
+			return jsonResponse({
+				operations: records.map(
+					(record) => draftOperationResponse(record).structuredContent,
+				),
+				nextOffset:
+					records.length === request.limit
+						? request.offset + request.limit
+						: null,
+			});
 		},
 	);
 	server.registerTool(
@@ -194,15 +180,11 @@ export function registerDraftTools(input: {
 				"Resolve uncertain APPEND only through one exact operation Message-ID and unchanged canonical content in allowed Drafts. No match keeps uncertainty; conflicting or duplicate copies are refused. Never appends, submits SMTP or deletes mail. Use retry_draft_cleanup separately when an edit's replacement was found.",
 		},
 		async (request) => {
-			try {
-				return draftOperationResponse(
-					await (await readService()).reconcileDraftOperation(
-						request.operationId,
-					),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return draftOperationResponse(
+				await (await readService()).reconcileDraftOperation(
+					request.operationId,
+				),
+			);
 		},
 	);
 	server.registerTool(
@@ -216,13 +198,9 @@ export function registerDraftTools(input: {
 				"Retry only deletion of an edit operation's recorded original. Verifies the replacement still exists unchanged and the original has the recorded revision and UIDVALIDITY. Requires current sender/mailbox read authorization and UIDPLUS. Never appends, sends, or edits contents. Uncertain APPEND must first be reconciled.",
 		},
 		async (request) => {
-			try {
-				return draftOperationResponse(
-					await (await readService()).retryDraftCleanup(request.operationId),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return draftOperationResponse(
+				await (await readService()).retryDraftCleanup(request.operationId),
+			);
 		},
 	);
 }

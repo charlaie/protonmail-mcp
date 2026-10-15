@@ -38,30 +38,29 @@ import {
 test("policy persistence stays complete and private; legacy/account mismatch is denied", async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-policy-"));
 	const path = join(directory, "policy.json");
-	const originalPath = process.env.PROTONMAIL_MCP_POLICY_FILE;
-	process.env.PROTONMAIL_MCP_POLICY_FILE = path;
+	const policyFile = path;
 	t.after(async () => {
-		if (originalPath === undefined)
-			delete process.env.PROTONMAIL_MCP_POLICY_FILE;
-		else process.env.PROTONMAIL_MCP_POLICY_FILE = originalPath;
 		await rm(directory, { recursive: true, force: true });
 	});
-	assert.equal(await loadReadPolicy(), null);
+	assert.equal(await loadReadPolicy(policyFile), null);
 	const policy = createReadPolicy({
 		bridgeUser: testConfig.user,
 		allowedMailboxes: ["INBOX"],
 	});
-	await saveReadPolicy(policy);
+	await saveReadPolicy(policy, policyFile);
 	await chmod(path, 0o644);
 	await Promise.all([
-		saveReadPolicy({ ...policy, allowedMailboxes: ["Archive"] }),
+		saveReadPolicy({ ...policy, allowedMailboxes: ["Archive"] }, policyFile),
 		(async () => {
-			for (let i = 0; i < 20; i++) assert.ok(await loadReadPolicy());
+			for (let i = 0; i < 20; i++) assert.ok(await loadReadPolicy(policyFile));
 		})(),
 	]);
-	assert.equal((await stat(path)).mode & 0o777, 0o600);
+	if (process.platform !== "win32")
+		assert.equal((await stat(path)).mode & 0o777, 0o600);
 	const contents = await readFile(path, "utf8");
-	await assert.rejects(saveReadPolicy({ ...policy, allowedMailboxes: [] }));
+	await assert.rejects(
+		saveReadPolicy({ ...policy, allowedMailboxes: [] }, policyFile),
+	);
 	assert.equal(await readFile(path, "utf8"), contents);
 	assert.deepEqual(await readdir(directory), ["policy.json"]);
 	const client = new FakeImap();
@@ -69,23 +68,25 @@ test("policy persistence stays complete and private; legacy/account mismatch is 
 		operation(client),
 	);
 	await assert.rejects(
-		createReadService(imap, "another@example.com"),
+		createReadService(imap, "another@example.com", policyFile),
 		/not bound/,
 	);
-	assert.ok(await createReadService(imap, testConfig.user));
+	assert.ok(await createReadService(imap, testConfig.user, policyFile));
 	const { bridgeUser: _, ...legacy } = {
 		...policy,
 		bridgeUser: testConfig.user,
 	};
 	await writeFile(path, JSON.stringify({ ...legacy, version: 1 }));
-	await assert.rejects(createReadService(imap, testConfig.user), /not bound/);
+	await assert.rejects(
+		createReadService(imap, testConfig.user, policyFile),
+		/not bound/,
+	);
 	assert.equal(client.searches.length, 0);
 	await writeFile(path, "{corrupt");
-	await assert.rejects(loadReadPolicy(), /reset-policy/);
-	assert.equal(await hasReadPolicyFile(), true);
-	await resetReadPolicy();
-	assert.equal(await hasReadPolicyFile(), false);
-	process.env.PROTONMAIL_MCP_POLICY_FILE = "  ";
+	await assert.rejects(loadReadPolicy(policyFile), /reset-policy/);
+	assert.equal(await hasReadPolicyFile(policyFile), true);
+	await resetReadPolicy(policyFile);
+	assert.equal(await hasReadPolicyFile(policyFile), false);
 	assert.ok(getPolicyFilePath().endsWith("protonmail-mcp/read-policy.json"));
 });
 
@@ -130,12 +131,8 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	const directory = await mkdtemp(
 		join(tmpdir(), "protonmail-attachment-policy-"),
 	);
-	const originalPath = process.env.PROTONMAIL_MCP_POLICY_FILE;
-	process.env.PROTONMAIL_MCP_POLICY_FILE = join(directory, "policy.json");
+	const policyFile = join(directory, "policy.json");
 	t.after(async () => {
-		if (originalPath === undefined)
-			delete process.env.PROTONMAIL_MCP_POLICY_FILE;
-		else process.env.PROTONMAIL_MCP_POLICY_FILE = originalPath;
 		await rm(directory, { recursive: true, force: true });
 	});
 	const policy = createReadPolicy({
@@ -149,7 +146,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		...oldPolicy
 	} = policy;
 	const parsed = ReadPolicySchema.parse(oldPolicy);
-	assert.ok(parsed.version === 2);
+	assert.ok(parsed.version === 3);
 	assert.deepEqual(parsed.allowedAttachmentExtensions, []);
 	assert.equal(parsed.requireAttachmentApproval, false);
 	assert.equal(
@@ -159,7 +156,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		}).success,
 		false,
 	);
-	await saveReadPolicy(policy);
+	await saveReadPolicy(policy, policyFile);
 	const client = new FakeImap();
 	const message = fixtureMessage(1);
 	message.bodyStructure = {
@@ -186,7 +183,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	const imap = createImapService(testConfig, async (operation) =>
 		operation(client),
 	);
-	let reads = await createReadService(imap, testConfig.user);
+	let reads = await createReadService(imap, testConfig.user, policyFile);
 	const input = GetAttachmentSchema.parse({
 		mailbox: "INBOX",
 		uid: 1,
@@ -199,24 +196,33 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	);
 	await assert.rejects(reads.getAttachment(input), /not allowed/);
 	assert.equal(client.downloads.length, 0);
-	await saveReadPolicy({ ...policy, allowedAttachmentExtensions: [".txt"] });
-	reads = await createReadService(imap, testConfig.user);
+	await saveReadPolicy(
+		{ ...policy, allowedAttachmentExtensions: [".txt"] },
+		policyFile,
+	);
+	reads = await createReadService(imap, testConfig.user, policyFile);
 	assert.equal((await reads.getAttachment(input)).status, "raw");
 	assert.equal(client.downloads.length, 1);
-	await saveReadPolicy({
-		...policy,
-		allowedAttachmentExtensions: [".txt"],
-		requireAttachmentApproval: true,
-	});
-	reads = await createReadService(imap, testConfig.user);
+	await saveReadPolicy(
+		{
+			...policy,
+			allowedAttachmentExtensions: [".txt"],
+			requireAttachmentApproval: true,
+		},
+		policyFile,
+	);
+	reads = await createReadService(imap, testConfig.user, policyFile);
 	assert.equal(
 		(await reads.prepareAttachmentRead(input)).kind,
 		"approval_required",
 	);
 	await assert.rejects(reads.getAttachment(input), /Approval is required/);
 	assert.equal(client.downloads.length, 1);
-	await saveReadPolicy({ ...policy, allowedAttachmentExtensions: [".txt"] });
-	reads = await createReadService(imap, testConfig.user);
+	await saveReadPolicy(
+		{ ...policy, allowedAttachmentExtensions: [".txt"] },
+		policyFile,
+	);
+	reads = await createReadService(imap, testConfig.user, policyFile);
 	await assert.rejects(
 		reads.getAttachment({ ...input, mailbox: "Archive" }),
 		/Mailbox/,
@@ -227,7 +233,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	await assert.rejects(reads.getAttachment(input), /sender/);
 	assert.equal(client.downloads.length, 1);
 	await assert.rejects(
-		createReadService(imap, "different@example.com"),
+		createReadService(imap, "different@example.com", policyFile),
 		/not bound/,
 	);
 });

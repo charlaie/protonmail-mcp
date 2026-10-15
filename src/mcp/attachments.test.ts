@@ -130,7 +130,10 @@ test("binary capability declarations cannot bypass local attachment policy", asy
 			},
 		},
 	});
-	await saveReadPolicy({ ...client.policy, allowedAttachmentExtensions: [] });
+	await saveReadPolicy(
+		{ ...client.policy, allowedAttachmentExtensions: [] },
+		client.policyFile,
+	);
 	const result = await client.call();
 	assert.equal(result.isError, true);
 	assert.match(

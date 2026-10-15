@@ -1,0 +1,16 @@
+{
+	"version": 1,
+	"bridge": {
+		"user": "your-bridge-username",
+		"password": "your-bridge-password",
+		"host": "127.0.0.1",
+		"imapPort": 1143,
+		"smtpPort": 1025,
+		"tlsRejectUnauthorized": false,
+		"ownAddresses": []
+	},
+	"storage": {
+		"policyFile": "read-policy.json",
+		"operationsDirectory": "send-operations"
+	}
+}

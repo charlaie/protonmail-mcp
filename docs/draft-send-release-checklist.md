@@ -2,6 +2,14 @@
 
 Automated regressions simulate IMAP boundaries and use a local SMTP server. They do not establish live Proton Bridge synchronization or client approval presentation. Complete this checklist before declaring these workflows ready for production. Use a dedicated test account, isolated operation directory, and recipients controlled by the tester. Record Bridge, OS, server and client versions with results.
 
+## Installation and client compatibility
+
+- Install the package on Linux, macOS, and Windows with the supported Node versions. Run setup from an unrelated directory and verify that the saved config and journal paths stay consistent.
+- Use read-only mode and verify that draft creation/editing, sends, inbox changes, and cleanup deletion cannot run through direct tool calls. Revoke a send grant while approval is open and verify no submission occurs.
+- Test generated and merged configurations in Claude Desktop, Codex, VS Code, and Cursor. Record each client version. Verify full-message approval presentation and original-byte attachment handling; do not infer these from a successful handshake.
+- Re-run setup, cancel before saving, and verify saved credentials and grants remain unchanged. Add a second client without re-entering credentials.
+- Migrate an existing policy and shared journal. Verify recorded operation IDs retain replay protection and inspect pending operations after restart.
+
 ## Draft synchronization
 
 - Create an empty draft, a draft with To/Cc/Bcc, and a long Unicode body. Verify each appears once in Proton web and mobile, with the same subject, recipients and text.

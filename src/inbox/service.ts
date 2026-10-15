@@ -108,6 +108,8 @@ export function createInboxService(
 			const previous = await existing(input);
 			if (previous) return previous;
 			let claimed = false;
+			let dispatchStatus: "reserved" | "submitting" = "reserved";
+			let commandStarted = false;
 			try {
 				return await run(async (client) => {
 					const plan = inboxPlan(input, await client.list());
@@ -171,6 +173,20 @@ export function createInboxService(
 								);
 							if (!(await store.dispatch(input.operationId)))
 								return get(input.operationId);
+							dispatchStatus = "submitting";
+							const dispatchAccepts = await authorize(destination);
+							if (
+								!dispatchAccepts(
+									input.mailbox,
+									messageSummary(current.message, input.uidValidity),
+								)
+							)
+								throw new MailError(
+									"POLICY_DENIED",
+									"Current read policy denies this inbox write.",
+									"configure",
+								);
+							commandStarted = true;
 							const ok = plan.enabled
 								? await client.messageFlagsAdd(input.uid, [plan.flag], {
 										uid: true,
@@ -211,6 +227,19 @@ export function createInboxService(
 						);
 					if (!(await store.dispatch(input.operationId)))
 						return get(input.operationId);
+					dispatchStatus = "submitting";
+					const dispatchAccepts = await authorize(destination);
+					if (
+						!dispatchAccepts(
+							input.mailbox,
+							messageSummary(current.message, input.uidValidity),
+						)
+					)
+						throw new MailError(
+							"POLICY_DENIED",
+							"Current read policy denies this inbox write.",
+							"configure",
+						);
 					// The transition may await storage; recheck native MOVE at the actual dispatch boundary.
 					if (!client.capabilities.has("MOVE"))
 						throw new MailError(
@@ -218,6 +247,7 @@ export function createInboxService(
 							"Native MOVE support changed at dispatch. No copy/delete fallback is allowed.",
 							"reconcile",
 						);
+					commandStarted = true;
 					const moved = await client.messageMove(input.uid, plan.destination, {
 						uid: true,
 					});
@@ -242,7 +272,11 @@ export function createInboxService(
 			} catch (error) {
 				if (claimed) {
 					const reason = safeErrorMessage(error);
-					const result = await store.abort(input.operationId, reason);
+					const result = await store.abort(
+						input.operationId,
+						reason,
+						commandStarted ? "reserved" : dispatchStatus,
+					);
 					return result.outcome.status === "submitting"
 						? store.uncertain(input.operationId, reason)
 						: result;

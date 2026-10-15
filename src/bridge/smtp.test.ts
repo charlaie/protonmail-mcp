@@ -4,7 +4,7 @@ import { simpleParser } from "mailparser";
 import { outgoingMedia } from "../outgoing/media.js";
 import { testFile, testImage } from "../outgoing/test-fixtures.js";
 import type { OutgoingMessage } from "../sending/model.js";
-import { smtpFailure, submitEmail } from "./smtp.js";
+import { smtpFailure, submitEmail, verifySmtpConnection } from "./smtp.js";
 import { createSmtpTestServer, type SmtpScenario } from "./smtp-test-server.js";
 import { testConfig } from "./test-fixtures.js";
 
@@ -19,6 +19,15 @@ const message: OutgoingMessage = {
 	inReplyTo: ["<parent@example.com>"],
 	references: ["<root@example.com>", "<parent@example.com>"],
 };
+
+test("SMTP diagnostics authenticate using STARTTLS without sending any message", async (t) => {
+	const smtp = await createSmtpTestServer(t, "accepted");
+	assert.equal(
+		await verifySmtpConnection({ ...testConfig, smtpPort: smtp.port }),
+		true,
+	);
+	assert.deepEqual(smtp.messages, []);
+});
 
 for (const scenario of [
 	"accepted",

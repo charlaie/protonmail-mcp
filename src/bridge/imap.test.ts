@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { simpleParser } from "mailparser";
+import { createDraftStore } from "../drafts/store.js";
 import { canReadMessage } from "../policy/enforcement.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { hashContent } from "../sending/model.js";
@@ -21,13 +22,8 @@ import { createImapSession } from "./session.js";
 import { FakeImap, fixtureMessage, testConfig } from "./test-fixtures.js";
 
 const journalDirectory = mkdtempSync(join(tmpdir(), "protonmail-imap-drafts-"));
-const previousJournalDirectory = process.env.PROTONMAIL_MCP_OPERATIONS_DIR;
-process.env.PROTONMAIL_MCP_OPERATIONS_DIR = journalDirectory;
 after(() => {
 	rmSync(journalDirectory, { recursive: true, force: true });
-	if (previousJournalDirectory === undefined)
-		delete process.env.PROTONMAIL_MCP_OPERATIONS_DIR;
-	else process.env.PROTONMAIL_MCP_OPERATIONS_DIR = previousJournalDirectory;
 });
 function editInput(original: ReturnType<typeof fixtureMessage>, input: object) {
 	return EditDraftSchema.parse({
@@ -37,7 +33,11 @@ function editInput(original: ReturnType<typeof fixtureMessage>, input: object) {
 	});
 }
 function service(client: FakeImap) {
-	return createImapService(testConfig, async (operation) => operation(client));
+	return createImapService(
+		testConfig,
+		async (operation) => operation(client),
+		createDraftStore(testConfig.user, journalDirectory),
+	);
 }
 const policy = createReadPolicy({
 	bridgeUser: testConfig.user,
@@ -386,6 +386,7 @@ test("a socket error after APPEND retains replacement recovery details through t
 	const imap = createImapService(
 		testConfig,
 		createImapSession(testConfig, () => client),
+		createDraftStore(testConfig.user, journalDirectory),
 	);
 	const result = await imap.editDraft({
 		...editInput(original, { uid: 32, uidValidity: "7", text: "Updated" }),
@@ -430,12 +431,16 @@ test("simultaneous edits on separate IMAP connections create only one replacemen
 		["Drafts", [fixtureMessage(1, { sender: testConfig.user })]],
 	]);
 	const clients: FakeImap[] = [];
-	const imap = createImapService(testConfig, async (operation) => {
-		const client = new FakeImap();
-		client.mailboxes = shared;
-		clients.push(client);
-		return operation(client);
-	});
+	const imap = createImapService(
+		testConfig,
+		async (operation) => {
+			const client = new FakeImap();
+			client.mailboxes = shared;
+			clients.push(client);
+			return operation(client);
+		},
+		createDraftStore(testConfig.user, journalDirectory),
+	);
 	const input = {
 		...editInput(fixtureMessage(1, { sender: testConfig.user }), {
 			uid: 1,
@@ -469,13 +474,17 @@ test("queued edits retain one replacement and its identity after every deletion 
 				["Drafts", [fixtureMessage(uid, { sender: testConfig.user })]],
 			]);
 			const clients: FakeImap[] = [];
-			const imap = createImapService(testConfig, (operation) => {
-				const client = new FakeImap();
-				client.mailboxes = shared;
-				client.deleteFailure = mode;
-				clients.push(client);
-				return createImapSession(testConfig, () => client)(operation);
-			});
+			const imap = createImapService(
+				testConfig,
+				(operation) => {
+					const client = new FakeImap();
+					client.mailboxes = shared;
+					client.deleteFailure = mode;
+					clients.push(client);
+					return createImapSession(testConfig, () => client)(operation);
+				},
+				createDraftStore(testConfig.user, journalDirectory),
+			);
 			const input = {
 				...editInput(fixtureMessage(uid, { sender: testConfig.user }), {
 					uid,

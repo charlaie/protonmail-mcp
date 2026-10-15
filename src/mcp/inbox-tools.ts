@@ -1,4 +1,3 @@
-import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { ImapService } from "../bridge/imap.js";
 import {
@@ -13,7 +12,8 @@ import {
 	ManageMessageSchema,
 } from "../inbox/model.js";
 import type { createReadService } from "../policy/service.js";
-import { errorResponse, jsonResponse } from "./responses.js";
+import { jsonResponse } from "./responses.js";
+import type { ToolRegistry } from "./tool-registry.js";
 
 const read = {
 	readOnlyHint: true,
@@ -32,7 +32,7 @@ export function inboxOperationResponse(record: InboxOperation) {
 	};
 }
 export function registerInboxTools(input: {
-	server: McpServer;
+	server: ToolRegistry;
 	imap: ImapService;
 	readService: () => Promise<Awaited<ReturnType<typeof createReadService>>>;
 }) {
@@ -48,11 +48,7 @@ export function registerInboxTools(input: {
 				"Inspect this account's configured inbox write actions and allowed exact folder/label paths. Native MOVE support gates moves, archive, Trash, and labels. Actual flag writes also require mailbox permanent flag support. Sender restrictions still apply. Drafts remain protected.",
 		},
 		async () => {
-			try {
-				return jsonResponse(await (await readService()).getInboxCapabilities());
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return jsonResponse(await (await readService()).getInboxCapabilities());
 		},
 	);
 	server.registerTool(
@@ -66,13 +62,9 @@ export function registerInboxTools(input: {
 				"Change one non-draft message's read state, star, folder or label under explicit local inbox write permissions and sender policy. Supply operationId UUID, mailbox, UID and UIDVALIDITY; reuse identical arguments on retries. Native MOVE only, no copy/delete fallback or permanent deletion. Both source and destination require permission. apply_label moves from an ordinary folder into an exact Labels path; remove_label moves from a Labels path into a chosen ordinary folder and can change its residence. Draft and attempted-send identities are refused. An uncertain operation is never repeated automatically.",
 		},
 		async (request) => {
-			try {
-				return inboxOperationResponse(
-					await (await readService()).manageInbox(request),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return inboxOperationResponse(
+				await (await readService()).manageInbox(request),
+			);
 		},
 	);
 	server.registerTool(
@@ -86,13 +78,7 @@ export function registerInboxTools(input: {
 				"Inspect local durable inbox operation metadata for this account, including during policy outages. Never changes flags, moves messages or reads bodies. Reserved or submitting operations can be active or interrupted and cannot be automatically released. Aborted means no command was dispatched and the reservation was released.",
 		},
 		async (request) => {
-			try {
-				return inboxOperationResponse(
-					await imap.inbox.get(request.operationId),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return inboxOperationResponse(await imap.inbox.get(request.operationId));
 		},
 	);
 	server.registerTool(
@@ -106,20 +92,16 @@ export function registerInboxTools(input: {
 				"List this account's reserved, submitting or uncertain inbox operations without message bodies, including during policy outages. Paginate with limit and offset; nextOffset null ends the list. Never mutates mail.",
 		},
 		async (request) => {
-			try {
-				const records = await imap.inbox.list(request.limit, request.offset);
-				return jsonResponse({
-					operations: records.map(
-						(record) => inboxOperationResponse(record).structuredContent,
-					),
-					nextOffset:
-						records.length === request.limit
-							? request.offset + request.limit
-							: null,
-				});
-			} catch (error) {
-				return errorResponse(error);
-			}
+			const records = await imap.inbox.list(request.limit, request.offset);
+			return jsonResponse({
+				operations: records.map(
+					(record) => inboxOperationResponse(record).structuredContent,
+				),
+				nextOffset:
+					records.length === request.limit
+						? request.offset + request.limit
+						: null,
+			});
 		},
 	);
 	server.registerTool(
@@ -133,15 +115,11 @@ export function registerInboxTools(input: {
 				"Verify desired flag state or exact Message-ID/metadata and folder placement for an uncertain inbox operation. Requires current source/destination write and sender policy. Never STOREs, MOVEs or deletes. Ambiguous or missing evidence keeps uncertainty. Reserved or submitting operations cannot be automatically reconciled because their writer may still run; inspect those manually. Completed and aborted operations are terminal.",
 		},
 		async (request) => {
-			try {
-				return inboxOperationResponse(
-					await (await readService()).reconcileInboxOperation(
-						request.operationId,
-					),
-				);
-			} catch (error) {
-				return errorResponse(error);
-			}
+			return inboxOperationResponse(
+				await (await readService()).reconcileInboxOperation(
+					request.operationId,
+				),
+			);
 		},
 	);
 }

@@ -7,8 +7,7 @@ import { MailError } from "../shared/mail-error.js";
 
 export function createOperationDatabase(
 	account: string,
-	directory = process.env.PROTONMAIL_MCP_OPERATIONS_DIR?.trim() ||
-		join(dirname(getPolicyFilePath()), "send-operations"),
+	directory = join(dirname(getPolicyFilePath()), "send-operations"),
 ) {
 	const path = join(directory, `${hashContent(account)}.sqlite`);
 	async function use<T>(operation: (db: DatabaseSync) => T): Promise<T> {

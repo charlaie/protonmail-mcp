@@ -18,7 +18,7 @@ This tracks gaps after the draft/send reliability work. Automated checks passed,
 - [ ] Allow choosing a configured sender alias for new compositions and setting Reply-To. Consider importance and sensitivity separately according to Bridge support.
 - [x] Remove the fixed incoming attachment extension registry. Raw downloads support arbitrary extensions and extensionless files under an explicit wildcard or specific suffix grants, preserve declared MIME types, and use a uniform 5 MiB decoded limit. Existing policies keep their restrictions.
 - [ ] Improve client attachment delivery and previews. The receiving client still handles parsing, rendering, and OCR; named inline text parts that the downloader may transform remain refused.
-- [ ] Add easier account switching and configuration. Each account currently requires its own Bridge credentials, policy, and shared local journal.
+- [x] Add file-based account configuration, Clack setup, per-tool grants, client configuration generators, and doctor. Each account uses a separate config and policy; processes for the same account share a journal.
 - [ ] Consider managed sign-in, remote deployment, centralized action permissions, and shared-account roles if this becomes a hosted or team product.
 - [ ] Consider an integrated composition and recovery interface with message links, attachment previews, and clear operation outcomes.
 

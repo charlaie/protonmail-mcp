@@ -12,6 +12,7 @@ import {
 	getAttachmentMetadata,
 	listAttachments,
 } from "./attachments.js";
+import type { MailWriteAuthorization } from "./authorization.js";
 import type { BridgeConfig } from "./config.js";
 import { inspectDraft, readDraftSnapshot } from "./draft-content.js";
 import type { CreateDraftLookupInput, EditDraftLookupInput } from "./drafts.js";
@@ -72,12 +73,16 @@ export function createImapService(
 			allowed: AttachmentPermission[],
 		) =>
 			run((client) => getAttachmentMetadata(client, input, accepts, allowed)),
-		createDraft: (input: CreateDraftLookupInput, request?: object) =>
-			drafts.create(input, allowAllMessages, request),
+		createDraft: (
+			input: CreateDraftLookupInput,
+			request?: object,
+			authorize?: MailWriteAuthorization,
+		) => drafts.create(input, allowAllMessages, request, authorize),
 		editDraft: (
 			input: EditDraftLookupInput,
 			accepts: MessageFilter = allowAllMessages,
-		) => drafts.edit(input, accepts),
+			authorize?: MailWriteAuthorization,
+		) => drafts.edit(input, accepts, authorize),
 		getDraftOperation: drafts.get,
 		existingDraftOperation: drafts.existing,
 		listDraftOperations: drafts.list,
@@ -108,6 +113,7 @@ export function createImapService(
 			input: GetMessageInput,
 			fingerprint: string,
 			accepts: MessageFilter,
+			authorize?: MailWriteAuthorization,
 		): Promise<DraftCleanup> =>
 			run(async (client) => {
 				let current: Awaited<ReturnType<typeof inspectDraft>>;
@@ -130,6 +136,7 @@ export function createImapService(
 						reason:
 							"UIDPLUS is unavailable. Delete the sent draft in Proton Mail; do not resend.",
 					};
+				await authorize?.(input.mailbox, [current.summary]);
 				if (!(await client.messageDelete(input.uid, { uid: true })))
 					throw new MailError(
 						"OPERATION_FAILED",

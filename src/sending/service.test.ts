@@ -66,10 +66,11 @@ test("concurrent requests and a new server instance submit a send operation only
 	assert.equal((await reopened.get(operationId)).outcome.status, "accepted");
 	await reopened.send(record, message);
 	assert.equal(attempts, 1);
-	assert.equal(
-		(await stat(createSendStore(testConfig.user, path).path)).mode & 0o777,
-		0o600,
-	);
+	if (process.platform !== "win32")
+		assert.equal(
+			(await stat(createSendStore(testConfig.user, path).path)).mode & 0o777,
+			0o600,
+		);
 	await assert.rejects(
 		reopened.prepare({
 			operationId,

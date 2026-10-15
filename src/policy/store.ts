@@ -1,78 +1,59 @@
-import { randomUUID } from "node:crypto";
-import { access, mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { access, readFile, rm } from "node:fs/promises";
+import { getDefaultPolicyFilePath } from "../config/paths.js";
 import { safeErrorMessage } from "../shared/errors.js";
+import { isMissingFile, writePrivateFile } from "../shared/private-file.js";
+import { type ReadPolicy, ReadPolicySchema } from "./schema.js";
 
-import type { ReadPolicy } from "./schema.js";
-import { ReadPolicySchema } from "./schema.js";
+export const getPolicyFilePath = getDefaultPolicyFilePath;
 
-export function getPolicyFilePath() {
-	return (
-		process.env.PROTONMAIL_MCP_POLICY_FILE?.trim() ||
-		join(homedir(), ".config", "protonmail-mcp", "read-policy.json")
+function policyLoadError(error: unknown, path: string) {
+	return new Error(
+		`Unable to load read policy at ${path}: ${safeErrorMessage(error)}. Run protonmail-mcp setup to replace it or reset-policy to remove it.`,
+		{ cause: error },
 	);
 }
 
-export async function loadReadPolicy(): Promise<ReadPolicy | null> {
-	const path = getPolicyFilePath();
-
+export function loadReadPolicySync(
+	path = getPolicyFilePath(),
+): ReadPolicy | null {
 	try {
-		const contents = await readFile(path, "utf8");
-		return ReadPolicySchema.parse(JSON.parse(contents));
+		return ReadPolicySchema.parse(JSON.parse(readFileSync(path, "utf8")));
 	} catch (error) {
-		if (
-			error &&
-			typeof error === "object" &&
-			"code" in error &&
-			error.code === "ENOENT"
-		) {
-			return null;
-		}
-
-		throw new Error(
-			`Unable to load read policy at ${path}: ${safeErrorMessage(error)}. Run protonmail-mcp setup to replace it or reset-policy to remove it.`,
-			{ cause: error },
-		);
+		if (isMissingFile(error)) return null;
+		throw policyLoadError(error, path);
 	}
 }
 
-export async function saveReadPolicy(policy: ReadPolicy) {
+export async function loadReadPolicy(
+	path = getPolicyFilePath(),
+): Promise<ReadPolicy | null> {
+	try {
+		return ReadPolicySchema.parse(JSON.parse(await readFile(path, "utf8")));
+	} catch (error) {
+		if (isMissingFile(error)) return null;
+		throw policyLoadError(error, path);
+	}
+}
+
+export async function saveReadPolicy(
+	policy: ReadPolicy,
+	path = getPolicyFilePath(),
+) {
 	const validated = ReadPolicySchema.parse(policy);
-	const path = getPolicyFilePath();
-	await mkdir(dirname(path), { recursive: true });
-	const temporaryPath = `${path}.${randomUUID()}.tmp`;
-	try {
-		const file = await open(temporaryPath, "wx", 0o600);
-		try {
-			await file.writeFile(`${JSON.stringify(validated, null, 2)}\n`);
-			await file.sync();
-		} finally {
-			await file.close();
-		}
-		await rename(temporaryPath, path);
-	} finally {
-		await rm(temporaryPath, { force: true });
-	}
+	await writePrivateFile(path, `${JSON.stringify(validated, null, 2)}\n`);
 }
 
-export async function hasReadPolicyFile() {
+export async function hasReadPolicyFile(path = getPolicyFilePath()) {
 	try {
-		await access(getPolicyFilePath());
+		await access(path);
 		return true;
 	} catch (error) {
-		if (
-			error &&
-			typeof error === "object" &&
-			"code" in error &&
-			error.code === "ENOENT"
-		)
-			return false;
+		if (isMissingFile(error)) return false;
 		throw error;
 	}
 }
 
-export async function resetReadPolicy() {
-	const path = getPolicyFilePath();
+export async function resetReadPolicy(path = getPolicyFilePath()) {
 	await rm(path, { force: true });
 }

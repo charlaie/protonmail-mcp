@@ -16,6 +16,7 @@ import { createDraftStore } from "../drafts/store.js";
 import { testFile, testImage } from "../outgoing/test-fixtures.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
+import { ToolNameSchema } from "../policy/tools.js";
 import type { OutgoingMessage } from "../sending/model.js";
 import { createSendService } from "../sending/service.js";
 import { createSendStore } from "../sending/store.js";
@@ -45,21 +46,20 @@ async function fixture(
 	} = {},
 ) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-send-mcp-"));
-	const oldPath = process.env.PROTONMAIL_MCP_POLICY_FILE;
-	process.env.PROTONMAIL_MCP_POLICY_FILE = join(directory, "policy.json");
+	const policyFile = join(directory, "policy.json");
 	t.after(async () => {
-		if (oldPath === undefined) delete process.env.PROTONMAIL_MCP_POLICY_FILE;
-		else process.env.PROTONMAIL_MCP_POLICY_FILE = oldPath;
 		await rm(directory, { recursive: true, force: true });
 	});
 	await saveReadPolicy(
 		createReadPolicy({
 			bridgeUser: testConfig.user,
+			allowedTools: ToolNameSchema.options,
 			allowedMailboxes: ["INBOX", "Drafts", "Sent"],
 			allowedSenderEmails: options.deniedSender
 				? ["different@example.com"]
 				: [],
 		}),
+		policyFile,
 	);
 	const client = new FakeImap();
 	const draft = fixtureMessage(1, { sender: testConfig.user });
@@ -110,7 +110,14 @@ async function fixture(
 		},
 	};
 	const factory = () =>
-		createServer({ config: testConfig, imap, sends, approval });
+		createServer({
+			config: testConfig,
+			policyFile,
+			operationsDirectory: directory,
+			imap,
+			sends,
+			approval,
+		});
 	const legacy =
 		options.changedDuringLegacyApproval !== undefined ||
 		options.changedForwardDuringLegacyApproval !== undefined;
@@ -133,7 +140,7 @@ async function fixture(
 			return { action: "accept", content: { approve_send: true } };
 		},
 	});
-	return { ...transport, client, draft, submissions, sends };
+	return { ...transport, client, draft, submissions, sends, policyFile };
 }
 
 function parseContinuation(value: unknown) {
@@ -437,9 +444,11 @@ test("forward read policy is reauthorized after approval and original attachment
 	await saveReadPolicy(
 		createReadPolicy({
 			bridgeUser: testConfig.user,
+			allowedTools: ToolNameSchema.options,
 			allowedMailboxes: ["Drafts"],
 			allowedSenderEmails: [],
 		}),
+		client.policyFile,
 	);
 	const denied = sendResult(
 		await client.callTool("forward_email", args, {

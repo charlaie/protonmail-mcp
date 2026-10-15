@@ -14,9 +14,12 @@ import {
 	parseJSONRPCMessage,
 } from "@modelcontextprotocol/server";
 import { SearchMessagesSchema, SendEmailSchema } from "../bridge/schemas.js";
+import { createReadPolicy } from "../policy/schema.js";
+import { saveReadPolicy } from "../policy/store.js";
+import { ToolNameSchema } from "../policy/tools.js";
 import { ToolErrorSchema } from "../shared/mail-error.js";
 
-test("stdio loads .env, advertises tools, and reports policy errors over the real SDK", {
+test("stdio loads an explicit JSON config, advertises grants, and checks policy changes over the real SDK", {
 	timeout: 10_000,
 }, async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-stdio-"));
@@ -24,15 +27,34 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	const env = { ...process.env };
 	for (const key of Object.keys(env))
 		if (key.startsWith("PROTONMAIL_")) delete env[key];
-	await writeFile(
-		join(directory, ".env"),
-		`PROTONMAIL_BRIDGE_USER=fixture@example.com\nPROTONMAIL_BRIDGE_PASSWORD=fixture-password\nPROTONMAIL_MCP_POLICY_FILE=${join(directory, "missing-policy.json")}\n`,
-	);
-	const child = spawn(process.execPath, [entry], {
-		cwd: directory,
-		env,
-		stdio: "pipe",
+	const configPath = join(directory, "config.json");
+	const policyFile = join(directory, "policy.json");
+	const policy = createReadPolicy({
+		bridgeUser: "fixture@example.com",
+		allowedMailboxes: ["INBOX"],
+		allowedTools: ToolNameSchema.options,
 	});
+	await saveReadPolicy(policy, policyFile);
+	await writeFile(
+		configPath,
+		JSON.stringify({
+			version: 1,
+			bridge: { user: "fixture@example.com", password: "fixture-password" },
+			storage: {
+				policyFile,
+				operationsDirectory: join(directory, "operations"),
+			},
+		}),
+	);
+	const child = spawn(
+		process.execPath,
+		[entry, "serve", "--config", configPath],
+		{
+			cwd: directory,
+			env,
+			stdio: "pipe",
+		},
+	);
 	const lines = createInterface({ input: child.stdout });
 	let stderr = "";
 	child.stderr.on("data", (data) => {
@@ -172,6 +194,7 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	assert.equal(getAttachment.inputSchema.required?.includes("format"), false);
 	assert.equal(getAttachment.inputSchema.properties?.format, undefined);
 	assert.equal(getAttachment.annotations?.readOnlyHint, true);
+	await rm(policyFile);
 	for (const name of ["list_attachments", "get_attachment"]) {
 		const result = await request("tools/call", {
 			name,
@@ -210,11 +233,16 @@ test("stdio loads .env, advertises tools, and reports policy errors over the rea
 	assert.ok(isSpecType.CallToolResult(invalidFormat.result));
 	assert.equal(invalidFormat.result.isError, true);
 	assert.match(JSON.stringify(invalidFormat.result.content), /format/);
-	const invalid = spawnSync(process.execPath, [entry, "bridge:search"], {
-		cwd: directory,
-		env,
-		encoding: "utf8",
-	});
+	await saveReadPolicy(policy, policyFile);
+	const invalid = spawnSync(
+		process.execPath,
+		[entry, "bridge:search", "--config", configPath],
+		{
+			cwd: directory,
+			env,
+			encoding: "utf8",
+		},
+	);
 	assert.equal(invalid.status, 1);
 	assert.ok(invalid.stderr.includes("mailbox"));
 	const help = spawnSync(process.execPath, [entry, "--help"], {

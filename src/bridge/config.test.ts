@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { ConfigSchema } from "./config.js";
 
 const credentials = {
-	PROTONMAIL_BRIDGE_USER: "me@example.com",
-	PROTONMAIL_BRIDGE_PASSWORD: "test-password",
+	user: "me@example.com",
+	password: "test-password",
 };
 
 test("insecure TLS is restricted to literal loopback hosts, with localhost pinned to IPv4", () => {
@@ -16,8 +16,7 @@ test("insecure TLS is restricted to literal loopback hosts, with localhost pinne
 		"LOCALHOST",
 	])
 		assert.equal(
-			ConfigSchema.safeParse({ ...credentials, PROTONMAIL_BRIDGE_HOST: host })
-				.success,
+			ConfigSchema.safeParse({ ...credentials, host: host }).success,
 			true,
 		);
 	for (const host of [
@@ -29,27 +28,25 @@ test("insecure TLS is restricted to literal loopback hosts, with localhost pinne
 		"::ffff:192.168.1.2",
 	])
 		assert.equal(
-			ConfigSchema.safeParse({ ...credentials, PROTONMAIL_BRIDGE_HOST: host })
-				.success,
+			ConfigSchema.safeParse({ ...credentials, host: host }).success,
 			false,
 		);
 	assert.equal(
-		ConfigSchema.parse({ ...credentials, PROTONMAIL_BRIDGE_HOST: "localhost" })
-			.host,
+		ConfigSchema.parse({ ...credentials, host: "localhost" }).host,
 		"127.0.0.1",
 	);
 	assert.equal(
 		ConfigSchema.parse({
 			...credentials,
-			PROTONMAIL_BRIDGE_HOST: "bridge.example.com",
-			PROTONMAIL_TLS_REJECT_UNAUTHORIZED: "true",
+			host: "bridge.example.com",
+			tlsRejectUnauthorized: true,
 		}).tlsRejectUnauthorized,
 		true,
 	);
 	assert.deepEqual(
 		ConfigSchema.parse({
 			...credentials,
-			PROTONMAIL_BRIDGE_OWN_ADDRESSES: "Alias@example.com,me@example.com",
+			ownAddresses: ["Alias@example.com", "me@example.com"],
 		}).ownAddresses,
 		["me@example.com", "alias@example.com"],
 	);

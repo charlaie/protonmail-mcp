@@ -81,7 +81,11 @@ export function assertMessageMutable(
 			const record = DraftOperationSchema.parse(
 				JSON.parse(RowSchema.parse(row).record),
 			);
-			if (record.outcome.status !== "completed") conflict(record.operationId);
+			if (
+				record.outcome.status !== "completed" &&
+				record.outcome.status !== "rejected"
+			)
+				conflict(record.operationId);
 		}
 	}
 	return key;

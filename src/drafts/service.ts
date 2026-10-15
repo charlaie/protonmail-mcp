@@ -1,3 +1,4 @@
+import type { MailWriteAuthorization } from "../bridge/authorization.js";
 import type { BridgeConfig } from "../bridge/config.js";
 import { draftContentHash, inspectDraft } from "../bridge/draft-content.js";
 import {
@@ -45,10 +46,15 @@ export function createDraftService(
 			);
 		return record;
 	}
-	async function cleanup(record: DraftOperation, accepts: MessageFilter) {
+	async function cleanup(
+		record: DraftOperation,
+		accepts: MessageFilter,
+		authorize?: MailWriteAuthorization,
+	) {
 		if (
 			record.source.kind !== "edit" ||
 			record.outcome.status === "appending" ||
+			record.outcome.status === "rejected" ||
 			record.outcome.status === "completed"
 		)
 			return record;
@@ -85,6 +91,7 @@ export function createDraftService(
 						"Original draft changed. Cleanup retained it; inspect both drafts in Proton Mail.",
 						"reconcile",
 					);
+				await authorize?.(source.mailbox, [target.summary, current.summary]);
 				if (!(await client.messageDelete(source.uid, { uid: true })))
 					throw new MailError(
 						"OPERATION_FAILED",
@@ -104,6 +111,7 @@ export function createDraftService(
 		input: CreateDraftLookupInput | EditDraftLookupInput,
 		request: object,
 		accepts: MessageFilter,
+		authorize?: MailWriteAuthorization,
 	) {
 		const previous = await existing(input.operationId, request);
 		if (previous) return previous;
@@ -150,6 +158,13 @@ export function createDraftService(
 				return get(input.operationId);
 			// The journal claim precedes the external write. A crash or lost acknowledgment never authorizes another APPEND.
 			try {
+				await authorize?.(input.mailbox, inspected ? [inspected.summary] : []);
+			} catch (error) {
+				// This owner has not invoked APPEND. Keep the UUID terminal while
+				// releasing the original message for a newly reviewed operation.
+				return store.reject(input.operationId, safeErrorMessage(error));
+			}
+			try {
 				const appended = await appendDraft(
 					client,
 					input.mailbox,
@@ -188,7 +203,7 @@ export function createDraftService(
 			})
 			.then((record) =>
 				record.source.kind === "edit" && record.outcome.status === "saved"
-					? cleanup(record, accepts)
+					? cleanup(record, accepts, authorize)
 					: record,
 			);
 	}
@@ -200,9 +215,13 @@ export function createDraftService(
 			input: CreateDraftLookupInput,
 			accepts: MessageFilter,
 			request: object = input,
-		) => write(input, request, accepts),
-		edit: (input: EditDraftLookupInput, accepts: MessageFilter) =>
-			write(input, input, accepts),
+			authorize?: MailWriteAuthorization,
+		) => write(input, request, accepts, authorize),
+		edit: (
+			input: EditDraftLookupInput,
+			accepts: MessageFilter,
+			authorize?: MailWriteAuthorization,
+		) => write(input, input, accepts, authorize),
 		async reconcile(operationId: string, accepts: MessageFilter) {
 			let record = await get(operationId);
 			if (record.outcome.status !== "appending") return record;
@@ -244,8 +263,12 @@ export function createDraftService(
 				);
 			return record;
 		},
-		async retryCleanup(operationId: string, accepts: MessageFilter) {
-			return cleanup(await get(operationId), accepts);
+		async retryCleanup(
+			operationId: string,
+			accepts: MessageFilter,
+			authorize?: MailWriteAuthorization,
+		) {
+			return cleanup(await get(operationId), accepts, authorize);
 		},
 	};
 }

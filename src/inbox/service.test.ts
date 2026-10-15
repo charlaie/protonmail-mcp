@@ -698,7 +698,7 @@ test("a dispatch transition returning false stops an old owner after its reserva
 	);
 });
 
-test("MOVE capability lost after the dispatch fence never invokes fallback and keeps its conservative claim", async (t) => {
+test("MOVE capability lost before the external command releases its reservation without fallback", async (t) => {
 	const f = await fixture(t);
 	const service = createInboxService(
 		testConfig,
@@ -714,12 +714,13 @@ test("MOVE capability lost after the dispatch fence never invokes fallback and k
 	);
 	const request = f.request({ action: "archive" });
 	const result = await service.manage(request, f.authorize);
-	assert.equal(result.outcome.status, "uncertain");
+	assert.equal(result.outcome.status, "aborted");
 	assert.equal(f.client.moves.length + f.client.deletions, 0);
 	f.client.capabilities.set("MOVE", true);
-	await assert.rejects(
-		f.service.manage(f.request({ action: "star" }), f.authorize),
-		/reserved/,
+	assert.equal(
+		(await f.service.manage(f.request({ action: "star" }), f.authorize)).outcome
+			.status,
+		"completed",
 	);
 	assert.deepEqual(
 		await f.service.reconcile(request.operationId, f.authorize),

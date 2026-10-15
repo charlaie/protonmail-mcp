@@ -18,6 +18,7 @@ export const DraftOperationSchema = z.object({
 	updatedAt: z.iso.datetime(),
 	outcome: z.discriminatedUnion("status", [
 		z.object({ status: z.literal("appending") }),
+		z.object({ status: z.literal("rejected"), reason: z.string() }),
 		z.object({
 			status: z.literal("saved"),
 			identity: GetMessageSchema,

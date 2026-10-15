@@ -15,6 +15,7 @@ import { createDraftStore } from "../drafts/store.js";
 import { testFile, testImage } from "../outgoing/test-fixtures.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
+import { ToolNameSchema } from "../policy/tools.js";
 import { createSendService } from "../sending/service.js";
 import { createSendStore } from "../sending/store.js";
 import {
@@ -28,19 +29,18 @@ import { createTestClient } from "./test-client.js";
 
 async function fixture(t: TestContext) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-draft-tools-"));
-	const oldPolicy = process.env.PROTONMAIL_MCP_POLICY_FILE;
-	process.env.PROTONMAIL_MCP_POLICY_FILE = join(directory, "policy.json");
+	const policyFile = join(directory, "policy.json");
 	t.after(async () => {
-		if (oldPolicy === undefined) delete process.env.PROTONMAIL_MCP_POLICY_FILE;
-		else process.env.PROTONMAIL_MCP_POLICY_FILE = oldPolicy;
 		await rm(directory, { recursive: true, force: true });
 	});
 	await saveReadPolicy(
 		createReadPolicy({
 			bridgeUser: testConfig.user,
+			allowedTools: ToolNameSchema.options,
 			allowedMailboxes: ["Drafts", "INBOX"],
 			allowedSenderEmails: [],
 		}),
+		policyFile,
 	);
 	const imapClient = new FakeImap();
 	imapClient.mailboxes.set("Drafts", []);
@@ -57,7 +57,13 @@ async function fixture(t: TestContext) {
 		},
 	});
 	const client = await createTestClient(t, () =>
-		createServer({ config: testConfig, imap, sends }),
+		createServer({
+			config: testConfig,
+			policyFile,
+			operationsDirectory: directory,
+			imap,
+			sends,
+		}),
 	);
 	return {
 		...client,

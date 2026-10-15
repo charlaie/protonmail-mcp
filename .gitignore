@@ -68,7 +68,11 @@ web_modules/
 # dotenv environment variable files
 .env
 .env.*
-!.env.example
+
+# Local Proton Mail credentials and recovery state.
+/config.json
+/read-policy.json
+/send-operations/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

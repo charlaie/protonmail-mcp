@@ -136,6 +136,7 @@ export function createSendService(
 			cleanup: () => Promise<DraftCleanup> = async () => ({
 				status: "not_applicable",
 			}),
+			authorize?: () => Promise<void>,
 		) {
 			if (sendContentHash(message, record.source) !== record.contentHash)
 				throw new MailError(
@@ -146,6 +147,19 @@ export function createSendService(
 			if (!(await store.claim(record.operationId, record.contentHash)))
 				return get(record.operationId);
 			let outcome: SmtpOutcome;
+			try {
+				await authorize?.();
+			} catch (error) {
+				// The claim stays durable. Record a definite non-submission rather
+				// than treating an authorization failure as uncertain SMTP.
+				return store.finish(record.operationId, {
+					status: "rejected",
+					reason:
+						error instanceof MailError
+							? error.message
+							: "Submission authorization failed. No email was submitted.",
+				});
+			}
 			try {
 				outcome = await submit(message, record.messageId);
 			} catch {

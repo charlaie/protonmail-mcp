@@ -75,10 +75,14 @@ export function createInboxStore(account: string, directory?: string) {
 				save(db, { ...record, outcome: { status: "submitting" } });
 				return true;
 			}),
-		abort: (id: string, reason: string) =>
+		abort: (
+			id: string,
+			reason: string,
+			expectedStatus: "reserved" | "submitting" = "reserved",
+		) =>
 			transaction((db) => {
 				const record = requireRecord(db, id);
-				return record.outcome.status === "reserved"
+				return record.outcome.status === expectedStatus
 					? finish(db, record, { status: "aborted", reason })
 					: record;
 			}),

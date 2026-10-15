@@ -74,3 +74,12 @@ export async function submitEmail(
 		transport.close();
 	}
 }
+
+export async function verifySmtpConnection(config: BridgeConfig) {
+	const transport = createSmtpTransport(config);
+	try {
+		return await transport.verify();
+	} finally {
+		transport.close();
+	}
+}

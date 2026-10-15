@@ -13,18 +13,19 @@ function senderDomain(email: string) {
 export function summarizeReadPolicy(policy: ReadPolicy) {
 	return {
 		policyFileConfigured: true,
-		requiresSetup: policy.version === 1,
+		requiresSetup: policy.version !== 3,
 		version: policy.version,
-		bridgeUser: policy.version === 2 ? policy.bridgeUser : undefined,
+		bridgeUser: policy.version !== 1 ? policy.bridgeUser : undefined,
+		allowedTools: policy.version === 3 ? policy.allowedTools : [],
 		allowedMailboxes: policy.allowedMailboxes,
 		allowedSenderEmails: policy.allowedSenderEmails,
 		allowedSenderDomains: policy.allowedSenderDomains,
 		allowedAttachmentExtensions:
-			policy.version === 2 ? policy.allowedAttachmentExtensions : [],
+			policy.version !== 1 ? policy.allowedAttachmentExtensions : [],
 		requireAttachmentApproval:
-			policy.version === 2 && policy.requireAttachmentApproval,
+			policy.version !== 1 && policy.requireAttachmentApproval,
 		inboxWrites:
-			policy.version === 2 ? policy.inboxWrites : { mode: "disabled" },
+			policy.version !== 1 ? policy.inboxWrites : { mode: "disabled" },
 		createdAt: policy.createdAt,
 		updatedAt: policy.updatedAt,
 	};
@@ -40,7 +41,7 @@ export function requireInboxWrite(
 	destination?: string,
 ) {
 	if (
-		policy.version !== 2 ||
+		policy.version === 1 ||
 		policy.inboxWrites.mode !== "enabled" ||
 		!policy.inboxWrites.actions.includes(input.change.action)
 	)
@@ -69,7 +70,7 @@ export function readPolicyStatus(
 	bridgeUser: string,
 ) {
 	if (!policy) return "not_configured";
-	if (policy.version === 1) return "legacy_policy";
+	if (policy.version !== 3) return "legacy_policy";
 	return policy.bridgeUser === bridgeUser ? "ok" : "account_mismatch";
 }
 

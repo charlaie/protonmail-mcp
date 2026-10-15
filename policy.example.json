@@ -1,0 +1,21 @@
+{
+	"version": 3,
+	"bridgeUser": "your-bridge-username",
+	"allowedTools": [
+		"list_mailboxes",
+		"search_messages",
+		"get_message",
+		"get_thread",
+		"list_attachments"
+	],
+	"allowedMailboxes": ["INBOX"],
+	"allowedSenderEmails": [],
+	"allowedSenderDomains": [],
+	"allowedAttachmentExtensions": [],
+	"requireAttachmentApproval": false,
+	"inboxWrites": {
+		"mode": "disabled"
+	},
+	"createdAt": "2026-10-14T00:00:00Z",
+	"updatedAt": "2026-10-14T00:00:00Z"
+}

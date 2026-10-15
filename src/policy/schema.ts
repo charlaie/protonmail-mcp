@@ -7,6 +7,7 @@ import {
 	type InboxWritePolicy,
 	InboxWritePolicySchema,
 } from "../inbox/model.js";
+import { READ_ONLY_TOOLS, type ToolName, ToolNameSchema } from "./tools.js";
 
 export const DomainSchema = z
 	.string()
@@ -27,16 +28,36 @@ const PolicyFields = {
 	updatedAt: z.iso.datetime(),
 };
 
+const AccountReadPolicyFields = {
+	...PolicyFields,
+	bridgeUser: z.string().min(1),
+	allowedAttachmentExtensions: z.array(AttachmentPermissionSchema).default([]),
+	requireAttachmentApproval: z.boolean().default(false),
+	inboxWrites: InboxWritePolicySchema.default({ mode: "disabled" }),
+};
+
 const AccountReadPolicySchema = z
 	.object({
-		...PolicyFields,
+		...AccountReadPolicyFields,
 		version: z.literal(2),
-		bridgeUser: z.string().min(1),
-		allowedAttachmentExtensions: z
-			.array(AttachmentPermissionSchema)
-			.default([]),
-		requireAttachmentApproval: z.boolean().default(false),
-		inboxWrites: InboxWritePolicySchema.default({ mode: "disabled" }),
+	})
+	.refine(
+		(policy) =>
+			policy.inboxWrites.mode === "disabled" ||
+			policy.inboxWrites.mailboxes.every((mailbox) =>
+				policy.allowedMailboxes.includes(mailbox),
+			),
+		{
+			path: ["inboxWrites", "mailboxes"],
+			message: "Inbox writable mailboxes must also be allowed for reading.",
+		},
+	);
+
+export const GranularPolicySchema = z
+	.strictObject({
+		...AccountReadPolicyFields,
+		version: z.literal(3),
+		allowedTools: z.array(ToolNameSchema),
 	})
 	.refine(
 		(policy) =>
@@ -53,12 +74,15 @@ const AccountReadPolicySchema = z
 export const ReadPolicySchema = z.discriminatedUnion("version", [
 	z.object({ ...PolicyFields, version: z.literal(1) }),
 	AccountReadPolicySchema,
+	GranularPolicySchema,
 ]);
 
 export type ReadPolicy = z.infer<typeof ReadPolicySchema>;
 
 export function createReadPolicy(input: {
 	bridgeUser: string;
+	allowedTools?: ToolName[];
+	createdAt?: string;
 	allowedMailboxes: string[];
 	allowedSenderEmails?: string[];
 	allowedSenderDomains?: string[];
@@ -68,8 +92,9 @@ export function createReadPolicy(input: {
 }) {
 	const now = new Date().toISOString();
 
-	return AccountReadPolicySchema.parse({
-		version: 2,
+	return GranularPolicySchema.parse({
+		version: 3,
+		allowedTools: [...new Set(input.allowedTools ?? READ_ONLY_TOOLS)],
 		bridgeUser: input.bridgeUser,
 		inboxWrites: input.inboxWrites,
 		requireAttachmentApproval: input.requireAttachmentApproval,
@@ -93,7 +118,7 @@ export function createReadPolicy(input: {
 				),
 			),
 		],
-		createdAt: now,
+		createdAt: input.createdAt ?? now,
 		updatedAt: now,
 	});
 }
