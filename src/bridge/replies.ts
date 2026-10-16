@@ -5,6 +5,7 @@ import type { BridgeConfig } from "./config.js";
 import type { CreateDraftLookupInput } from "./drafts.js";
 import { parseMessageIds, type readMessage } from "./messages.js";
 import type { CreateReplyDraftSchema } from "./schemas.js";
+import { resolveSender } from "./senders.js";
 
 type Message = Extract<
 	Awaited<ReturnType<typeof readMessage>>,
@@ -46,10 +47,13 @@ export function composeReplyDraft(
 					),
 			)
 		: [];
-	const from =
-		[...original.addresses.to, ...original.addresses.cc].find((address) =>
-			own.has(address.toLowerCase()),
-		) ?? config.user;
+	const from = resolveSender(
+		config,
+		input.from ??
+			[...original.addresses.to, ...original.addresses.cc].find((address) =>
+				own.has(address.toLowerCase()),
+			),
+	);
 	const parent = parseMessageIds(original.messageId);
 	const references = original.headers.references.length
 		? original.headers.references

@@ -9,6 +9,7 @@ import {
 	GetSendOperationSchema,
 	ListOperationsSchema,
 } from "../bridge/schemas.js";
+import { configuredSenderSchema } from "../bridge/senders.js";
 import type { DraftOperation } from "../drafts/model.js";
 import type { createReadService } from "../policy/service.js";
 import {
@@ -49,7 +50,9 @@ export function registerDraftTools(input: {
 		"create_draft",
 		{
 			title: "Create draft",
-			inputSchema: CreateDraftSchema,
+			inputSchema: CreateDraftSchema.safeExtend({
+				from: configuredSenderSchema(config).optional(),
+			}),
 			outputSchema: DraftOperationOutputSchema,
 			annotations: write,
 			description:
@@ -71,7 +74,9 @@ export function registerDraftTools(input: {
 		"create_reply_draft",
 		{
 			title: "Create reply draft",
-			inputSchema: CreateReplyDraftSchema,
+			inputSchema: CreateReplyDraftSchema.safeExtend({
+				from: configuredSenderSchema(config).optional(),
+			}),
 			outputSchema: DraftOperationOutputSchema,
 			annotations: write,
 			description:

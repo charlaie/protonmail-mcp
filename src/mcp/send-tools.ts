@@ -8,6 +8,7 @@ import {
 	SendDraftRequestSchema,
 	SendEmailSchema,
 } from "../bridge/schemas.js";
+import { configuredSenderSchema, resolveSender } from "../bridge/senders.js";
 import type { ToolAccess } from "../policy/access.js";
 import type { createReadService } from "../policy/service.js";
 import { forwardFingerprint, forwardMessage } from "../sending/forward.js";
@@ -125,7 +126,9 @@ export function registerSendTools(input: {
 		"send_email",
 		{
 			title: "Send email",
-			inputSchema: SendEmailSchema,
+			inputSchema: SendEmailSchema.safeExtend({
+				from: configuredSenderSchema(config).optional(),
+			}),
 			outputSchema: SendOutputSchema,
 			annotations: write,
 			description:
@@ -136,7 +139,10 @@ export function registerSendTools(input: {
 			const existing = await sends.existing(request.operationId, identity);
 			if (existing && existing.outcome.status !== "prepared")
 				return sendOperationResponse(existing);
-			const message = newEmailMessage(config.user, request);
+			const message = newEmailMessage(
+				resolveSender(config, request.from),
+				request,
+			);
 			const record = await sends.prepare({
 				operationId: request.operationId,
 				request: identity,
@@ -156,7 +162,9 @@ export function registerSendTools(input: {
 		"forward_email",
 		{
 			title: "Forward email",
-			inputSchema: ForwardEmailSchema,
+			inputSchema: ForwardEmailSchema.safeExtend({
+				from: configuredSenderSchema(config).optional(),
+			}),
 			outputSchema: SendOutputSchema,
 			annotations: write,
 			description:
@@ -173,7 +181,11 @@ export function registerSendTools(input: {
 			const reads = await readService();
 			const original = await reads.getMessage(request.source);
 			const fingerprint = forwardFingerprint(original);
-			const message = forwardMessage(config.user, original, request);
+			const message = forwardMessage(
+				resolveSender(config, request.from),
+				original,
+				request,
+			);
 			const record = await sends.prepare({
 				operationId: request.operationId,
 				request: requestIdentity,

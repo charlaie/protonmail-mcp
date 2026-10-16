@@ -9,12 +9,12 @@ import {
 import type { BridgeConfig } from "./config.js";
 import { draftContentHash } from "./draft-content.js";
 import type { CreateDraftInput, EditDraftInput } from "./schemas.js";
+import { resolveSender } from "./senders.js";
 import { parsedAddressText } from "./serializers.js";
 import type { ImapClient } from "./session.js";
 
 export type CreateDraftLookupInput = CreateDraftInput & {
 	mailbox: string;
-	from?: string;
 	inReplyTo?: string[];
 	references?: string[];
 };
@@ -50,8 +50,7 @@ export async function composeDraft(
 		const info = await transport.sendMail({
 			from:
 				original?.from?.text ??
-				("from" in input ? input.from : undefined) ??
-				config.user,
+				resolveSender(config, "from" in input ? input.from : undefined),
 			to: input.to ?? parsedAddressText(original?.to),
 			cc: input.cc ?? parsedAddressText(original?.cc),
 			bcc: input.bcc ?? parsedAddressText(original?.bcc),

@@ -65,6 +65,7 @@ export async function createSmtpTestServer(
 	const context = createSecureContext({ key, cert });
 	const sockets = new Set<Socket>();
 	const messages: string[] = [];
+	const mailFrom: string[] = [];
 	const server = createServer((connection) => {
 		let socket: Socket = connection;
 		sockets.add(connection);
@@ -105,7 +106,10 @@ export async function createSmtpTestServer(
 				encrypted = true;
 				attach();
 			} else if (line.startsWith("AUTH")) socket.write("235 Authenticated\r\n");
-			else if (line.startsWith("RCPT TO"))
+			else if (line.startsWith("MAIL FROM:")) {
+				mailFrom.push(line);
+				socket.write("250 OK\r\n");
+			} else if (line.startsWith("RCPT TO"))
 				socket.write(
 					scenario === "reject_envelope" ||
 						(scenario === "partial" && line.includes("hidden@example.com"))
@@ -146,5 +150,5 @@ export async function createSmtpTestServer(
 	const address = server.address();
 	if (!address || typeof address === "string")
 		throw new Error("Test server has no TCP port.");
-	return { port: address.port, messages };
+	return { port: address.port, messages, mailFrom };
 }

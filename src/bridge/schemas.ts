@@ -30,6 +30,7 @@ export const SendEmailSchema = z
 			.describe(
 				"UUID for this intended write. Reuse the same UUID and arguments when checking or retrying; never replace it to retry an uncertain write.",
 			),
+		from: EmailAddressSchema.optional(),
 		to: EmailListSchema.describe("Primary recipients for the email."),
 		cc: EmailListSchema.optional().describe("Optional CC recipients."),
 		bcc: EmailListSchema.optional().describe("Optional BCC recipients."),
@@ -45,6 +46,7 @@ export const SendEmailSchema = z
 const DraftContentSchema = z
 	.object({
 		...MediaInputFields,
+		from: EmailAddressSchema.optional(),
 		to: EmailListSchema.optional().describe("Optional primary recipients."),
 		cc: EmailListSchema.optional().describe("Optional CC recipients."),
 		bcc: EmailListSchema.optional().describe("Optional BCC recipients."),
@@ -195,6 +197,7 @@ export const GetSendOperationSchema = z.object({
 });
 export const CreateReplyDraftSchema = GetMessageSchema.extend({
 	...MediaInputFields,
+	from: EmailAddressSchema.optional(),
 	operationId: SendEmailSchema.shape.operationId,
 	replyAll: z
 		.boolean()

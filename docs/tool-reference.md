@@ -97,6 +97,14 @@ Use `list_draft_operations` to find unresolved writes after a restart. Reconcile
 
 Keep the operation database when upgrading; the existing send journal is extended with draft records and claims. Draft mutations made before this upgrade have no durable history and require manual inspection. External mail clients do not participate in journal claims. Their changes detected during approval or cleanup are refused or retained, but they can still act between the final check and a server write. Manually copying messages or restoring an old journal can defeat identity-based replay protection. There is no automatic retention or pruning of journal claims.
 
+## Sender selection
+
+`send_email`, `forward_email`, `create_draft`, and `create_reply_draft` accept an optional `from` address. Their input schemas list the exact configured choices from `bridge.ownAddresses`, including the Bridge username. Configure aliases through setup's credentials section, then restart the MCP server. Only addresses owned by your Proton account and enabled for sending can work through Bridge. SMTP still authenticates with the configured Bridge username and password.
+
+For example, include `"from": "work@example.com"` in a composition request after configuring that address. Omitting `from` uses the Bridge username for new emails, forwards, and drafts. Reply drafts keep their existing default: the first own address in the original To/Cc recipients, falling back to the Bridge username. An explicit reply sender overrides that choice without changing reply recipients or threading.
+
+Send approval displays the selected sender and binds it to the message. Reusing an operation ID with a changed `from` is refused. Draft edits preserve the saved sender; `send_draft` uses that saved sender. Sender selection does not change tool grants, source-read restrictions, or draft protections. It does not add Reply-To, importance, or sensitivity controls.
+
 ## Outgoing attachments and inline images
 
 `send_email`, `create_draft`, `create_reply_draft`, `edit_draft`, and `forward_email` accept `attachments` and `inlineImages`. Each file has a safe `filename`, a lowercase leaf `contentType` without parameters, and `contentBase64` containing its original bytes in canonical base64. Multipart container types are refused. An optional `charset` preserves the MIME character set of a text file. Files may be empty. Paths, URLs, data URIs, raw MIME and custom headers are not accepted. The server never retrieves outgoing file contents from the network or filesystem. Before claiming APPEND, composition verifies that parsing the MIME preserves the complete intended file/image manifest.

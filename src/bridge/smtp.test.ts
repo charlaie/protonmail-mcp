@@ -29,6 +29,20 @@ test("SMTP diagnostics authenticate using STARTTLS without sending any message",
 	assert.deepEqual(smtp.messages, []);
 });
 
+test("SMTP uses the selected alias in both From and the envelope", async (t) => {
+	const smtp = await createSmtpTestServer(t, "accepted");
+	const alias = "work@example.com";
+	const result = await submitEmail(
+		{ ...testConfig, smtpPort: smtp.port },
+		{ ...message, from: alias },
+		"<alias-operation@example.com>",
+	);
+	assert.equal(result.status, "accepted");
+	const parsed = await simpleParser(smtp.messages[0]);
+	assert.equal(parsed.from?.value[0]?.address, alias);
+	assert.deepEqual(smtp.mailFrom, [`MAIL FROM:<${alias}>`]);
+});
+
 for (const scenario of [
 	"accepted",
 	"partial",

@@ -21,7 +21,7 @@ The version 1 server config contains `bridge` settings and optional `storage` pa
 }
 ```
 
-`user` and `password` are required. Other Bridge values have the defaults shown. `ownAddresses` contains this account's sender aliases. The Bridge username is included automatically. These addresses select reply senders, exclude self from reply-all, and validate draft senders.
+`user` and `password` are required. Other Bridge values have the defaults shown. `ownAddresses` contains this account's sender aliases. The Bridge username is included automatically. These addresses are the allowed `from` choices for new emails, forwards, drafts, and reply drafts. They also exclude self from reply-all and validate draft senders. Configure addresses already enabled for sending on your Proton account; adding an address here does not create or enable it in Proton. Restart the MCP server after changing aliases to refresh the advertised choices.
 
 Relative storage paths resolve beside the config file. If `storage` is omitted for the default profile, the previous policy default remains `~/.config/protonmail-mcp/read-policy.json`. Additional profiles use `<config filename>.policy.json` beside their config: `accounts/work.json` uses `accounts/work.json.policy.json`. All profiles default to the original `~/.config/protonmail-mcp/send-operations` journal directory, where databases are keyed by account. Processes for the same account must share that directory to retain replay protection. Full setup writes explicit absolute paths and refuses to overwrite another account's policy.
 

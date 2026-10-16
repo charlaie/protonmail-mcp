@@ -89,6 +89,7 @@ test("MCP unfinished create, read revision and patch edit use the advertised out
 		await callTool("get_draft", created.outcome.identity),
 	);
 	assert.ok("revision" in draft);
+	assert.equal(draft.from, testConfig.user);
 	assert.deepEqual(draft.to, []);
 	const input = {
 		operationId: randomUUID(),
