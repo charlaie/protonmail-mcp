@@ -10,6 +10,7 @@ import {
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { z } from "zod";
 import { isMissingFile, writePrivateFile } from "../shared/private-file.js";
+import { resolveLaunchEntryPath } from "./launch-path.js";
 
 export const ClientNameSchema = z.enum(["claude", "codex", "vscode", "cursor"]);
 export type ClientName = z.infer<typeof ClientNameSchema>;
@@ -48,7 +49,12 @@ export function launchSpecification({
 }) {
 	return {
 		command: resolve(nodePath),
-		args: [resolve(entryPath), "serve", "--config", resolve(configPath)],
+		args: [
+			resolveLaunchEntryPath({ entryPath }),
+			"serve",
+			"--config",
+			resolve(configPath),
+		],
 	};
 }
 export type LaunchSpecification = ReturnType<typeof launchSpecification>;
