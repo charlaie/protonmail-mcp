@@ -46,19 +46,22 @@ export async function configurePermissions(
 			message: "Choose an access mode",
 			options: [
 				{
+					value: "custom",
+					label: "Choose individual tools",
+					hint: "All tools selected by default for new accounts",
+				},
+				{
 					value: "readOnly",
 					label: "Read-only",
 					hint: "No draft changes, inbox changes, sending, or cleanup deletion",
 				},
-				{
-					value: "custom",
-					label: "Choose individual tools",
-					hint: "Explicit grants for reading and changes",
-				},
 			],
 			initialValue:
-				existing?.version === 3 &&
-				existing.allowedTools.some((name) => TOOL_DEFINITIONS[name].changesMail)
+				!existing ||
+				(existing.version === 3 &&
+					existing.allowedTools.some(
+						(name) => TOOL_DEFINITIONS[name].changesMail,
+					))
 					? "custom"
 					: "readOnly",
 		}),
@@ -66,18 +69,29 @@ export async function configurePermissions(
 	const choices = ToolNameSchema.options.filter(
 		(name) => mode !== "readOnly" || !TOOL_DEFINITIONS[name].changesMail,
 	);
+	const toolGroups: prompts.GroupMultiSelectOptions<string>["options"] = {};
+	for (const group of new Set(
+		Object.values(TOOL_DEFINITIONS).map((definition) => definition.group),
+	)) {
+		const options = choices
+			.filter((name) => TOOL_DEFINITIONS[name].group === group)
+			.map((name) => ({
+				value: name,
+				label: TOOL_DEFINITIONS[name].label,
+				hint: name,
+			}));
+		if (options.length) toolGroups[group] = options;
+	}
 	let allowedTools = ToolNameSchema.array().parse(
 		await answer(
-			prompts.autocompleteMultiselect<string>({
+			prompts.groupMultiselect<string>({
 				message: "Which tools may the assistant use?",
-				options: choices.map((name) => ({
-					value: name,
-					label: TOOL_DEFINITIONS[name].label,
-					hint: `${TOOL_DEFINITIONS[name].group} · ${name}`,
-				})),
+				options: toolGroups,
 				initialValues: (existing?.version === 3
 					? existing.allowedTools
-					: READ_ONLY_TOOLS
+					: mode === "readOnly"
+						? READ_ONLY_TOOLS
+						: choices
 				).filter((name) => choices.includes(name)),
 				required: false,
 			}),
@@ -190,11 +204,12 @@ export async function configurePermissions(
 					{ value: "selected", label: "Selected extensions" },
 					{ value: "all", label: "All files, including extensionless files" },
 				],
-				initialValue: existing?.allowedAttachmentExtensions.includes("*")
-					? "all"
-					: existing?.allowedAttachmentExtensions.length
-						? "selected"
-						: "disabled",
+				initialValue:
+					!existing || existing.allowedAttachmentExtensions.includes("*")
+						? "all"
+						: existing?.allowedAttachmentExtensions.length
+							? "selected"
+							: "disabled",
 			}),
 		);
 		if (attachmentMode === "all") allowedAttachmentExtensions = ["*"];
@@ -232,7 +247,8 @@ export async function configurePermissions(
 						value,
 						label: value === "folder" ? "Custom folders" : "Labels",
 					})),
-					initialValues: existing?.mailboxCreation ?? [],
+					initialValues:
+						existing?.mailboxCreation ?? MailboxCreationKindSchema.options,
 					required: true,
 				}),
 			)
@@ -248,7 +264,9 @@ export async function configurePermissions(
 				initialValues:
 					existing?.inboxWrites.mode === "enabled"
 						? existing.inboxWrites.actions
-						: [],
+						: existing
+							? []
+							: InboxActionNameSchema.options,
 				required: true,
 			}),
 		);
@@ -287,7 +305,9 @@ export async function configurePermissions(
 							? existing.inboxWrites.mailboxes.filter((name) =>
 									writable.includes(name),
 								)
-							: []),
+							: existing
+								? []
+								: writable),
 					]),
 				],
 				required: true,

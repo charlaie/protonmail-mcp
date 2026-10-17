@@ -22,7 +22,7 @@ pnpm run setup
 
 Use `pnpm run setup`, including `run`. `pnpm setup` is PNPM's own setup command.
 
-The terminal wizard checks your Bridge credentials over IMAP and SMTP without sending mail. Choose read-only access or select individual tools, then choose the mailboxes they can access. Depending on those choices, setup also asks about sender restrictions, attachment downloads, and inbox actions. Review the permissions before saving.
+The terminal wizard checks your Bridge credentials over IMAP and SMTP without sending mail. Tools are grouped into Reading, Attachments, Drafts, Sending, Inbox, and Recovery, with whole-group or individual selection. New accounts start with all tools, attachment formats, inbox actions, and mailbox creation kinds selected. You can deselect tools or choose read-only access, then choose the mailboxes they can access. Setup preserves existing permissions when you run it again. It also asks about sender restrictions and attachment approvals. Sending always requires message approval. Review the permissions before saving.
 
 Choose your MCP clients at the end. Setup generates their configuration entries. You can copy an entry, save it to a file, or review and merge it into an existing client configuration. Setup backs up client files before changing them. For VS Code, use its MCP configuration editor to find the file for your user profile.
 
