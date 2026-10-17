@@ -26,6 +26,8 @@ The terminal wizard checks your Bridge credentials over IMAP and SMTP without se
 
 Choose your MCP clients at the end. Setup generates their configuration entries. You can copy an entry, save it to a file, or review and merge it into an existing client configuration. Setup backs up client files before changing them. For VS Code, use its MCP configuration editor to find the file for your user profile.
 
+Your Bridge username is included automatically as a sender. Setup asks for any additional email addresses you send from with that Proton Mail account. These addresses are also excluded from reply-all recipients. See [configuration](docs/configuration.md).
+
 Restart your client or its MCP server as instructed. Ask the assistant to list your allowed mailboxes, then search one of them. Keep Bridge running and signed in.
 
 For a persistently installed package, run `protonmail-mcp setup` instead. Setup uses the package's public `node_modules/protonmail-mcp` link when it points to the running installation. Package updates can replace the version behind that link without changing the client entry. Node runs the JavaScript entry directly, so starting the server does not depend on a desktop client's `PATH` or on Windows command wrappers. Use a persistent installation for lasting client entries. One-off `pnpm dlx` and `npx` cache paths may disappear.

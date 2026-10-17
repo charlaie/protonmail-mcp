@@ -73,21 +73,24 @@ export async function configureConnection(
 		);
 		settings = { host, imapPort, smtpPort, tlsRejectUnauthorized };
 	}
+	prompts.note(
+		"Your Bridge username is already included. Add any other email addresses enabled for sending on this Proton Mail account. These addresses are also excluded from reply-all recipients. Bridge cannot list them over IMAP/SMTP.",
+		"Additional email addresses",
+	);
 	const ownAddresses = await validatedText(
-		"Your account's sender aliases, comma-separated. Leave empty if there are no additional aliases.",
-		existing?.ownAddresses
-			.filter((address) => address !== existing.user.toLowerCase())
-			.join(", ") ?? "",
+		"Other email addresses you send from, separated by commas. Leave blank to skip.",
+		existing?.user.toLowerCase() === user.trim().toLowerCase()
+			? existing.ownAddresses
+					.filter((address) => address !== existing.user.toLowerCase())
+					.join(", ")
+			: "",
 		parseSenderEmails,
 	);
 	return ConfigSchema.parse({
 		user,
 		password,
 		...settings,
-		ownAddresses: ownAddresses
-			.split(",")
-			.map((value) => value.trim())
-			.filter(Boolean),
+		ownAddresses: parseSenderEmails(ownAddresses),
 	});
 }
 
