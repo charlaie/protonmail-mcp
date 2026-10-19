@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ImapSession } from "../bridge/session.js";
-import { MailError, ToolErrorSchema } from "../shared/mail-error.js";
+import { MailError } from "../shared/mail-error.js";
 
 export const MailboxCreationKindSchema = z.enum(["folder", "label"]);
 const NameSchema = z
@@ -28,15 +28,6 @@ export const CreateMailboxSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("label"), name: NameSchema }),
 ]);
 export type CreateMailboxInput = z.infer<typeof CreateMailboxSchema>;
-export const CreateMailboxOutputSchema = z.union([
-	z.object({
-		status: z.literal("available"),
-		kind: MailboxCreationKindSchema,
-		path: z.string(),
-	}),
-	ToolErrorSchema,
-]);
-
 // CREATE has desired-state semantics: an existing selectable mailbox is success.
 // Retrying after a lost acknowledgement checks LIST before issuing another CREATE.
 export async function createMailbox(

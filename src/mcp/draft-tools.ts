@@ -1,22 +1,24 @@
 import type { BridgeConfig } from "../bridge/config.js";
 import type { ImapService } from "../bridge/imap.js";
-import { composeReplyDraft } from "../bridge/replies.js";
+import type { DraftOperation } from "../drafts/model.js";
+import { composeReplyDraft } from "../drafts/replies.js";
 import {
 	CreateDraftSchema,
 	CreateReplyDraftSchema,
 	EditDraftRequestSchema,
 	GetDraftSchema,
-	GetSendOperationSchema,
+} from "../drafts/requests.js";
+import type { MailAccess } from "../mail/access.js";
+import {
+	GetOperationSchema,
 	ListOperationsSchema,
-} from "../bridge/schemas.js";
-import { configuredSenderSchema } from "../bridge/senders.js";
-import type { DraftOperation } from "../drafts/model.js";
-import type { createReadService } from "../policy/service.js";
+} from "../operations/identity.js";
+import { configuredSenderSchema } from "../outgoing/senders.js";
 import {
 	DraftOperationOutputSchema,
 	GetDraftOutputSchema,
 	ListDraftOperationsOutputSchema,
-} from "./output-schemas.js";
+} from "./draft-schemas.js";
 import { jsonResponse } from "./responses.js";
 import type { ToolRegistry } from "./tool-registry.js";
 
@@ -43,9 +45,9 @@ export function registerDraftTools(input: {
 	server: ToolRegistry;
 	config: BridgeConfig;
 	imap: ImapService;
-	readService: () => Promise<Awaited<ReturnType<typeof createReadService>>>;
+	mailAccess: () => Promise<MailAccess>;
 }) {
-	const { server, config, imap, readService } = input;
+	const { server, config, imap, mailAccess } = input;
 	server.registerTool(
 		"create_draft",
 		{
@@ -59,10 +61,10 @@ export function registerDraftTools(input: {
 				"Save a text draft with optional bounded base64 attachments and inline images without sending. Supply a new operationId UUID and reuse it with identical arguments on retries. Empty recipients, subject and body are allowed. Durable APPEND intent prevents duplicates after restart; appending means uncertain and requires reconciliation. Requires allowed Drafts mailbox access.",
 		},
 		async (request) => {
-			const reads = await readService();
+			const reads = await mailAccess();
 			const mailbox = await reads.requireDraftsMailbox();
 			return draftOperationResponse(
-				await imap.createDraft(
+				await imap.drafts.create(
 					{ ...request, mailbox },
 					undefined,
 					reads.authorizeMailWrite("create_draft"),
@@ -83,16 +85,13 @@ export function registerDraftTools(input: {
 				"Create a plain-text reply or reply-all using allowed source reads, Reply-To, own aliases, and reply headers. Never copies original Bcc or sends mail. Supply an operationId UUID; identical retries return the durable operation without creating another reply. Requires Drafts access.",
 		},
 		async (request) => {
-			const reads = await readService();
+			const reads = await mailAccess();
 			const mailbox = await reads.requireDraftsMailbox();
-			const previous = await imap.existingDraftOperation(
-				request.operationId,
-				request,
-			);
+			const previous = await imap.drafts.existing(request.operationId, request);
 			if (previous) return draftOperationResponse(previous);
 			const original = await reads.getMessage(request);
 			return draftOperationResponse(
-				await imap.createDraft(
+				await imap.drafts.create(
 					composeReplyDraft(config, original, request, mailbox),
 					request,
 					reads.authorizeMailWrite("create_reply_draft", [
@@ -113,7 +112,7 @@ export function registerDraftTools(input: {
 				"Read a policy-authorized draft by stable draftId or by mailbox, UID and UIDVALIDITY. Returns draftId, current physical identity, Bcc, byte-free file/image manifests and its revision token. Keep revision for edit_draft expectedRevision. Logical IDs survive server-managed edits and restarts with the same account journal; unresolved APPEND blocks ID resolution. Empty unfinished drafts are supported. Arbitrary HTML, unsupported media, oversized drafts, and disallowed senders are refused.",
 		},
 		async (request) => {
-			return jsonResponse(await (await readService()).getDraft(request));
+			return jsonResponse(await (await mailAccess()).getDraft(request));
 		},
 	);
 	server.registerTool(
@@ -128,7 +127,7 @@ export function registerDraftTools(input: {
 		},
 		async (request) => {
 			return draftOperationResponse(
-				await (await readService()).editDraft(request),
+				await (await mailAccess()).editDraft(request),
 			);
 		},
 	);
@@ -136,16 +135,14 @@ export function registerDraftTools(input: {
 		"get_draft_operation",
 		{
 			title: "Get draft operation",
-			inputSchema: GetSendOperationSchema,
+			inputSchema: GetOperationSchema,
 			outputSchema: DraftOperationOutputSchema,
 			annotations: read,
 			description:
 				"Inspect this account's durable draft operation by UUID, including after restart. Returns recovery identity and status without message body. Does not append, send or delete mail.",
 		},
 		async (request) => {
-			return draftOperationResponse(
-				await imap.getDraftOperation(request.operationId),
-			);
+			return draftOperationResponse(await imap.drafts.get(request.operationId));
 		},
 	);
 	server.registerTool(
@@ -159,10 +156,7 @@ export function registerDraftTools(input: {
 				"List unresolved draft APPEND and cleanup operations for this account without body content. Paginate with limit and offset. Never modifies mail.",
 		},
 		async (request) => {
-			const records = await imap.listDraftOperations(
-				request.limit,
-				request.offset,
-			);
+			const records = await imap.drafts.list(request.limit, request.offset);
 			return jsonResponse({
 				operations: records.map(
 					(record) => draftOperationResponse(record).structuredContent,
@@ -178,7 +172,7 @@ export function registerDraftTools(input: {
 		"reconcile_draft_operation",
 		{
 			title: "Reconcile draft operation",
-			inputSchema: GetSendOperationSchema,
+			inputSchema: GetOperationSchema,
 			outputSchema: DraftOperationOutputSchema,
 			annotations: write,
 			description:
@@ -186,9 +180,7 @@ export function registerDraftTools(input: {
 		},
 		async (request) => {
 			return draftOperationResponse(
-				await (await readService()).reconcileDraftOperation(
-					request.operationId,
-				),
+				await (await mailAccess()).reconcileDraftOperation(request.operationId),
 			);
 		},
 	);
@@ -196,7 +188,7 @@ export function registerDraftTools(input: {
 		"retry_draft_cleanup",
 		{
 			title: "Retry draft replacement cleanup",
-			inputSchema: GetSendOperationSchema,
+			inputSchema: GetOperationSchema,
 			outputSchema: DraftOperationOutputSchema,
 			annotations: { ...write, destructiveHint: true },
 			description:
@@ -204,7 +196,7 @@ export function registerDraftTools(input: {
 		},
 		async (request) => {
 			return draftOperationResponse(
-				await (await readService()).retryDraftCleanup(request.operationId),
+				await (await mailAccess()).retryDraftCleanup(request.operationId),
 			);
 		},
 	);

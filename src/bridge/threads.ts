@@ -7,7 +7,7 @@ import {
 	readMessage,
 	SUMMARY_FIELDS,
 } from "./messages.js";
-import type { GetThreadInput } from "./schemas.js";
+import type { GetThreadInput } from "./requests.js";
 import { messageSummary } from "./serializers.js";
 import type { ImapClient } from "./session.js";
 import {

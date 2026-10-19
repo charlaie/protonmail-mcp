@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { isSpecType } from "@modelcontextprotocol/server";
 import { createImapService } from "../bridge/imap.js";
 import { FakeImap, testConfig } from "../bridge/test-fixtures.js";
+import { createSendStore } from "../operations/sending.js";
 import { createReadPolicy, ReadPolicySchema } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import {
@@ -15,7 +16,6 @@ import {
 	ToolNameSchema,
 } from "../policy/tools.js";
 import { createSendService } from "../sending/service.js";
-import { createSendStore } from "../sending/store.js";
 import { createServer } from "./server.js";
 import { createTestClient } from "./test-client.js";
 

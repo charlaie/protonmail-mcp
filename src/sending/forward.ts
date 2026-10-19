@@ -1,8 +1,9 @@
 import type { z } from "zod";
-import type { MessageContent } from "../bridge/message-model.js";
-import type { ForwardEmailSchema } from "../bridge/schemas.js";
+import type { MessageContent } from "../mail/message.js";
 import { outgoingMedia } from "../outgoing/media.js";
-import { hashContent, OutgoingMessageSchema } from "./model.js";
+import { OutgoingMessageSchema } from "../outgoing/message.js";
+import { hashContent } from "../shared/content-hash.js";
+import type { ForwardEmailSchema } from "./requests.js";
 
 // Only fields actually quoted into the forward are bound. Original Bcc and attachments are never copied.
 function quotedSource(original: MessageContent) {

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { GetMessageSchema, SendEmailSchema } from "../bridge/schemas.js";
-import { RetrySchema, ToolErrorSchema } from "../shared/mail-error.js";
+import { GetMessageSchema } from "../mail/identity.js";
+import { OperationIdSchema } from "../operations/identity.js";
 
 export const InboxActionNameSchema = z.enum([
 	"mark_read",
@@ -41,7 +41,7 @@ export const InboxActionSchema = z.discriminatedUnion("action", [
 	}),
 ]);
 export const ManageMessageSchema = z.object({
-	operationId: SendEmailSchema.shape.operationId,
+	operationId: OperationIdSchema,
 	...GetMessageSchema.shape,
 	change: InboxActionSchema,
 });
@@ -62,7 +62,7 @@ export const InboxPlanSchema = z.discriminatedUnion("kind", [
 ]);
 export type InboxPlan = z.infer<typeof InboxPlanSchema>;
 export const InboxOperationSchema = z.object({
-	operationId: SendEmailSchema.shape.operationId,
+	operationId: OperationIdSchema,
 	requestHash: z.string(),
 	request: ManageMessageSchema,
 	plan: InboxPlanSchema,
@@ -82,31 +82,3 @@ export const InboxOperationSchema = z.object({
 	]),
 });
 export type InboxOperation = z.infer<typeof InboxOperationSchema>;
-export const InboxRecordOutputSchema = InboxOperationSchema.omit({
-	requestHash: true,
-}).extend({ retry: RetrySchema });
-export const InboxOperationOutputSchema = z.union([
-	InboxRecordOutputSchema,
-	ToolErrorSchema,
-]);
-export const InboxOperationsOutputSchema = z.union([
-	z.object({
-		operations: z.array(InboxRecordOutputSchema),
-		nextOffset: z.number().int().nullable(),
-	}),
-	ToolErrorSchema,
-]);
-export const InboxCapabilitiesOutputSchema = z.union([
-	z.object({
-		nativeMoveSupported: z.boolean(),
-		writePolicy: InboxWritePolicySchema,
-		mailboxes: z.array(
-			z.object({
-				path: z.string(),
-				kind: z.enum(["folder", "label", "drafts", "view"]),
-				writable: z.boolean(),
-			}),
-		),
-	}),
-	ToolErrorSchema,
-]);

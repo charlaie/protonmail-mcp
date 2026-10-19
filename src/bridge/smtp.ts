@@ -1,7 +1,8 @@
 import nodemailer from "nodemailer";
 import { z } from "zod";
+import type { OutgoingMessage } from "../outgoing/message.js";
 import { mediaMailOptions } from "../outgoing/mime.js";
-import type { OutgoingMessage, SmtpOutcome } from "../sending/model.js";
+import type { SmtpOutcome } from "../sending/model.js";
 import { safeErrorMessage } from "../shared/errors.js";
 import type { BridgeConfig } from "./config.js";
 

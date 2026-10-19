@@ -4,6 +4,7 @@ import type {
 	MessageAddressObject,
 } from "imapflow";
 import type { AddressObject, EmailAddress } from "mailparser";
+import type { MessageSummary } from "../mail/message.js";
 
 export function validDate(value: unknown): Date | undefined {
 	const date =
@@ -65,10 +66,6 @@ function addressEmails(entries: EmailAddress[]): string[] {
 				: [],
 	);
 }
-
-import type { MessageSummary } from "./message-model.js";
-
-export type { MessageSummary } from "./message-model.js";
 
 export function messageSummary(
 	message: FetchMessageObject,

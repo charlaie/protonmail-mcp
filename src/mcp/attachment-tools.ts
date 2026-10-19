@@ -5,15 +5,15 @@ import {
 	type ServerContext,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import type { AttachmentContent } from "../bridge/attachments.js";
+import type { AttachmentContent } from "../attachments/incoming.js";
 import {
 	GetAttachmentSchema,
 	ListAttachmentsSchema,
-} from "../bridge/schemas.js";
+} from "../attachments/requests.js";
 import type {
 	AttachmentReadAuthorization,
-	createReadService,
-} from "../policy/service.js";
+	MailAccess,
+} from "../mail/access.js";
 import { MailError } from "../shared/mail-error.js";
 import {
 	AttachmentListOutputSchema,
@@ -112,14 +112,14 @@ function attachmentResponse(
 export function registerAttachmentTools(input: {
 	server: ToolRegistry;
 	approval: ApprovalController;
-	readService: () => Promise<
+	mailAccess: () => Promise<
 		Pick<
-			Awaited<ReturnType<typeof createReadService>>,
+			MailAccess,
 			"getAttachment" | "prepareAttachmentRead" | "listAttachments"
 		>
 	>;
 }) {
-	const { server, readService, approval } = input;
+	const { server, mailAccess, approval } = input;
 	const annotations = {
 		readOnlyHint: true,
 		destructiveHint: false,
@@ -137,7 +137,7 @@ export function registerAttachmentTools(input: {
 			annotations,
 		},
 		async (request) => {
-			return jsonResponse(await (await readService()).listAttachments(request));
+			return jsonResponse(await (await mailAccess()).listAttachments(request));
 		},
 	);
 	server.registerTool(
@@ -151,7 +151,7 @@ export function registerAttachmentTools(input: {
 			annotations,
 		},
 		async (request, ctx) => {
-			const reads = await readService();
+			const reads = await mailAccess();
 			const prepared = await reads.prepareAttachmentRead(request);
 			const approvalInput =
 				prepared.kind === "authorized"
@@ -184,7 +184,7 @@ export function registerAttachmentTools(input: {
 			}
 			// Reload policy and recheck metadata after both modern and legacy approval rounds.
 			return attachmentResponse(
-				await (await readService()).getAttachment(request, authorization),
+				await (await mailAccess()).getAttachment(request, authorization),
 				capabilities,
 			);
 		},

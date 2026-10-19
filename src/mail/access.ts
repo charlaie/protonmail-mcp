@@ -1,29 +1,28 @@
-import type { AttachmentMetadata } from "../bridge/attachments.js";
+import type { AttachmentMetadata } from "../attachments/incoming.js";
+import type { GetAttachmentInput } from "../attachments/requests.js";
 import type { MailWriteAuthorization } from "../bridge/authorization.js";
 import type { ImapService } from "../bridge/imap.js";
 import type { ReadResult } from "../bridge/messages.js";
 import type {
-	EditDraftRequest,
-	GetAttachmentInput,
-	GetDraftInput,
-	GetMessageInput,
 	GetThreadInput,
 	SearchMessagesInput,
-} from "../bridge/schemas.js";
-import type { MessageSummary } from "../bridge/serializers.js";
+} from "../bridge/requests.js";
+import type { EditDraftRequest, GetDraftInput } from "../drafts/requests.js";
 import type { CreateMailboxInput } from "../inbox/creation.js";
 import type { ManageMessageInput } from "../inbox/model.js";
-import { hashContent } from "../sending/model.js";
-import { MailError } from "../shared/mail-error.js";
-import { requireToolPermission } from "./access.js";
+import type { GetMessageInput } from "../mail/identity.js";
+import type { MessageSummary } from "../mail/message.js";
+import { requireToolPermission } from "../policy/access.js";
 import {
 	canReadMailbox,
 	canReadMessage,
 	READ_POLICY_NOT_CONFIGURED,
 	requireInboxWrite,
-} from "./enforcement.js";
-import { loadReadPolicy } from "./store.js";
-import type { ToolName } from "./tools.js";
+} from "../policy/enforcement.js";
+import { loadReadPolicy } from "../policy/store.js";
+import type { ToolName } from "../policy/tools.js";
+import { hashContent } from "../shared/content-hash.js";
+import { MailError } from "../shared/mail-error.js";
 
 export type AttachmentApprovalInput = {
 	bridgeUser: string;
@@ -59,7 +58,7 @@ async function requireReadPolicy(bridgeUser: string, policyFile?: string) {
 	return policy;
 }
 
-export async function createReadService(
+export async function createMailAccess(
 	imap: ImapService,
 	bridgeUser: string,
 	policyFile?: string,
@@ -118,11 +117,11 @@ export async function createReadService(
 		requireMailbox(mailbox.path);
 		return mailbox.path;
 	}
-	async function resolveDraftReference(input: GetDraftInput) {
-		const identity =
-			"draftId" in input
-				? await imap.resolveDraftIdentity(input.draftId)
-				: input;
+	async function resolveDraftReference(
+		input: GetDraftInput,
+		draftsMailbox?: string,
+	) {
+		const identity = await imap.drafts.resolveReference(input, draftsMailbox);
 		requireMailbox(identity.mailbox);
 		return identity;
 	}
@@ -212,45 +211,25 @@ export async function createReadService(
 			});
 		},
 		async getDraft(input: GetDraftInput) {
-			return imap.getDraft(await resolveDraftReference(input), accepts);
+			return imap.drafts.read(await resolveDraftReference(input), accepts);
 		},
-		async editDraft(input: EditDraftRequest) {
-			const mailbox = await requireSpecialMailbox("\\Drafts", "Drafts");
-			const request = { ...input, mailbox };
-			const previous = await imap.existingDraftOperation(
-				input.operationId,
+		async editDraft(request: EditDraftRequest) {
+			return imap.drafts.edit({
 				request,
-			);
-			if (previous) return previous;
-			const identity =
-				"draftId" in input
-					? await resolveDraftReference({ draftId: input.draftId })
-					: { mailbox, uid: input.uid, uidValidity: input.uidValidity };
-			if (identity.mailbox !== mailbox)
-				throw new MailError(
-					"POLICY_DENIED",
-					"Logical draft is outside the configured Drafts mailbox.",
-					"configure",
-				);
-			return imap.editDraft(
-				{
-					...input,
-					...identity,
-				},
+				mailbox: await requireSpecialMailbox("\\Drafts", "Drafts"),
 				accepts,
-				authorizeMailWrite("edit_draft"),
-				request,
-			);
+				authorize: authorizeMailWrite("edit_draft"),
+			});
 		},
 		async reconcileDraftOperation(operationId: string) {
-			const record = await imap.getDraftOperation(operationId);
+			const record = await imap.drafts.get(operationId);
 			requireMailbox(record.mailbox);
-			return imap.reconcileDraftOperation(operationId, accepts);
+			return imap.drafts.reconcile(operationId, accepts);
 		},
 		async retryDraftCleanup(operationId: string) {
-			const record = await imap.getDraftOperation(operationId);
+			const record = await imap.drafts.get(operationId);
 			requireMailbox(record.mailbox);
-			return imap.retryDraftCleanup(
+			return imap.drafts.retryCleanup(
 				operationId,
 				accepts,
 				authorizeMailWrite("retry_draft_cleanup"),
@@ -258,7 +237,7 @@ export async function createReadService(
 		},
 		async getDraftSnapshot(input: GetMessageInput) {
 			requireMailbox(input.mailbox);
-			return imap.getDraftSnapshot(input, accepts);
+			return imap.drafts.snapshot(input, accepts);
 		},
 		async deleteDraftSnapshot(
 			input: GetMessageInput,
@@ -266,7 +245,7 @@ export async function createReadService(
 			tool: "send_draft" | "retry_send_cleanup" = "send_draft",
 		) {
 			requireMailbox(input.mailbox);
-			return imap.deleteDraftSnapshot(
+			return imap.drafts.deleteSnapshot(
 				input,
 				fingerprint,
 				accepts,
@@ -359,3 +338,5 @@ export async function createReadService(
 		requireDraftsMailbox: () => requireSpecialMailbox("\\Drafts", "Drafts"),
 	};
 }
+
+export type MailAccess = Awaited<ReturnType<typeof createMailAccess>>;

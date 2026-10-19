@@ -1,6 +1,6 @@
 import { z } from "zod";
+import type { BridgeConfig } from "../bridge/config.js";
 import { MailError } from "../shared/mail-error.js";
-import type { BridgeConfig } from "./config.js";
 
 export function configuredSenderSchema(config: BridgeConfig) {
 	return z

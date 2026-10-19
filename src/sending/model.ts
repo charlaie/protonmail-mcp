@@ -1,38 +1,15 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
-import { GetMessageSchema, SendEmailSchema } from "../bridge/schemas.js";
-import {
-	MediaMetadataSchema,
-	OutgoingMediaSchema,
-	outgoingMedia,
-} from "../outgoing/media.js";
 
-const HeaderSchema = z
-	.string()
-	.max(998)
-	.regex(/^[^\r\n]*$/);
-const MessageIdSchema = z
-	.string()
-	.max(998)
-	.regex(/^<[^<>\s]+@[^<>\s]+>$/);
-export const OutgoingMessageSchema = z
-	.object({
-		from: HeaderSchema.min(1),
-		to: z.array(z.email()),
-		cc: z.array(z.email()),
-		bcc: z.array(z.email()),
-		subject: HeaderSchema,
-		text: z.string().max(100_000),
-		inReplyTo: z.array(MessageIdSchema),
-		references: z.array(MessageIdSchema),
-		replyTo: HeaderSchema.optional(),
-		media: OutgoingMediaSchema.optional(),
-	})
-	.refine(
-		(message) => message.to.length + message.cc.length + message.bcc.length > 0,
-		"At least one recipient is required.",
-	);
-export type OutgoingMessage = z.infer<typeof OutgoingMessageSchema>;
+import { GetMessageSchema } from "../mail/identity.js";
+import { OperationIdSchema } from "../operations/identity.js";
+import { MediaMetadataSchema, outgoingMedia } from "../outgoing/media.js";
+import {
+	MessageIdSchema,
+	type OutgoingMessage,
+	OutgoingMessageSchema,
+} from "../outgoing/message.js";
+import { hashContent } from "../shared/content-hash.js";
+import type { SendEmailInput } from "./requests.js";
 
 export const SendSourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("email") }),
@@ -72,7 +49,7 @@ export const SendOutcomeSchema = z.union([
 	z.object({ status: z.literal("submitting") }),
 ]);
 export const SendOperationSchema = z.object({
-	operationId: SendEmailSchema.shape.operationId,
+	operationId: OperationIdSchema,
 	messageId: MessageIdSchema,
 	requestHash: z.string(),
 	contentHash: z.string(),
@@ -86,10 +63,6 @@ export const SendOperationSchema = z.object({
 });
 export type SendOperation = z.infer<typeof SendOperationSchema>;
 
-export function hashContent(value: unknown) {
-	return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
 export function sendContentHash(message: OutgoingMessage, source: SendSource) {
 	return hashContent({
 		message: OutgoingMessageSchema.parse(message),
@@ -98,12 +71,12 @@ export function sendContentHash(message: OutgoingMessage, source: SendSource) {
 }
 
 export function sendMessageId(operationId: string) {
-	return `<${SendEmailSchema.shape.operationId.parse(operationId)}@protonmail-mcp.local>`;
+	return `<${OperationIdSchema.parse(operationId)}@protonmail-mcp.local>`;
 }
 
 export function newEmailMessage(
 	sender: string,
-	input: z.infer<typeof SendEmailSchema>,
+	input: SendEmailInput,
 ): OutgoingMessage {
 	return OutgoingMessageSchema.parse({
 		from: sender,

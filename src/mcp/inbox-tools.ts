@@ -1,21 +1,18 @@
 import { z } from "zod";
 import type { ImapService } from "../bridge/imap.js";
+import { CreateMailboxSchema } from "../inbox/creation.js";
+import { type InboxOperation, ManageMessageSchema } from "../inbox/model.js";
+import type { MailAccess } from "../mail/access.js";
 import {
-	GetSendOperationSchema,
+	GetOperationSchema,
 	ListOperationsSchema,
-} from "../bridge/schemas.js";
+} from "../operations/identity.js";
 import {
 	CreateMailboxOutputSchema,
-	CreateMailboxSchema,
-} from "../inbox/creation.js";
-import {
 	InboxCapabilitiesOutputSchema,
-	type InboxOperation,
 	InboxOperationOutputSchema,
 	InboxOperationsOutputSchema,
-	ManageMessageSchema,
-} from "../inbox/model.js";
-import type { createReadService } from "../policy/service.js";
+} from "./inbox-schemas.js";
 import { jsonResponse } from "./responses.js";
 import type { ToolRegistry } from "./tool-registry.js";
 
@@ -38,9 +35,9 @@ export function inboxOperationResponse(record: InboxOperation) {
 export function registerInboxTools(input: {
 	server: ToolRegistry;
 	imap: ImapService;
-	readService: () => Promise<Awaited<ReturnType<typeof createReadService>>>;
+	mailAccess: () => Promise<MailAccess>;
 }) {
-	const { server, imap, readService } = input;
+	const { server, imap, mailAccess } = input;
 	server.registerTool(
 		"create_mailbox",
 		{
@@ -52,7 +49,7 @@ export function registerInboxTools(input: {
 				"Ensure a custom folder or label exists under Bridge's advertised Folders or Labels namespace. Supply a single name and kind; folders may specify an existing custom parent path. Requires explicit tool and creation-kind grants. An existing selectable path is success. Retry with the same arguments after refreshing list_mailboxes. Creating a mailbox does not grant read or message-write access to it; use local setup for those permissions. Never deletes or renames mailboxes.",
 		},
 		async (request) =>
-			jsonResponse(await (await readService()).createMailbox(request)),
+			jsonResponse(await (await mailAccess()).createMailbox(request)),
 	);
 	server.registerTool(
 		"get_inbox_capabilities",
@@ -65,7 +62,7 @@ export function registerInboxTools(input: {
 				"Inspect this account's configured inbox write actions and allowed exact folder/label paths. Native MOVE support gates moves, archive, Trash, and labels. Actual flag writes also require mailbox permanent flag support. Sender restrictions still apply. Drafts remain protected.",
 		},
 		async () => {
-			return jsonResponse(await (await readService()).getInboxCapabilities());
+			return jsonResponse(await (await mailAccess()).getInboxCapabilities());
 		},
 	);
 	server.registerTool(
@@ -80,7 +77,7 @@ export function registerInboxTools(input: {
 		},
 		async (request) => {
 			return inboxOperationResponse(
-				await (await readService()).manageInbox(request),
+				await (await mailAccess()).manageInbox(request),
 			);
 		},
 	);
@@ -88,7 +85,7 @@ export function registerInboxTools(input: {
 		"get_inbox_operation",
 		{
 			title: "Get inbox operation",
-			inputSchema: GetSendOperationSchema,
+			inputSchema: GetOperationSchema,
 			outputSchema: InboxOperationOutputSchema,
 			annotations: read,
 			description:
@@ -125,7 +122,7 @@ export function registerInboxTools(input: {
 		"reconcile_inbox_operation",
 		{
 			title: "Reconcile uncertain inbox operation",
-			inputSchema: GetSendOperationSchema,
+			inputSchema: GetOperationSchema,
 			outputSchema: InboxOperationOutputSchema,
 			annotations: { ...read, readOnlyHint: false },
 			description:
@@ -133,9 +130,7 @@ export function registerInboxTools(input: {
 		},
 		async (request) => {
 			return inboxOperationResponse(
-				await (await readService()).reconcileInboxOperation(
-					request.operationId,
-				),
+				await (await mailAccess()).reconcileInboxOperation(request.operationId),
 			);
 		},
 	);

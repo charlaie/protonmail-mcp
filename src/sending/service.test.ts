@@ -6,11 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { testConfig } from "../bridge/test-fixtures.js";
-import { SendOutputSchema } from "../mcp/output-schemas.js";
+import { SendOutputSchema } from "../mcp/send-schemas.js";
 import { sendOperationResponse } from "../mcp/send-tools.js";
-import type { OutgoingMessage, SmtpOutcome } from "./model.js";
+import { createSendStore } from "../operations/sending.js";
+import type { OutgoingMessage } from "../outgoing/message.js";
+import type { SmtpOutcome } from "./model.js";
 import { createSendService } from "./service.js";
-import { createSendStore } from "./store.js";
 
 const message: OutgoingMessage = {
 	from: testConfig.user,
@@ -110,7 +111,7 @@ test("a process exiting after the durable claim leaves an uncertain operation th
 		[
 			"--input-type=module",
 			"-e",
-			`import { createSendStore } from ${JSON.stringify(new URL("./store.js", import.meta.url).href)}; const store = createSendStore(${JSON.stringify(testConfig.user)}, ${JSON.stringify(path)}); const record = await store.get(${JSON.stringify(operationId)}); if (!await store.claim(record.operationId, record.contentHash)) process.exit(2); process.exit(0);`,
+			`import { createSendStore } from ${JSON.stringify(new URL("../operations/sending.js", import.meta.url).href)}; const store = createSendStore(${JSON.stringify(testConfig.user)}, ${JSON.stringify(path)}); const record = await store.get(${JSON.stringify(operationId)}); if (!await store.claim(record.operationId, record.contentHash)) process.exit(2); process.exit(0);`,
 		],
 		{ encoding: "utf8" },
 	);

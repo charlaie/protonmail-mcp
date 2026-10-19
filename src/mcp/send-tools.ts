@@ -2,30 +2,29 @@ import type { ServerContext } from "@modelcontextprotocol/server";
 import type { z } from "zod";
 import type { BridgeConfig } from "../bridge/config.js";
 import {
-	ForwardEmailSchema,
-	GetSendOperationSchema,
+	GetOperationSchema,
 	ListOperationsSchema,
+} from "../operations/identity.js";
+import { configuredSenderSchema } from "../outgoing/senders.js";
+import type { SendOperation } from "../sending/model.js";
+import {
+	ForwardEmailSchema,
 	SendDraftRequestSchema,
 	SendEmailSchema,
-} from "../bridge/schemas.js";
-import { configuredSenderSchema, resolveSender } from "../bridge/senders.js";
-import type { ToolAccess } from "../policy/access.js";
-import type { createReadService } from "../policy/service.js";
-import { forwardFingerprint, forwardMessage } from "../sending/forward.js";
-import {
-	type DraftCleanup,
-	newEmailMessage,
-	type OutgoingMessage,
-	type SendOperation,
-} from "../sending/model.js";
+} from "../sending/requests.js";
 import type { SendService } from "../sending/service.js";
+import type {
+	SendApproval,
+	SendWorkflow,
+	SendWorkflowResult,
+} from "../sending/workflow.js";
 import { MailError, type RetrySchema } from "../shared/mail-error.js";
-import type { ApprovalController, SendApprovalInput } from "./elicitation.js";
+import type { ApprovalController } from "./elicitation.js";
+import { jsonResponse } from "./responses.js";
 import {
 	ListSendOperationsOutputSchema,
 	SendOutputSchema,
-} from "./output-schemas.js";
-import { jsonResponse } from "./responses.js";
+} from "./send-schemas.js";
 import type { ToolRegistry } from "./tool-registry.js";
 
 const write = {
@@ -80,46 +79,34 @@ export function registerSendTools(input: {
 	config: BridgeConfig;
 	sends: SendService;
 	approval: ApprovalController;
-	access: ToolAccess;
-	readService: () => Promise<Awaited<ReturnType<typeof createReadService>>>;
+	workflow: SendWorkflow;
 }) {
-	const { server, config, sends, approval, readService, access } = input;
-	async function approve(message: SendApprovalInput, ctx: ServerContext) {
-		try {
-			return await approval.requireSendApproval(message, ctx);
-		} catch (error) {
-			throw new MailError(
-				"APPROVAL_DENIED",
-				"Email not sent. Approval could not be verified.",
-				"new_approval",
-				{ cause: error },
-			);
-		}
+	const { server, config, sends, approval, workflow } = input;
+	type ApprovalResponse = Exclude<
+		Awaited<ReturnType<ApprovalController["requireSendApproval"]>>,
+		{ kind: "approved" }
+	>["response"];
+	function approve(ctx: ServerContext): SendApproval<ApprovalResponse> {
+		return async (message) => {
+			try {
+				const decision = await approval.requireSendApproval(message, ctx);
+				return decision.kind === "approved"
+					? decision
+					: { kind: "response", response: decision.response };
+			} catch (error) {
+				throw new MailError(
+					"APPROVAL_DENIED",
+					"Email not sent. Approval could not be verified.",
+					"new_approval",
+					{ cause: error },
+				);
+			}
+		};
 	}
-	async function approveAndSend(input: {
-		authorize: () => Promise<void>;
-		operationId: string;
-		message: OutgoingMessage;
-		record: SendOperation;
-		ctx: ServerContext;
-		recheck?: () => Promise<void>;
-		cleanup?: () => Promise<DraftCleanup>;
-	}) {
-		const decision = await approve(
-			{ operationId: input.operationId, message: input.message },
-			input.ctx,
-		);
-		if (decision.kind !== "approved") return decision.response;
-		await input.recheck?.();
-		await input.authorize();
-		return sendOperationResponse(
-			await sends.send(
-				input.record,
-				input.message,
-				input.cleanup,
-				input.authorize,
-			),
-		);
+	function response(result: SendWorkflowResult<ApprovalResponse>) {
+		return result.kind === "operation"
+			? sendOperationResponse(result.operation)
+			: result.response;
 	}
 
 	server.registerTool(
@@ -134,29 +121,8 @@ export function registerSendTools(input: {
 			description:
 				"Send text with optional bounded base64 files and escaped CID images after approval of the complete message and file/image manifests. Supply a new operationId UUID; reuse that UUID and identical arguments on retries. The durable journal allows only one SMTP attempt per ID. Accepted means Bridge accepted submission, not recipient delivery. Inspect uncertain or partial outcomes before considering another send.",
 		},
-		async (request, ctx) => {
-			const identity = { kind: "email", ...request };
-			const existing = await sends.existing(request.operationId, identity);
-			if (existing && existing.outcome.status !== "prepared")
-				return sendOperationResponse(existing);
-			const message = newEmailMessage(
-				resolveSender(config, request.from),
-				request,
-			);
-			const record = await sends.prepare({
-				operationId: request.operationId,
-				request: identity,
-				message,
-				source: { kind: "email" },
-			});
-			return await approveAndSend({
-				authorize: () => access.require("send_email"),
-				operationId: request.operationId,
-				message,
-				record,
-				ctx,
-			});
-		},
+		async (request, ctx) =>
+			response(await workflow.email(request, approve(ctx))),
 	);
 	server.registerTool(
 		"forward_email",
@@ -170,50 +136,8 @@ export function registerSendTools(input: {
 			description:
 				"Forward an allowed source message's headers and plain text after complete send approval. Supply a new operationId UUID; reuse it on retries. Original Bcc and original attachments are never included automatically. To forward selected original files, first obtain their bytes through list_attachments/get_attachment under the incoming extension and approval policy, then supply attachments or inlineImages here. Rechecks source read authorization and quoted content after approval. Never follows URLs or reads local paths.",
 		},
-		async (request, ctx) => {
-			const requestIdentity = { kind: "forward", ...request };
-			const existing = await sends.existing(
-				request.operationId,
-				requestIdentity,
-			);
-			if (existing && existing.outcome.status !== "prepared")
-				return sendOperationResponse(existing);
-			const reads = await readService();
-			const original = await reads.getMessage(request.source);
-			const fingerprint = forwardFingerprint(original);
-			const message = forwardMessage(
-				resolveSender(config, request.from),
-				original,
-				request,
-			);
-			const record = await sends.prepare({
-				operationId: request.operationId,
-				request: requestIdentity,
-				message,
-				source: { kind: "forward", ...request.source, fingerprint },
-			});
-			return await approveAndSend({
-				authorize: () =>
-					reads.authorizeMailWrite("forward_email")(request.source.mailbox, [
-						original,
-					]),
-				operationId: request.operationId,
-				message,
-				record,
-				ctx,
-				recheck: async () => {
-					const current = await (await readService()).getMessage(
-						request.source,
-					);
-					if (forwardFingerprint(current) !== fingerprint)
-						throw new MailError(
-							"DRAFT_CHANGED",
-							"Forward source changed during approval. Nothing was sent. Review it and use a new operation ID.",
-							"new_approval",
-						);
-				},
-			});
-		},
+		async (request, ctx) =>
+			response(await workflow.forward(request, approve(ctx))),
 	);
 
 	server.registerTool(
@@ -226,70 +150,8 @@ export function registerSendTools(input: {
 			description:
 				"Approve and send a supported Drafts snapshot by stable draftId or by UID and UIDVALIDITY. The logical ID is resolved once; approval and rechecks bind that exact physical snapshot. A new operationId UUID binds the snapshot, recipients, sender, body, and reply headers. Changes require a new operation and approval. Reuse the same operation ID and arguments on retries. Arbitrary HTML and unsupported media are refused; supported file/image bytes and metadata are bound to approval. Draft deletion is a separate reported outcome after full SMTP acceptance; partial or uncertain sends retain the draft.",
 		},
-		async (request, ctx) => {
-			const reads = await readService();
-			const mailbox = await reads.requireDraftsMailbox();
-			const requestIdentity = {
-				kind: "draft",
-				...request,
-				mailbox,
-			};
-			const existing = await sends.existing(
-				request.operationId,
-				requestIdentity,
-			);
-			if (existing && existing.outcome.status !== "prepared")
-				return sendOperationResponse(existing);
-			const identity =
-				"draftId" in request
-					? await reads.resolveDraftReference({ draftId: request.draftId })
-					: { mailbox, uid: request.uid, uidValidity: request.uidValidity };
-			if (identity.mailbox !== mailbox)
-				throw new MailError(
-					"POLICY_DENIED",
-					"Logical draft is outside the configured Drafts mailbox.",
-					"configure",
-				);
-			const snapshot = await reads.getDraftSnapshot(identity);
-			const source = {
-				kind: "draft" as const,
-				...identity,
-				fingerprint: snapshot.fingerprint,
-				draftMessageId: snapshot.draftMessageId,
-			};
-			const record = await sends.prepare({
-				operationId: request.operationId,
-				request: requestIdentity,
-				message: snapshot.message,
-				source,
-			});
-			return await approveAndSend({
-				authorize: () =>
-					reads.authorizeMailWrite("send_draft")(identity.mailbox, [
-						snapshot.summary,
-					]),
-				operationId: request.operationId,
-				message: snapshot.message,
-				record,
-				ctx,
-				recheck: async () => {
-					const current = await (await readService()).getDraftSnapshot(
-						identity,
-					);
-					if (current.fingerprint !== snapshot.fingerprint)
-						throw new MailError(
-							"DRAFT_CHANGED",
-							"Draft changed during approval. Nothing was sent. Review it and use a new operation ID.",
-							"new_approval",
-						);
-				},
-				cleanup: async () =>
-					(await readService()).deleteDraftSnapshot(
-						identity,
-						snapshot.fingerprint,
-					),
-			});
-		},
+		async (request, ctx) =>
+			response(await workflow.draft(request, approve(ctx))),
 	);
 	server.registerTool(
 		"list_send_operations",
@@ -318,7 +180,7 @@ export function registerSendTools(input: {
 		"retry_send_cleanup",
 		{
 			title: "Retry sent draft cleanup",
-			inputSchema: GetSendOperationSchema,
+			inputSchema: GetOperationSchema,
 			outputSchema: SendOutputSchema,
 			annotations: write,
 			description:
@@ -326,13 +188,7 @@ export function registerSendTools(input: {
 		},
 		async (request) => {
 			return sendOperationResponse(
-				await sends.retryCleanup(request.operationId, async (source) =>
-					(await readService()).deleteDraftSnapshot(
-						source,
-						source.fingerprint,
-						"retry_send_cleanup",
-					),
-				),
+				await workflow.retryCleanup(request.operationId),
 			);
 		},
 	);
@@ -341,7 +197,7 @@ export function registerSendTools(input: {
 		"get_send_operation",
 		{
 			title: "Get send operation",
-			inputSchema: GetSendOperationSchema,
+			inputSchema: GetOperationSchema,
 			outputSchema: SendOutputSchema,
 			annotations: read,
 			description:
@@ -355,7 +211,7 @@ export function registerSendTools(input: {
 		"reconcile_send_operation",
 		{
 			title: "Reconcile send operation",
-			inputSchema: GetSendOperationSchema,
+			inputSchema: GetOperationSchema,
 			outputSchema: SendOutputSchema,
 			annotations: { ...write, destructiveHint: false },
 			description:
@@ -363,9 +219,7 @@ export function registerSendTools(input: {
 		},
 		async (request) => {
 			return sendOperationResponse(
-				await sends.reconcile(request.operationId, async (messageId) =>
-					(await readService()).findSentCopies(messageId),
-				),
+				await workflow.reconcile(request.operationId),
 			);
 		},
 	);

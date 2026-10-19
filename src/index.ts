@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { createImapService } from "./bridge/imap.js";
-import { GetMessageSchema, SearchMessagesSchema } from "./bridge/schemas.js";
+import { SearchMessagesSchema } from "./bridge/requests.js";
 import {
 	CLIENTS,
 	ClientNameSchema,
@@ -20,9 +20,10 @@ import {
 	type DiagnosticResult,
 	diagnoseServer,
 } from "./diagnostics/service.js";
+import { createMailAccess } from "./mail/access.js";
+import { GetMessageSchema } from "./mail/identity.js";
 import { createServer } from "./mcp/server.js";
 import { createToolAccess } from "./policy/access.js";
-import { createReadService } from "./policy/service.js";
 import { safeErrorMessage } from "./shared/errors.js";
 
 const entryPath = fileURLToPath(import.meta.url);
@@ -221,7 +222,7 @@ async function main() {
 				printJson(await imap.listMailboxes());
 				return;
 			}
-			const reads = await createReadService(
+			const reads = await createMailAccess(
 				imap,
 				config.bridge.user,
 				config.storage.policyFile,

@@ -1,8 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { GetMessageInput } from "../bridge/schemas.js";
 import { StoredDraftOperationSchema } from "../drafts/model.js";
-import { hashContent, SendOperationSchema } from "../sending/model.js";
+import type { GetMessageInput } from "../mail/identity.js";
+import { SendOperationSchema } from "../sending/model.js";
+import { hashContent } from "../shared/content-hash.js";
 import { MailError } from "../shared/mail-error.js";
 
 const RowSchema = z.object({ record: z.string() });

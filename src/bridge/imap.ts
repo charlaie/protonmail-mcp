@@ -1,26 +1,18 @@
 import type { AttachmentPermission } from "../attachments/formats.js";
-import { createDraftService } from "../drafts/service.js";
-import type { DraftStore } from "../drafts/store.js";
-import { type CreateMailboxInput, createMailbox } from "../inbox/creation.js";
-import { createInboxService } from "../inbox/service.js";
-import type { InboxStore } from "../inbox/store.js";
-import { mediaManifest } from "../outgoing/media.js";
-import type { DraftCleanup } from "../sending/model.js";
-import { MailError } from "../shared/mail-error.js";
 import {
 	type AttachmentReadOptions,
 	getAttachment,
 	getAttachmentMetadata,
 	listAttachments,
-} from "./attachments.js";
-import type { MailWriteAuthorization } from "./authorization.js";
+} from "../attachments/incoming.js";
+import type { GetAttachmentInput } from "../attachments/requests.js";
+import { createDraftService } from "../drafts/service.js";
+import { type CreateMailboxInput, createMailbox } from "../inbox/creation.js";
+import { createInboxService } from "../inbox/service.js";
+import type { GetMessageInput } from "../mail/identity.js";
+import type { DraftStore } from "../operations/drafts.js";
+import type { InboxStore } from "../operations/inbox.js";
 import type { BridgeConfig } from "./config.js";
-import {
-	draftContentHash,
-	inspectDraft,
-	readDraftSnapshot,
-} from "./draft-content.js";
-import type { CreateDraftLookupInput, EditDraftLookupInput } from "./drafts.js";
 import { findMessageCopies } from "./message-copies.js";
 import {
 	allowAllMessages,
@@ -28,12 +20,8 @@ import {
 	readMessage,
 	searchMessages,
 } from "./messages.js";
-import type {
-	GetAttachmentInput,
-	GetMessageInput,
-	SearchMessagesInput,
-} from "./schemas.js";
-import { mailboxSummary, parsedAddressEmails } from "./serializers.js";
+import type { SearchMessagesInput } from "./requests.js";
+import { mailboxSummary } from "./serializers.js";
 import { createImapSession } from "./session.js";
 import { getThread, type ThreadLookupInput } from "./threads.js";
 
@@ -43,7 +31,6 @@ export function createImapService(
 	draftStore?: DraftStore,
 	inboxStore?: InboxStore,
 ) {
-	const drafts = createDraftService(config, run, draftStore);
 	return {
 		createMailbox: (
 			input: CreateMailboxInput,
@@ -82,84 +69,7 @@ export function createImapService(
 			allowed: AttachmentPermission[],
 		) =>
 			run((client) => getAttachmentMetadata(client, input, accepts, allowed)),
-		createDraft: (
-			input: CreateDraftLookupInput,
-			request?: object,
-			authorize?: MailWriteAuthorization,
-		) => drafts.create(input, allowAllMessages, request, authorize),
-		editDraft: (
-			input: EditDraftLookupInput,
-			accepts: MessageFilter = allowAllMessages,
-			authorize?: MailWriteAuthorization,
-			request: object = input,
-		) => drafts.edit(input, accepts, authorize, request),
-		resolveDraftIdentity: drafts.resolve,
-		getDraftOperation: drafts.get,
-		existingDraftOperation: drafts.existing,
-		listDraftOperations: drafts.list,
-		reconcileDraftOperation: drafts.reconcile,
-		retryDraftCleanup: drafts.retryCleanup,
-		getDraft: (input: GetMessageInput, accepts: MessageFilter) =>
-			run(async (client) => {
-				const { original, fingerprint, media } = await inspectDraft(
-					client,
-					input,
-					accepts,
-				);
-				return {
-					...input,
-					draftId: await drafts.identify(input, {
-						messageId: original.messageId,
-						contentHash: draftContentHash(original),
-					}),
-					revision: fingerprint,
-					from: original.from?.text ?? "",
-					to: parsedAddressEmails(original.to),
-					cc: parsedAddressEmails(original.cc),
-					bcc: parsedAddressEmails(original.bcc),
-					subject: original.subject ?? "",
-					text: original.text ?? "",
-					media: mediaManifest(media),
-				};
-			}),
-		getDraftSnapshot: (input: GetMessageInput, accepts: MessageFilter) =>
-			run((client) => readDraftSnapshot(client, config, input, accepts)),
-		deleteDraftSnapshot: (
-			input: GetMessageInput,
-			fingerprint: string,
-			accepts: MessageFilter,
-			authorize?: MailWriteAuthorization,
-		): Promise<DraftCleanup> =>
-			run(async (client) => {
-				let current: Awaited<ReturnType<typeof inspectDraft>>;
-				try {
-					current = await inspectDraft(client, input, accepts);
-				} catch (error) {
-					if (error instanceof MailError && error.code === "NOT_FOUND")
-						return { status: "deleted" };
-					throw error;
-				}
-				if (current.fingerprint !== fingerprint)
-					return {
-						status: "retained",
-						reason:
-							"Draft changed after approval. It was retained; email acceptance is already recorded. Do not resend.",
-					};
-				if (!client.capabilities.has("UIDPLUS"))
-					return {
-						status: "retained",
-						reason:
-							"UIDPLUS is unavailable. Delete the sent draft in Proton Mail; do not resend.",
-					};
-				await authorize?.(input.mailbox, [current.summary]);
-				if (!(await client.messageDelete(input.uid, { uid: true })))
-					throw new MailError(
-						"OPERATION_FAILED",
-						"Draft deletion was not confirmed.",
-						"reconcile",
-					);
-				return { status: "deleted" };
-			}),
+		drafts: createDraftService(config, run, draftStore),
 		findSentCopies: (
 			mailbox: string,
 			messageId: string,

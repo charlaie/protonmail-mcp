@@ -8,26 +8,23 @@ import { type TestContext, test } from "node:test";
 import { z } from "zod";
 import { createImapService } from "../bridge/imap.js";
 import {
-	EditDraftRequestSchema,
-	GetDraftSchema,
-	SendDraftRequestSchema,
-} from "../bridge/schemas.js";
-import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
 } from "../bridge/test-fixtures.js";
-import { createDraftStore } from "../drafts/store.js";
+import { EditDraftRequestSchema, GetDraftSchema } from "../drafts/requests.js";
+import { createDraftStore } from "../operations/drafts.js";
+import { createSendStore } from "../operations/sending.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import { ToolNameSchema } from "../policy/tools.js";
+import { SendDraftRequestSchema } from "../sending/requests.js";
 import { createSendService } from "../sending/service.js";
-import { createSendStore } from "../sending/store.js";
 import {
 	DraftOperationOutputSchema,
 	GetDraftOutputSchema,
-	SendOutputSchema,
-} from "./output-schemas.js";
+} from "./draft-schemas.js";
+import { SendOutputSchema } from "./send-schemas.js";
 import { createServer } from "./server.js";
 import { createTestClient } from "./test-client.js";
 
@@ -348,8 +345,8 @@ test("rejected edits preserve the original logical binding and pending cleanup b
 			},
 		},
 	);
-	const { createReadService } = await import("../policy/service.js");
-	const reads = await createReadService(imap, testConfig.user, f.policyFile);
+	const { createMailAccess } = await import("../mail/access.js");
+	const reads = await createMailAccess(imap, testConfig.user, f.policyFile);
 	const rejected = await reads.editDraft({
 		operationId: randomUUID(),
 		draftId: created.draftId,

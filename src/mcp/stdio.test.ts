@@ -15,10 +15,11 @@ import {
 	parseJSONRPCMessage,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { SearchMessagesSchema, SendEmailSchema } from "../bridge/schemas.js";
+import { SearchMessagesSchema } from "../bridge/requests.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import { ToolNameSchema } from "../policy/tools.js";
+import { SendEmailSchema } from "../sending/requests.js";
 import { ToolErrorSchema } from "../shared/mail-error.js";
 
 test("stdio loads an explicit JSON config, advertises grants, and checks policy changes over the real SDK", {

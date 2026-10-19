@@ -11,8 +11,9 @@ import {
 	fixtureMessage,
 	testConfig,
 } from "../bridge/test-fixtures.js";
-import { createDraftStore } from "../drafts/store.js";
-import { createInboxStore } from "../inbox/store.js";
+import { createDraftStore } from "../operations/drafts.js";
+import { createInboxStore } from "../operations/inbox.js";
+import { createSendStore } from "../operations/sending.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import {
@@ -21,7 +22,6 @@ import {
 	ToolNameSchema,
 } from "../policy/tools.js";
 import { createSendService } from "../sending/service.js";
-import { createSendStore } from "../sending/store.js";
 import { createServer } from "./server.js";
 import { createTestClient } from "./test-client.js";
 
@@ -251,8 +251,9 @@ for (const tool of ["create_draft", "edit_draft"] as const) {
 						operationId,
 						uid: 1,
 						uidValidity: "7",
-						expectedRevision: (await imap.getDraft(identity, allowAllMessages))
-							.revision,
+						expectedRevision: (
+							await imap.drafts.read(identity, allowAllMessages)
+						).revision,
 						text: "Edited",
 					}
 				: { operationId, text: "New" };
@@ -286,7 +287,7 @@ test("revoking edit_draft after APPEND retains the original during cleanup", asy
 		operationId,
 		uid: 1,
 		uidValidity: "7",
-		expectedRevision: (await f.imap.getDraft(identity, allowAllMessages))
+		expectedRevision: (await f.imap.drafts.read(identity, allowAllMessages))
 			.revision,
 		text: "Replacement",
 	});
@@ -485,7 +486,7 @@ for (const tool of ["retry_draft_cleanup", "retry_send_cleanup"] as const) {
 				operationId,
 				uid: 1,
 				uidValidity: "7",
-				expectedRevision: (await f.imap.getDraft(identity, allowAllMessages))
+				expectedRevision: (await f.imap.drafts.read(identity, allowAllMessages))
 					.revision,
 				text: "Replacement",
 			});

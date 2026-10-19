@@ -11,13 +11,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { GetAttachmentSchema } from "../attachments/requests.js";
 import { createImapService } from "../bridge/imap.js";
-import { GetAttachmentSchema } from "../bridge/schemas.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
 } from "../bridge/test-fixtures.js";
+import { createMailAccess } from "../mail/access.js";
 import { createReadPolicy, ReadPolicySchema } from "./schema.js";
 import {
 	parseAttachmentApproval,
@@ -26,7 +27,6 @@ import {
 	parseSenderDomains,
 	parseSenderEmails,
 } from "./selection.js";
-import { createReadService } from "./service.js";
 import {
 	getPolicyFilePath,
 	hasReadPolicyFile,
@@ -68,17 +68,17 @@ test("policy persistence stays complete and private; legacy/account mismatch is 
 		operation(client),
 	);
 	await assert.rejects(
-		createReadService(imap, "another@example.com", policyFile),
+		createMailAccess(imap, "another@example.com", policyFile),
 		/not bound/,
 	);
-	assert.ok(await createReadService(imap, testConfig.user, policyFile));
+	assert.ok(await createMailAccess(imap, testConfig.user, policyFile));
 	const { bridgeUser: _, ...legacy } = {
 		...policy,
 		bridgeUser: testConfig.user,
 	};
 	await writeFile(path, JSON.stringify({ ...legacy, version: 1 }));
 	await assert.rejects(
-		createReadService(imap, testConfig.user, policyFile),
+		createMailAccess(imap, testConfig.user, policyFile),
 		/not bound/,
 	);
 	assert.equal(client.searches.length, 0);
@@ -185,7 +185,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	const imap = createImapService(testConfig, async (operation) =>
 		operation(client),
 	);
-	let reads = await createReadService(imap, testConfig.user, policyFile);
+	let reads = await createMailAccess(imap, testConfig.user, policyFile);
 	const input = GetAttachmentSchema.parse({
 		mailbox: "INBOX",
 		uid: 1,
@@ -202,7 +202,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		{ ...policy, allowedAttachmentExtensions: [".txt"] },
 		policyFile,
 	);
-	reads = await createReadService(imap, testConfig.user, policyFile);
+	reads = await createMailAccess(imap, testConfig.user, policyFile);
 	assert.equal((await reads.getAttachment(input)).status, "raw");
 	assert.equal(client.downloads.length, 1);
 	await saveReadPolicy(
@@ -213,7 +213,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		},
 		policyFile,
 	);
-	reads = await createReadService(imap, testConfig.user, policyFile);
+	reads = await createMailAccess(imap, testConfig.user, policyFile);
 	assert.equal(
 		(await reads.prepareAttachmentRead(input)).kind,
 		"approval_required",
@@ -224,7 +224,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		{ ...policy, allowedAttachmentExtensions: [".txt"] },
 		policyFile,
 	);
-	reads = await createReadService(imap, testConfig.user, policyFile);
+	reads = await createMailAccess(imap, testConfig.user, policyFile);
 	await assert.rejects(
 		reads.getAttachment({ ...input, mailbox: "Archive" }),
 		/Mailbox/,
@@ -235,7 +235,7 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 	await assert.rejects(reads.getAttachment(input), /sender/);
 	assert.equal(client.downloads.length, 1);
 	await assert.rejects(
-		createReadService(imap, "different@example.com", policyFile),
+		createMailAccess(imap, "different@example.com", policyFile),
 		/not bound/,
 	);
 });

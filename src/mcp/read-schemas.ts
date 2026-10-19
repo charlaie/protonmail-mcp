@@ -1,13 +1,6 @@
 import { z } from "zod";
-import {
-	MessageBodySchema,
-	MessageSummarySchema,
-} from "../bridge/message-model.js";
-import { DraftIdSchema, GetMessageSchema } from "../bridge/schemas.js";
-import { DraftOperationSchema } from "../drafts/model.js";
-import { MediaMetadataSchema } from "../outgoing/media.js";
-import { SendOperationSchema } from "../sending/model.js";
-import { RetrySchema, ToolErrorSchema } from "../shared/mail-error.js";
+import { MessageBodySchema, MessageSummarySchema } from "../mail/message.js";
+import { ToolErrorSchema } from "../shared/mail-error.js";
 
 export const GetMessageOutputSchema = z.union([
 	MessageBodySchema,
@@ -50,34 +43,6 @@ export const MailboxesOutputSchema = z.union([
 	ToolErrorSchema,
 ]);
 
-export const DraftRecordOutputSchema = DraftOperationSchema.omit({
-	requestHash: true,
-}).extend({ retry: RetrySchema });
-export const DraftOperationOutputSchema = z.union([
-	DraftRecordOutputSchema,
-	ToolErrorSchema,
-]);
-export const ListDraftOperationsOutputSchema = z.union([
-	z.object({
-		operations: z.array(DraftRecordOutputSchema),
-		nextOffset: z.number().int().nullable(),
-	}),
-	ToolErrorSchema,
-]);
-export const GetDraftOutputSchema = z.union([
-	GetMessageSchema.extend({
-		draftId: DraftIdSchema,
-		revision: z.string(),
-		from: z.string(),
-		to: z.array(z.string()),
-		cc: z.array(z.string()),
-		bcc: z.array(z.string()),
-		subject: z.string(),
-		text: z.string(),
-		media: z.array(MediaMetadataSchema),
-	}),
-	ToolErrorSchema,
-]);
 const ThreadSummarySchema = MessageSummarySchema.extend({
 	bridgeInternalId: z.string().optional(),
 	bridgeExternalId: z.string().optional(),
@@ -105,20 +70,6 @@ export const ThreadOutputSchema = z.union([
 				}),
 			]),
 		),
-	}),
-	ToolErrorSchema,
-]);
-export const SendRecordOutputSchema = SendOperationSchema.omit({
-	requestHash: true,
-}).extend({ retry: RetrySchema });
-export const SendOutputSchema = z.union([
-	SendRecordOutputSchema,
-	ToolErrorSchema,
-]);
-export const ListSendOperationsOutputSchema = z.union([
-	z.object({
-		operations: z.array(SendRecordOutputSchema),
-		nextOffset: z.number().int().nullable(),
 	}),
 	ToolErrorSchema,
 ]);

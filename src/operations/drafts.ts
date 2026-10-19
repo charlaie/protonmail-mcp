@@ -1,22 +1,17 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { GetMessageInput } from "../bridge/schemas.js";
-import { createOperationDatabase } from "../operations/database.js";
-import {
-	assertMessageMutable,
-	messageIdentityKey,
-} from "../operations/message-claims.js";
+import { type DraftOperation, DraftOperationSchema } from "../drafts/model.js";
+import type { GetMessageInput } from "../mail/identity.js";
 import { MailError } from "../shared/mail-error.js";
+import { createOperationDatabase, type OperationDatabase } from "./database.js";
 import {
 	bindDraftIdentity,
-	draftIdentitiesReady,
 	identifyDraft,
 	identifyDraftSnapshot,
-	migrateDraftIdentities,
 	requireUnusedDraftId,
 	resolveDraftIdentity,
-} from "./identities.js";
-import { type DraftOperation, DraftOperationSchema } from "./model.js";
+} from "./draft-identities.js";
+import { assertMessageMutable, messageIdentityKey } from "./message-claims.js";
 
 const RowSchema = z.object({ record: z.string() });
 function read(db: DatabaseSync, id: string) {
@@ -26,30 +21,14 @@ function read(db: DatabaseSync, id: string) {
 		: null;
 }
 export function createDraftStore(account: string, directory?: string) {
-	const {
-		path,
-		use: readDatabase,
-		transaction: transact,
-	} = createOperationDatabase(account, directory);
-	let initialization: Promise<void> | undefined;
-	function ready() {
-		initialization ??= (async () => {
-			if (!(await readDatabase(draftIdentitiesReady)))
-				await transact(migrateDraftIdentities);
-		})().catch((error) => {
-			initialization = undefined;
-			throw error;
-		});
-		return initialization;
-	}
-	async function use<T>(operation: (db: DatabaseSync) => T) {
-		await ready();
-		return readDatabase(operation);
-	}
-	async function transaction<T>(operation: (db: DatabaseSync) => T) {
-		await ready();
-		return transact(operation);
-	}
+	return createDraftJournal(createOperationDatabase(account, directory));
+}
+
+export function createDraftJournal({
+	path,
+	use,
+	transaction,
+}: OperationDatabase) {
 	function save(db: DatabaseSync, record: DraftOperation) {
 		const validated = DraftOperationSchema.parse({
 			...record,

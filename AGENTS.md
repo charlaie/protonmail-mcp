@@ -6,7 +6,14 @@ This is a TypeScript MCP server for Proton Mail via Proton Bridge. Source lives 
 
 - `src/index.ts` is the CLI entry point and MCP stdio startup.
 - `src/mcp/` contains MCP server setup, schemas, responses, and elicitation helpers.
-- `src/bridge/` contains Proton Bridge IMAP/SMTP configuration and service code.
+- `src/bridge/` contains Proton Bridge configuration, IMAP reads, sessions, and SMTP submission.
+- `src/mail/` owns physical message identity, parsed message contracts, and policy-authorized mail access.
+- `src/drafts/` owns draft requests, composition, snapshots, and draft lifecycle logic.
+- `src/sending/` owns send requests, delivery outcomes, and send lifecycle logic.
+- `src/outgoing/` owns message composition contracts, sender selection, and outgoing media.
+- `src/attachments/` owns incoming attachment inspection, downloads, and format limits.
+- `src/inbox/` owns inbox actions, mailbox creation, and inbox lifecycle logic.
+- `src/operations/` owns the SQLite journal, message claims, and logical draft identity bindings.
 - `src/policy/` contains read-policy schema, storage, enforcement, CLI, and checks.
 - `src/shared/` contains cross-cutting helpers such as error formatting.
 

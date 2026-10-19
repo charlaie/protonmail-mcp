@@ -5,19 +5,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { composeDraft } from "../bridge/drafts.js";
-import { createImapService } from "../bridge/imap.js";
 import { allowAllMessages } from "../bridge/messages.js";
-import { CreateDraftSchema, EditDraftSchema } from "../bridge/schemas.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
 } from "../bridge/test-fixtures.js";
-import { hashContent, type SmtpOutcome } from "../sending/model.js";
+import { createDraftStore } from "../operations/drafts.js";
+import { createSendStore } from "../operations/sending.js";
+import type { SmtpOutcome } from "../sending/model.js";
 import { createSendService } from "../sending/service.js";
-import { createSendStore } from "../sending/store.js";
-import { createDraftStore } from "./store.js";
+import { hashContent } from "../shared/content-hash.js";
+import { composeDraft } from "./compose.js";
+import { CreateDraftSchema, EditDraftSchema } from "./requests.js";
+import { createDraftService } from "./service.js";
 
 const identity = { mailbox: "Drafts", uidValidity: "7", uid: 1 };
 async function fixture(t: TestContext, client = new FakeImap()) {
@@ -32,22 +33,22 @@ async function fixture(t: TestContext, client = new FakeImap()) {
 	client.mailboxes.set("Drafts", [original]);
 	const store = createDraftStore(testConfig.user, directory);
 	const service = () =>
-		createImapService(
+		createDraftService(
 			testConfig,
 			async (operation) => operation(client),
 			createDraftStore(testConfig.user, directory),
 		);
-	const imap = service();
+	const drafts = service();
 	const edit = async (patch: object = {}) =>
 		EditDraftSchema.parse({
 			operationId: randomUUID(),
 			uid: 1,
 			uidValidity: "7",
-			expectedRevision: (await imap.getDraft(identity, allowAllMessages))
+			expectedRevision: (await drafts.read(identity, allowAllMessages))
 				.revision,
 			...patch,
 		});
-	return { directory, client, original, store, service, imap, edit };
+	return { directory, client, original, store, service, drafts, edit };
 }
 
 class LostAppendAcknowledgment extends FakeImap {
@@ -58,21 +59,23 @@ class LostAppendAcknowledgment extends FakeImap {
 }
 
 test("patch edit preserves omitted fields, exposes replacement revision, and rejects a stale revision before APPEND", async (t) => {
-	const { imap, client, edit } = await fixture(t);
+	const { drafts, client, edit } = await fixture(t);
 	const request = await edit({ text: "New body" });
 	await assert.rejects(
-		imap.editDraft({
-			...request,
+		drafts.edit({
+			request: { ...request, expectedRevision: "0".repeat(64) },
 			mailbox: "Drafts",
-			expectedRevision: "0".repeat(64),
 		}),
 		/revision changed/,
 	);
 	assert.equal(client.appends.length, 0);
-	const result = await imap.editDraft({ ...request, mailbox: "Drafts" });
+	const result = await drafts.edit({
+		request: request,
+		mailbox: "Drafts",
+	});
 	assert.equal(result.outcome.status, "completed");
 	assert.ok("identity" in result.outcome);
-	const replacement = await imap.getDraft(
+	const replacement = await drafts.read(
 		result.outcome.identity,
 		allowAllMessages,
 	);
@@ -82,8 +85,8 @@ test("patch edit preserves omitted fields, exposes replacement revision, and rej
 	assert.equal(replacement.subject, "Original");
 	assert.equal(replacement.text.trim(), "New body");
 	assert.equal(replacement.revision, result.outcome.revision);
-	const cleared = await imap.editDraft({
-		...EditDraftSchema.parse({
+	const cleared = await drafts.edit({
+		request: EditDraftSchema.parse({
 			operationId: randomUUID(),
 			...result.outcome.identity,
 			expectedRevision: replacement.revision,
@@ -97,7 +100,7 @@ test("patch edit preserves omitted fields, exposes replacement revision, and rej
 	});
 	assert.equal(cleared.outcome.status, "completed");
 	assert.ok("identity" in cleared.outcome);
-	const unfinished = await imap.getDraft(
+	const unfinished = await drafts.read(
 		cleared.outcome.identity,
 		allowAllMessages,
 	);
@@ -109,15 +112,15 @@ test("patch edit preserves omitted fields, exposes replacement revision, and rej
 });
 
 test("draft sender checks run before source fetch and recheck the fetched sender", async (t) => {
-	const { imap, client, original } = await fixture(t);
+	const { drafts, client, original } = await fixture(t);
 	await assert.rejects(
-		imap.getDraft(identity, () => false),
+		drafts.read(identity, () => false),
 		/not allowed/,
 	);
 	assert.equal(client.sourceFetches, 0);
 	original.source = Buffer.from("From: changed@example.com\r\n\r\nBody");
 	await assert.rejects(
-		imap.getDraft(identity, (_mailbox, message) =>
+		drafts.read(identity, (_mailbox, message) =>
 			message.senderEmails.includes(testConfig.user),
 		),
 		/Fetched draft sender/,
@@ -125,7 +128,7 @@ test("draft sender checks run before source fetch and recheck the fetched sender
 });
 
 test("uncertain create APPEND survives restart and replays the same ID without a second append", async (t) => {
-	const { imap, service, client } = await fixture(
+	const { drafts, service, client } = await fixture(
 		t,
 		new LostAppendAcknowledgment(),
 	);
@@ -137,31 +140,28 @@ test("uncertain create APPEND survives restart and replays the same ID without a
 		}),
 		mailbox: "Drafts",
 	};
-	const uncertain = await imap.createDraft(input);
+	const uncertain = await drafts.create(input);
 	assert.equal(uncertain.outcome.status, "appending");
-	assert.equal(
-		(await service().createDraft(input)).outcome.status,
-		"appending",
-	);
+	assert.equal((await service().create(input)).outcome.status, "appending");
 	assert.equal(client.appends.length, 1);
 	await assert.rejects(
-		service().createDraft({ ...input, text: "Different" }),
+		service().create({ ...input, text: "Different" }),
 		/another request/,
 	);
-	const saved = await service().reconcileDraftOperation(
-		input.operationId,
-		allowAllMessages,
-	);
+	const saved = await service().reconcile(input.operationId, allowAllMessages);
 	assert.equal(saved.outcome.status, "completed");
 	assert.equal(client.appends.length, 1);
 	assert.equal(client.deletions, 0);
-	assert.deepEqual(await service().createDraft(input), saved);
+	assert.deepEqual(await service().create(input), saved);
 });
 
 test("recovery accepts a harmless Received header but refuses changed content and duplicate exact copies", async (t) => {
 	for (const mode of ["received", "body", "recipient", "duplicate"] as const) {
 		await t.test(mode, async (t) => {
-			const { imap, client } = await fixture(t, new LostAppendAcknowledgment());
+			const { drafts, client } = await fixture(
+				t,
+				new LostAppendAcknowledgment(),
+			);
 			const input = {
 				...CreateDraftSchema.parse({
 					operationId: randomUUID(),
@@ -170,7 +170,7 @@ test("recovery accepts a harmless Received header but refuses changed content an
 				}),
 				mailbox: "Drafts",
 			};
-			await imap.createDraft(input);
+			await drafts.create(input);
 			const saved = client.mailboxes
 				.get("Drafts")
 				?.find((message) => message.uid === 99);
@@ -196,17 +196,13 @@ test("recovery accepts a harmless Received header but refuses changed content an
 				client.mailboxes.get("Drafts")?.push({ ...saved, uid: 100, seq: 100 });
 			if (mode === "received")
 				assert.equal(
-					(
-						await imap.reconcileDraftOperation(
-							input.operationId,
-							allowAllMessages,
-						)
-					).outcome.status,
+					(await drafts.reconcile(input.operationId, allowAllMessages)).outcome
+						.status,
 					"completed",
 				);
 			else
 				await assert.rejects(
-					imap.reconcileDraftOperation(input.operationId, allowAllMessages),
+					drafts.reconcile(input.operationId, allowAllMessages),
 					/different content|multiple exact copies/,
 				);
 			assert.equal(client.appends.length, 1);
@@ -216,54 +212,57 @@ test("recovery accepts a harmless Received header but refuses changed content an
 });
 
 test("no exact recovery match preserves uncertainty and never re-appends", async (t) => {
-	const { imap, client } = await fixture(t, new LostAppendAcknowledgment());
+	const { drafts, client } = await fixture(t, new LostAppendAcknowledgment());
 	const input = {
 		...CreateDraftSchema.parse({ operationId: randomUUID() }),
 		mailbox: "Drafts",
 	};
-	await imap.createDraft(input);
+	await drafts.create(input);
 	client.mailboxes.set("Drafts", []);
 	assert.equal(
-		(await imap.reconcileDraftOperation(input.operationId, allowAllMessages))
-			.outcome.status,
+		(await drafts.reconcile(input.operationId, allowAllMessages)).outcome
+			.status,
 		"appending",
 	);
-	await imap.createDraft(input);
+	await drafts.create(input);
 	assert.equal(client.appends.length, 1);
 });
 
 test("uncertain edit retires original and blocks replacement mutations until reconciliation and cleanup", async (t) => {
-	const { imap, client, service, edit } = await fixture(
+	const { drafts, client, service, edit } = await fixture(
 		t,
 		new LostAppendAcknowledgment(),
 	);
 	const input = { ...(await edit({ text: "Replacement" })), mailbox: "Drafts" };
-	await imap.editDraft(input);
+	await drafts.edit({ request: input, mailbox: "Drafts" });
 	await assert.rejects(
-		service().editDraft({ ...input, operationId: randomUUID() }),
-		/reserved by operation/,
-	);
-	const replacementIdentity = { ...identity, uid: 99 };
-	const replacement = await imap.getDraft(
-		replacementIdentity,
-		allowAllMessages,
-	);
-	await assert.rejects(
-		service().editDraft({
-			...input,
-			...replacementIdentity,
-			operationId: randomUUID(),
-			expectedRevision: replacement.revision,
+		service().edit({
+			request: { ...input, operationId: randomUUID() },
+			mailbox: "Drafts",
 		}),
 		/reserved by operation/,
 	);
-	const reconciled = await service().reconcileDraftOperation(
+	const replacementIdentity = { ...identity, uid: 99 };
+	const replacement = await drafts.read(replacementIdentity, allowAllMessages);
+	await assert.rejects(
+		service().edit({
+			request: {
+				...input,
+				...replacementIdentity,
+				operationId: randomUUID(),
+				expectedRevision: replacement.revision,
+			},
+			mailbox: "Drafts",
+		}),
+		/reserved by operation/,
+	);
+	const reconciled = await service().reconcile(
 		input.operationId,
 		allowAllMessages,
 	);
 	assert.equal(reconciled.outcome.status, "saved");
 	assert.equal(client.deletions, 0);
-	const completed = await service().retryDraftCleanup(
+	const completed = await service().retryCleanup(
 		input.operationId,
 		allowAllMessages,
 	);
@@ -284,7 +283,7 @@ test("submitting, uncertain, partial, and accepted sends with retained drafts ca
 	];
 	for (const outcome of outcomes)
 		await t.test(outcome.status, async (t) => {
-			const { imap, client, directory, edit } = await fixture(t);
+			const { drafts, client, directory, edit } = await fixture(t);
 			let submissions = 0;
 			const sends = createSendService(testConfig, {
 				store: createSendStore(testConfig.user, directory),
@@ -293,7 +292,7 @@ test("submitting, uncertain, partial, and accepted sends with retained drafts ca
 					return outcome;
 				},
 			});
-			const snapshot = await imap.getDraftSnapshot(identity, allowAllMessages);
+			const snapshot = await drafts.snapshot(identity, allowAllMessages);
 			const source = {
 				kind: "draft" as const,
 				...identity,
@@ -312,7 +311,10 @@ test("submitting, uncertain, partial, and accepted sends with retained drafts ca
 				reason: "Deletion interrupted",
 			}));
 			await assert.rejects(
-				imap.editDraft({ ...(await edit()), mailbox: "Drafts" }),
+				drafts.edit({
+					request: await edit(),
+					mailbox: "Drafts",
+				}),
 				/reserved by operation/,
 			);
 			assert.equal(client.appends.length, 0);
@@ -332,12 +334,12 @@ test("submitting, uncertain, partial, and accepted sends with retained drafts ca
 });
 
 test("edit and send claims exclude each other atomically across stores and a separate process", async (t) => {
-	const { imap, client, directory, edit } = await fixture(t);
+	const { drafts, client, directory, edit } = await fixture(t);
 	const input = { ...(await edit()), mailbox: "Drafts" };
 	client.deleteFailure = "throw";
-	const mutation = await imap.editDraft(input);
+	const mutation = await drafts.edit({ request: input, mailbox: "Drafts" });
 	assert.equal(mutation.outcome.status, "cleanup_failed");
-	const snapshot = await imap.getDraftSnapshot(identity, allowAllMessages);
+	const snapshot = await drafts.snapshot(identity, allowAllMessages);
 	let attempts = 0;
 	const sends = createSendService(testConfig, {
 		store: createSendStore(testConfig.user, directory),
@@ -363,7 +365,7 @@ test("edit and send claims exclude each other atomically across stores and a sep
 		[
 			"--input-type=module",
 			"-e",
-			`import { createSendStore } from ${JSON.stringify(new URL("../sending/store.js", import.meta.url).href)}; try { await createSendStore(${JSON.stringify(testConfig.user)}, ${JSON.stringify(directory)}).claim(${JSON.stringify(id)}, ${JSON.stringify(record.contentHash)}); process.exit(2); } catch(error) { process.exit(error.code === "OPERATION_CONFLICT" ? 0 : 3); }`,
+			`import { createSendStore } from ${JSON.stringify(new URL("../operations/sending.js", import.meta.url).href)}; try { await createSendStore(${JSON.stringify(testConfig.user)}, ${JSON.stringify(directory)}).claim(${JSON.stringify(id)}, ${JSON.stringify(record.contentHash)}); process.exit(2); } catch(error) { process.exit(error.code === "OPERATION_CONFLICT" ? 0 : 3); }`,
 		],
 		{ encoding: "utf8" },
 	);
@@ -372,30 +374,33 @@ test("edit and send claims exclude each other atomically across stores and a sep
 });
 
 test("content unavailable on an existing UID cannot complete either cleanup path", async (t) => {
-	const { imap, client, original, edit } = await fixture(t);
+	const { drafts, client, original, edit } = await fixture(t);
 	client.deleteFailure = "throw";
-	const record = await imap.editDraft({ ...(await edit()), mailbox: "Drafts" });
+	const record = await drafts.edit({
+		request: await edit(),
+		mailbox: "Drafts",
+	});
 	assert.equal(record.outcome.status, "cleanup_failed");
 	assert.ok("identity" in record.outcome);
 	client.deleteFailure = "none";
 	original.source = undefined;
-	const result = await imap.retryDraftCleanup(
+	const result = await drafts.retryCleanup(
 		record.operationId,
 		allowAllMessages,
 	);
 	assert.equal(result.outcome.status, "cleanup_failed");
 	assert.equal(client.deletions, 1);
 	await assert.rejects(
-		imap.deleteDraftSnapshot(identity, "old fingerprint", allowAllMessages),
+		drafts.deleteSnapshot(identity, "old fingerprint", allowAllMessages),
 		/exists but its content is unavailable/,
 	);
-	const replacement = await imap.getDraft(
+	const replacement = await drafts.read(
 		record.outcome.identity,
 		allowAllMessages,
 	);
 	await assert.rejects(
-		imap.editDraft({
-			...EditDraftSchema.parse({
+		drafts.edit({
+			request: EditDraftSchema.parse({
 				...record.outcome.identity,
 				operationId: randomUUID(),
 				expectedRevision: replacement.revision,
@@ -410,10 +415,10 @@ test("content unavailable on an existing UID cannot complete either cleanup path
 test("cleanup retries preserve source and replacement revision checks and detect mailbox resets", async (t) => {
 	for (const mode of ["original", "replacement", "uidvalidity"] as const)
 		await t.test(mode, async (t) => {
-			const { imap, client, original, edit } = await fixture(t);
+			const { drafts, client, original, edit } = await fixture(t);
 			client.deleteFailure = "throw";
-			const record = await imap.editDraft({
-				...(await edit()),
+			const record = await drafts.edit({
+				request: await edit(),
 				mailbox: "Drafts",
 			});
 			assert.equal(record.outcome.status, "cleanup_failed");
@@ -433,7 +438,7 @@ test("cleanup retries preserve source and replacement revision checks and detect
 			}
 			if (mode === "uidvalidity") client.uidValidity = 8n;
 			assert.equal(
-				(await imap.retryDraftCleanup(record.operationId, allowAllMessages))
+				(await drafts.retryCleanup(record.operationId, allowAllMessages))
 					.outcome.status,
 				"cleanup_failed",
 			);
@@ -475,7 +480,7 @@ test("late append completion and failed cleanup cannot regress an already comple
 });
 
 test("an in-flight SMTP claim blocks editing before the transport outcome exists", async (t) => {
-	const { imap, client, directory, edit } = await fixture(t);
+	const { drafts, client, directory, edit } = await fixture(t);
 	let finish: (outcome: SmtpOutcome) => void = () => {};
 	let start: () => void = () => {};
 	const started = new Promise<void>((resolve) => {
@@ -490,7 +495,7 @@ test("an in-flight SMTP claim blocks editing before the transport outcome exists
 			});
 		},
 	});
-	const snapshot = await imap.getDraftSnapshot(identity, allowAllMessages);
+	const snapshot = await drafts.snapshot(identity, allowAllMessages);
 	const record = await sends.prepare({
 		operationId: randomUUID(),
 		request: {},
@@ -500,7 +505,10 @@ test("an in-flight SMTP claim blocks editing before the transport outcome exists
 	const sending = sends.send(record, snapshot.message);
 	await started;
 	await assert.rejects(
-		imap.editDraft({ ...(await edit()), mailbox: "Drafts" }),
+		drafts.edit({
+			request: await edit(),
+			mailbox: "Drafts",
+		}),
 		/reserved by operation/,
 	);
 	assert.equal(client.appends.length, 0);
@@ -524,25 +532,27 @@ test("reconciliation can complete edit cleanup before a delayed APPEND acknowled
 			return result;
 		}
 	}
-	const { imap, service, client, edit } = await fixture(t, new DelayedAppend());
+	const { drafts, service, client, edit } = await fixture(
+		t,
+		new DelayedAppend(),
+	);
 	const input = { ...(await edit({ text: "Replacement" })), mailbox: "Drafts" };
-	const editing = imap.editDraft(input);
+	const editing = drafts.edit({ request: input, mailbox: "Drafts" });
 	await appended;
 	const other = service();
 	assert.equal(
-		(await other.reconcileDraftOperation(input.operationId, allowAllMessages))
-			.outcome.status,
+		(await other.reconcile(input.operationId, allowAllMessages)).outcome.status,
 		"saved",
 	);
 	assert.equal(
-		(await other.retryDraftCleanup(input.operationId, allowAllMessages)).outcome
+		(await other.retryCleanup(input.operationId, allowAllMessages)).outcome
 			.status,
 		"completed",
 	);
 	release();
 	assert.equal((await editing).outcome.status, "completed");
 	assert.equal(
-		(await imap.getDraftOperation(input.operationId)).outcome.status,
+		(await drafts.get(input.operationId)).outcome.status,
 		"completed",
 	);
 	assert.equal(client.appends.length, 1);
@@ -551,7 +561,7 @@ test("reconciliation can complete edit cleanup before a delayed APPEND acknowled
 
 test("replacement send stays blocked when APPEND succeeded but saving its identity failed", async (t) => {
 	const { directory, client, edit, store } = await fixture(t);
-	const imap = createImapService(
+	const drafts = createDraftService(
 		testConfig,
 		async (operation) => operation(client),
 		{
@@ -562,7 +572,7 @@ test("replacement send stays blocked when APPEND succeeded but saving its identi
 		},
 	);
 	const input = { ...(await edit({ text: "Replacement" })), mailbox: "Drafts" };
-	const uncertain = await imap.editDraft(input);
+	const uncertain = await drafts.edit({ request: input, mailbox: "Drafts" });
 	assert.equal(uncertain.outcome.status, "appending");
 	let submissions = 0;
 	const sends = createSendService(testConfig, {
@@ -572,7 +582,7 @@ test("replacement send stays blocked when APPEND succeeded but saving its identi
 			return { status: "accepted", accepted: [], rejected: [] };
 		},
 	});
-	const snapshot = await imap.getDraftSnapshot(
+	const snapshot = await drafts.snapshot(
 		{ ...identity, uid: 99 },
 		allowAllMessages,
 	);
@@ -594,18 +604,14 @@ test("replacement send stays blocked when APPEND succeeded but saving its identi
 	);
 	assert.equal(submissions, 0);
 	assert.equal(client.appends.length, 1);
-	const recovered = createImapService(
+	const recovered = createDraftService(
 		testConfig,
 		async (operation) => operation(client),
 		createDraftStore(testConfig.user, directory),
 	);
 	assert.equal(
-		(
-			await recovered.reconcileDraftOperation(
-				input.operationId,
-				allowAllMessages,
-			)
-		).outcome.status,
+		(await recovered.reconcile(input.operationId, allowAllMessages)).outcome
+			.status,
 		"saved",
 	);
 	// The known replacement identity also blocks callers with legacy source records lacking draftMessageId.
@@ -628,7 +634,7 @@ test("replacement send stays blocked when APPEND succeeded but saving its identi
 });
 
 test("same-ID edit replays a completed operation when another process removes the original during preflight", async (t) => {
-	const { imap, client, directory, edit } = await fixture(t);
+	const { drafts, client, directory, edit } = await fixture(t);
 	let release: () => void = () => {};
 	let signal: () => void = () => {};
 	const paused = new Promise<void>((resolve) => {
@@ -649,15 +655,15 @@ test("same-ID edit replays a completed operation when another process removes th
 	}
 	const otherClient = new PausedPreflight();
 	otherClient.mailboxes = client.mailboxes;
-	const other = createImapService(
+	const other = createDraftService(
 		testConfig,
 		async (operation) => operation(otherClient),
 		createDraftStore(testConfig.user, directory),
 	);
 	const input = { ...(await edit({ text: "Replacement" })), mailbox: "Drafts" };
-	const delayed = other.editDraft(input);
+	const delayed = other.edit({ request: input, mailbox: "Drafts" });
 	await paused;
-	const completed = await imap.editDraft(input);
+	const completed = await drafts.edit({ request: input, mailbox: "Drafts" });
 	assert.equal(completed.outcome.status, "completed");
 	release();
 	assert.deepEqual(await delayed, completed);

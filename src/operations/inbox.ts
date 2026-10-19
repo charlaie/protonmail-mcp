@@ -1,13 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { GetMessageInput } from "../bridge/schemas.js";
-import { createOperationDatabase } from "../operations/database.js";
-import {
-	assertMessageMutable,
-	messageIdentityKey,
-} from "../operations/message-claims.js";
+import { type InboxOperation, InboxOperationSchema } from "../inbox/model.js";
+import type { GetMessageInput } from "../mail/identity.js";
 import { MailError } from "../shared/mail-error.js";
-import { type InboxOperation, InboxOperationSchema } from "./model.js";
+import { createOperationDatabase, type OperationDatabase } from "./database.js";
+import { assertMessageMutable, messageIdentityKey } from "./message-claims.js";
 
 const RowSchema = z.object({ record: z.string() });
 function read(db: DatabaseSync, id: string) {
@@ -54,7 +51,10 @@ function finish(
 	return next;
 }
 export function createInboxStore(account: string, directory?: string) {
-	const { use, transaction } = createOperationDatabase(account, directory);
+	return createInboxJournal(createOperationDatabase(account, directory));
+}
+
+export function createInboxJournal({ use, transaction }: OperationDatabase) {
 	return {
 		get: (id: string) => use((db) => read(db, id)),
 		list: (limit: number, offset: number) =>

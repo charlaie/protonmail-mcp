@@ -1,23 +1,27 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { GetMessageInput } from "../bridge/schemas.js";
-import { createOperationDatabase } from "../operations/database.js";
-import { assertMessageMutable } from "../operations/message-claims.js";
-import { MailError } from "../shared/mail-error.js";
+import type { GetMessageInput } from "../mail/identity.js";
 import {
 	type DraftCleanup,
 	type SendOperation,
 	SendOperationSchema,
 	type SmtpOutcome,
-} from "./model.js";
+} from "../sending/model.js";
+import { MailError } from "../shared/mail-error.js";
+import { createOperationDatabase, type OperationDatabase } from "./database.js";
+import { assertMessageMutable } from "./message-claims.js";
 
 const RowSchema = z.object({ record: z.string() });
 
 export function createSendStore(account: string, directory?: string) {
-	const { path, use, transaction } = createOperationDatabase(
-		account,
-		directory,
-	);
+	return createSendJournal(createOperationDatabase(account, directory));
+}
+
+export function createSendJournal({
+	path,
+	use,
+	transaction,
+}: OperationDatabase) {
 	function read(db: DatabaseSync, id: string) {
 		const row = db.prepare("SELECT record FROM sends WHERE id = ?").get(id);
 		return row

@@ -10,7 +10,7 @@ import {
 	attachmentFixture as fixture,
 	pdfBytes,
 } from "./attachment-test-fixture.js";
-import { BINARY_OUTPUT_CAPABILITY } from "./attachments.js";
+import { BINARY_OUTPUT_CAPABILITY } from "./attachment-tools.js";
 
 test("raw MCP output is an exact binary resource with unverified client guidance", async (t) => {
 	const client = await fixture(t);

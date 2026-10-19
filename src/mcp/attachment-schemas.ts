@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { GetAttachmentSchema, GetMessageSchema } from "../bridge/schemas.js";
+import { GetAttachmentSchema } from "../attachments/requests.js";
+import { GetMessageSchema } from "../mail/identity.js";
 import { ToolErrorSchema } from "../shared/mail-error.js";
 
 const IdentitySchema = GetMessageSchema.extend({

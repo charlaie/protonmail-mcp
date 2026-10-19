@@ -2,8 +2,24 @@ import { chmod, mkdir, open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { getPolicyFilePath } from "../policy/store.js";
-import { hashContent } from "../sending/model.js";
+import { hashContent } from "../shared/content-hash.js";
 import { MailError } from "../shared/mail-error.js";
+import {
+	draftIdentitiesReady,
+	migrateDraftIdentities,
+} from "./draft-identities.js";
+
+function transact<T>(db: DatabaseSync, operation: (db: DatabaseSync) => T) {
+	db.exec("BEGIN IMMEDIATE");
+	try {
+		const result = operation(db);
+		db.exec("COMMIT");
+		return result;
+	} catch (error) {
+		db.exec("ROLLBACK");
+		throw error;
+	}
+}
 
 export function createOperationDatabase(
 	account: string,
@@ -21,6 +37,8 @@ export function createOperationDatabase(
 				db.exec(
 					"PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS sends (id TEXT PRIMARY KEY, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL); CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, message_id TEXT UNIQUE NOT NULL, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_mutations (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL); CREATE TABLE IF NOT EXISTS inbox_operations (id TEXT PRIMARY KEY, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS inbox_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL);",
 				);
+				// Every facet must observe migrated lineage before inspecting claims.
+				if (!draftIdentitiesReady(db)) transact(db, migrateDraftIdentities);
 				return operation(db);
 			} finally {
 				db.close();
@@ -36,17 +54,9 @@ export function createOperationDatabase(
 		}
 	}
 	function transaction<T>(operation: (db: DatabaseSync) => T) {
-		return use((db) => {
-			db.exec("BEGIN IMMEDIATE");
-			try {
-				const result = operation(db);
-				db.exec("COMMIT");
-				return result;
-			} catch (error) {
-				db.exec("ROLLBACK");
-				throw error;
-			}
-		});
+		return use((db) => transact(db, operation));
 	}
 	return { path, use, transaction };
 }
+
+export type OperationDatabase = ReturnType<typeof createOperationDatabase>;

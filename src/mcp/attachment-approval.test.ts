@@ -9,7 +9,7 @@ import {
 	attachmentIdentity,
 	pdfBytes,
 } from "./attachment-test-fixture.js";
-import { BINARY_OUTPUT_CAPABILITY } from "./attachments.js";
+import { BINARY_OUTPUT_CAPABILITY } from "./attachment-tools.js";
 
 const pendingSchema = z.object({
 	resultType: z.literal("input_required"),

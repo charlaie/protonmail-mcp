@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { type GetMessageInput, GetMessageSchema } from "../bridge/schemas.js";
-import { messageIdentityKey } from "../operations/message-claims.js";
+import type { DraftOperation } from "../drafts/model.js";
+import {
+	DraftOperationSchema,
+	StoredDraftOperationSchema,
+} from "../drafts/model.js";
+import { type GetMessageInput, GetMessageSchema } from "../mail/identity.js";
 import { MailError } from "../shared/mail-error.js";
-import type { DraftOperation } from "./model.js";
-import { DraftOperationSchema, StoredDraftOperationSchema } from "./model.js";
+import { messageIdentityKey } from "./message-claims.js";
 
 const BindingSchema = z.object({ draft_id: z.uuid() });
 const RecordSchema = z.object({ record: z.string() });

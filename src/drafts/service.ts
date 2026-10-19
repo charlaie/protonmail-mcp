@@ -1,21 +1,33 @@
 import type { MailWriteAuthorization } from "../bridge/authorization.js";
 import type { BridgeConfig } from "../bridge/config.js";
-import { draftContentHash, inspectDraft } from "../bridge/draft-content.js";
+import { findMessageCopies } from "../bridge/message-copies.js";
+import {
+	allowAllMessages,
+	checkUidValidity,
+	type MessageFilter,
+} from "../bridge/messages.js";
+import { parsedAddressEmails } from "../bridge/serializers.js";
+import type { ImapSession } from "../bridge/session.js";
+import type { GetMessageInput } from "../mail/identity.js";
+import { createDraftStore, type DraftStore } from "../operations/drafts.js";
+import { OperationIdSchema } from "../operations/identity.js";
+import { mediaManifest } from "../outgoing/media.js";
+import { hashContent } from "../shared/content-hash.js";
+import { safeErrorMessage } from "../shared/errors.js";
+import { MailError } from "../shared/mail-error.js";
 import {
 	appendDraft,
 	type CreateDraftLookupInput,
 	composeDraft,
 	type EditDraftLookupInput,
-} from "../bridge/drafts.js";
-import { findMessageCopies } from "../bridge/message-copies.js";
-import { checkUidValidity, type MessageFilter } from "../bridge/messages.js";
-import { SendEmailSchema } from "../bridge/schemas.js";
-import type { ImapSession } from "../bridge/session.js";
-import { hashContent } from "../sending/model.js";
-import { safeErrorMessage } from "../shared/errors.js";
-import { MailError } from "../shared/mail-error.js";
+} from "./compose.js";
+import {
+	draftContentHash,
+	inspectDraft,
+	readDraftSnapshot,
+} from "./content.js";
 import type { DraftOperation } from "./model.js";
-import { createDraftStore, type DraftStore } from "./store.js";
+import type { EditDraftRequest, GetDraftInput } from "./requests.js";
 
 export function createDraftService(
 	config: BridgeConfig,
@@ -23,9 +35,7 @@ export function createDraftService(
 	store: DraftStore = createDraftStore(config.user),
 ) {
 	async function existing(operationId: string, request: object) {
-		const record = await store.get(
-			SendEmailSchema.shape.operationId.parse(operationId),
-		);
+		const record = await store.get(OperationIdSchema.parse(operationId));
 		if (record && record.requestHash !== hashContent(request))
 			throw new MailError(
 				"OPERATION_CONFLICT",
@@ -35,9 +45,7 @@ export function createDraftService(
 		return record;
 	}
 	async function get(operationId: string) {
-		const record = await store.get(
-			SendEmailSchema.shape.operationId.parse(operationId),
-		);
+		const record = await store.get(OperationIdSchema.parse(operationId));
 		if (!record)
 			throw new MailError(
 				"NOT_FOUND",
@@ -207,24 +215,117 @@ export function createDraftService(
 					: record,
 			);
 	}
+	async function resolveReference(
+		input: GetDraftInput,
+		draftsMailbox?: string,
+	) {
+		const identity =
+			"draftId" in input ? await store.resolve(input.draftId) : input;
+		if (draftsMailbox !== undefined && identity.mailbox !== draftsMailbox)
+			throw new MailError(
+				"POLICY_DENIED",
+				"Logical draft is outside the configured Drafts mailbox.",
+				"configure",
+			);
+		return identity;
+	}
 	return {
-		identify: store.identify,
-		resolve: store.resolve,
+		resolveReference,
+		read: (input: GetMessageInput, accepts: MessageFilter = allowAllMessages) =>
+			run(async (client) => {
+				const { original, fingerprint, media } = await inspectDraft(
+					client,
+					input,
+					accepts,
+				);
+				return {
+					...input,
+					draftId: await store.identify(input, {
+						messageId: original.messageId,
+						contentHash: draftContentHash(original),
+					}),
+					revision: fingerprint,
+					from: original.from?.text ?? "",
+					to: parsedAddressEmails(original.to),
+					cc: parsedAddressEmails(original.cc),
+					bcc: parsedAddressEmails(original.bcc),
+					subject: original.subject ?? "",
+					text: original.text ?? "",
+					media: mediaManifest(media),
+				};
+			}),
+		snapshot: (input: GetMessageInput, accepts: MessageFilter) =>
+			run((client) => readDraftSnapshot(client, config, input, accepts)),
+		deleteSnapshot: (
+			input: GetMessageInput,
+			fingerprint: string,
+			accepts: MessageFilter,
+			authorize?: MailWriteAuthorization,
+		): Promise<
+			{ status: "deleted" } | { status: "retained"; reason: string }
+		> =>
+			run(async (client) => {
+				let current: Awaited<ReturnType<typeof inspectDraft>>;
+				try {
+					current = await inspectDraft(client, input, accepts);
+				} catch (error) {
+					if (error instanceof MailError && error.code === "NOT_FOUND")
+						return { status: "deleted" };
+					throw error;
+				}
+				if (current.fingerprint !== fingerprint)
+					return {
+						status: "retained",
+						reason:
+							"Draft changed after approval. It was retained; email acceptance is already recorded. Do not resend.",
+					};
+				if (!client.capabilities.has("UIDPLUS"))
+					return {
+						status: "retained",
+						reason:
+							"UIDPLUS is unavailable. Delete the sent draft in Proton Mail; do not resend.",
+					};
+				await authorize?.(input.mailbox, [current.summary]);
+				if (!(await client.messageDelete(input.uid, { uid: true })))
+					throw new MailError(
+						"OPERATION_FAILED",
+						"Draft deletion was not confirmed.",
+						"reconcile",
+					);
+				return { status: "deleted" };
+			}),
 		get,
 		existing,
 		list: store.list,
 		create: (
 			input: CreateDraftLookupInput,
-			accepts: MessageFilter,
 			request: object = input,
 			authorize?: MailWriteAuthorization,
-		) => write(input, request, accepts, authorize),
-		edit: (
-			input: EditDraftLookupInput,
-			accepts: MessageFilter,
-			authorize?: MailWriteAuthorization,
-			request: object = input,
-		) => write(input, request, accepts, authorize),
+		) => write(input, request, allowAllMessages, authorize),
+		async edit(input: {
+			request: EditDraftRequest;
+			mailbox: string;
+			accepts?: MessageFilter;
+			authorize?: MailWriteAuthorization;
+		}) {
+			const { request, mailbox, accepts = allowAllMessages, authorize } = input;
+			// Replay the original public request before resolving an ID that may now be pending or replaced.
+			const durableRequest = { ...request, mailbox };
+			const previous = await existing(request.operationId, durableRequest);
+			if (previous) return previous;
+			const identity = await resolveReference(
+				"draftId" in request
+					? { draftId: request.draftId }
+					: { mailbox, uid: request.uid, uidValidity: request.uidValidity },
+				mailbox,
+			);
+			return write(
+				{ ...request, ...identity },
+				durableRequest,
+				accepts,
+				authorize,
+			);
+		},
 		async reconcile(operationId: string, accepts: MessageFilter) {
 			let record = await get(operationId);
 			if (record.outcome.status !== "appending") return record;

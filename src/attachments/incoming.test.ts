@@ -1,15 +1,15 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import type { AttachmentExtension } from "../attachments/formats.js";
-import { MAX_ATTACHMENT_BYTES } from "../attachments/limits.js";
+import { allowAllMessages } from "../bridge/messages.js";
+import { FakeImap, fixtureMessage } from "../bridge/test-fixtures.js";
+import type { AttachmentExtension } from "./formats.js";
 import {
 	getAttachment,
 	getAttachmentMetadata,
 	listAttachments,
-} from "./attachments.js";
-import { allowAllMessages } from "./messages.js";
-import { GetAttachmentSchema } from "./schemas.js";
-import { FakeImap, fixtureMessage } from "./test-fixtures.js";
+} from "./incoming.js";
+import { MAX_ATTACHMENT_BYTES } from "./limits.js";
+import { GetAttachmentSchema } from "./requests.js";
 
 const identity = { mailbox: "INBOX", uid: 1, uidValidity: "7" };
 const input = GetAttachmentSchema.parse({ ...identity, attachmentId: "2" });

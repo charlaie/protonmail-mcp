@@ -2,7 +2,7 @@ import { createImapService, type ImapService } from "../bridge/imap.js";
 import { verifySmtpConnection } from "../bridge/smtp.js";
 import type { LaunchSpecification } from "../clients/configuration.js";
 import type { ServerConfig } from "../config/store.js";
-import { createOperationDatabase } from "../operations/database.js";
+import { createOperationJournal } from "../operations/journal.js";
 import { readPolicyStatus } from "../policy/enforcement.js";
 import { loadReadPolicy } from "../policy/store.js";
 import { safeErrorMessage } from "../shared/errors.js";
@@ -110,17 +110,10 @@ export async function diagnoseServer(
 		"journal",
 		"Restore access to storage.operationsDirectory. Keep the existing journal when repairing configuration.",
 		async () => {
-			const database = createOperationDatabase(
+			await createOperationJournal(
 				config.bridge.user,
 				config.storage.operationsDirectory,
-			);
-			await database.use((db) => {
-				const rows = db.prepare("PRAGMA quick_check").all();
-				if (rows.some((row) => row.quick_check !== "ok"))
-					throw new Error(
-						"The operation journal failed SQLite integrity checks.",
-					);
-			});
+			).checkIntegrity();
 			return "Account journal is accessible and passed SQLite integrity checks.";
 		},
 	);

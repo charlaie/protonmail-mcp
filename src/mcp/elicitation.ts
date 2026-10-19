@@ -9,18 +9,14 @@ import {
 	type ServerContext,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { mediaManifest } from "../outgoing/media.js";
 import type {
 	AttachmentApprovalInput,
 	AttachmentReadAuthorization,
-} from "../policy/service.js";
-import { hashContent, type OutgoingMessage } from "../sending/model.js";
+} from "../mail/access.js";
+import { mediaManifest } from "../outgoing/media.js";
+import type { SendApprovalInput } from "../sending/workflow.js";
+import { hashContent } from "../shared/content-hash.js";
 import { MailError } from "../shared/mail-error.js";
-
-export type SendApprovalInput = {
-	operationId: string;
-	message: OutgoingMessage;
-};
 
 import { errorResponse } from "./responses.js";
 

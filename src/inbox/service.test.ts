@@ -6,15 +6,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { allowAllMessages } from "../bridge/messages.js";
-import { SendEmailSchema } from "../bridge/schemas.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
 } from "../bridge/test-fixtures.js";
+import { createInboxStore } from "../operations/inbox.js";
+import { createSendStore } from "../operations/sending.js";
 import { newEmailMessage } from "../sending/model.js";
+import { SendEmailSchema } from "../sending/requests.js";
 import { createSendService } from "../sending/service.js";
-import { createSendStore } from "../sending/store.js";
 import { MailError } from "../shared/mail-error.js";
 import { inboxPlan } from "./mailboxes.js";
 import {
@@ -23,7 +24,6 @@ import {
 	ManageMessageSchema,
 } from "./model.js";
 import { createInboxService } from "./service.js";
-import { createInboxStore } from "./store.js";
 
 async function fixture(t: TestContext, client = new FakeImap()) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-inbox-"));
@@ -761,7 +761,7 @@ test("a separate process cannot mutate or reconcile an active reservation and ca
 		};
 		const script = `
 			import { createInboxService } from ${JSON.stringify(new URL("./service.js", import.meta.url).href)};
-			import { createInboxStore } from ${JSON.stringify(new URL("./store.js", import.meta.url).href)};
+			import { createInboxStore } from ${JSON.stringify(new URL("../operations/inbox.js", import.meta.url).href)};
 			import { FakeImap, fixtureMessage, testConfig } from ${JSON.stringify(new URL("../bridge/test-fixtures.js", import.meta.url).href)};
 			import { allowAllMessages } from ${JSON.stringify(new URL("../bridge/messages.js", import.meta.url).href)};
 			const client = new FakeImap();

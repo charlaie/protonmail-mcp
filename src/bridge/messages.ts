@@ -1,12 +1,12 @@
 import { htmlToText } from "html-to-text";
 import type { FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
+import type { GetMessageInput } from "../mail/identity.js";
+import type { MessageContent, MessageSummary } from "../mail/message.js";
 import { MailError } from "../shared/mail-error.js";
-import type { MessageContent } from "./message-model.js";
-import type { GetMessageInput, SearchMessagesInput } from "./schemas.js";
+import type { SearchMessagesInput } from "./requests.js";
 import { buildSearchQuery } from "./search.js";
 import {
-	type MessageSummary,
 	messageReceivedTime,
 	messageSummary,
 	parsedAddressEmails,

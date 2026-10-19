@@ -1,19 +1,19 @@
 import type { BridgeConfig } from "../bridge/config.js";
-import { SendEmailSchema } from "../bridge/schemas.js";
 import { submitEmail } from "../bridge/smtp.js";
+import { OperationIdSchema } from "../operations/identity.js";
+import { createSendStore, type SendStore } from "../operations/sending.js";
 import { mediaManifest } from "../outgoing/media.js";
+import type { OutgoingMessage } from "../outgoing/message.js";
+import { hashContent } from "../shared/content-hash.js";
 import { MailError } from "../shared/mail-error.js";
 import {
 	type DraftCleanup,
-	hashContent,
-	type OutgoingMessage,
 	type SendOperation,
 	type SendSource,
 	type SmtpOutcome,
 	sendContentHash,
 	sendMessageId,
 } from "./model.js";
-import { createSendStore, type SendStore } from "./store.js";
 
 export function createSendService(
 	config: BridgeConfig,
@@ -30,9 +30,7 @@ export function createSendService(
 		dependencies.submit ??
 		((message, messageId) => submitEmail(config, message, messageId));
 	async function get(operationId: string) {
-		const record = await store.get(
-			SendEmailSchema.shape.operationId.parse(operationId),
-		);
+		const record = await store.get(OperationIdSchema.parse(operationId));
 		if (!record)
 			throw new MailError(
 				"NOT_FOUND",

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { GetMessageSchema, SendEmailSchema } from "../bridge/schemas.js";
+import { GetMessageSchema } from "../mail/identity.js";
+import { OperationIdSchema } from "../operations/identity.js";
 import { MediaMetadataSchema } from "../outgoing/media.js";
 
 export const DraftSourceSchema = z.discriminatedUnion("kind", [
@@ -8,7 +9,7 @@ export const DraftSourceSchema = z.discriminatedUnion("kind", [
 ]);
 export const StoredDraftOperationSchema = z.object({
 	draftId: z.uuid().optional(),
-	operationId: SendEmailSchema.shape.operationId,
+	operationId: OperationIdSchema,
 	requestHash: z.string(),
 	messageId: z.string(),
 	mailbox: z.string(),

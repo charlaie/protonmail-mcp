@@ -1,11 +1,11 @@
 import type { z } from "zod";
-import { OutgoingMessageSchema } from "../sending/model.js";
+import type { BridgeConfig } from "../bridge/config.js";
+import { parseMessageIds, type readMessage } from "../bridge/messages.js";
+import { OutgoingMessageSchema } from "../outgoing/message.js";
+import { resolveSender } from "../outgoing/senders.js";
 import { MailError } from "../shared/mail-error.js";
-import type { BridgeConfig } from "./config.js";
-import type { CreateDraftLookupInput } from "./drafts.js";
-import { parseMessageIds, type readMessage } from "./messages.js";
-import type { CreateReplyDraftSchema } from "./schemas.js";
-import { resolveSender } from "./senders.js";
+import type { CreateDraftLookupInput } from "./compose.js";
+import type { CreateReplyDraftSchema } from "./requests.js";
 
 type Message = Extract<
 	Awaited<ReturnType<typeof readMessage>>,

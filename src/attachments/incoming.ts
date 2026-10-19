@@ -1,23 +1,24 @@
 import { isDeepStrictEqual } from "node:util";
 import type { MessageStructureObject } from "imapflow";
 import {
-	AttachmentMimeTypeSchema,
-	type AttachmentPermission,
-	attachmentExtension,
-	isSafeAttachmentFilename,
-} from "../attachments/formats.js";
-import { MAX_ATTACHMENT_BYTES } from "../attachments/limits.js";
-import { MailError } from "../shared/mail-error.js";
-import type { MessageSummary } from "./message-model.js";
-import {
 	checkUidValidity,
 	type MessageFilter,
 	type ReadResult,
 	SUMMARY_FIELDS,
-} from "./messages.js";
-import type { GetAttachmentInput, GetMessageInput } from "./schemas.js";
-import { messageSummary } from "./serializers.js";
-import type { ImapClient } from "./session.js";
+} from "../bridge/messages.js";
+import { messageSummary } from "../bridge/serializers.js";
+import type { ImapClient } from "../bridge/session.js";
+import type { GetMessageInput } from "../mail/identity.js";
+import type { MessageSummary } from "../mail/message.js";
+import { MailError } from "../shared/mail-error.js";
+import {
+	AttachmentMimeTypeSchema,
+	type AttachmentPermission,
+	attachmentExtension,
+	isSafeAttachmentFilename,
+} from "./formats.js";
+import { MAX_ATTACHMENT_BYTES } from "./limits.js";
+import type { GetAttachmentInput } from "./requests.js";
 
 type Attachment = {
 	attachmentId: string;

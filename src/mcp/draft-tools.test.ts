@@ -11,19 +11,19 @@ import {
 	fixtureMessage,
 	testConfig,
 } from "../bridge/test-fixtures.js";
-import { createDraftStore } from "../drafts/store.js";
+import { createDraftStore } from "../operations/drafts.js";
+import { createSendStore } from "../operations/sending.js";
 import { testFile, testImage } from "../outgoing/test-fixtures.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import { ToolNameSchema } from "../policy/tools.js";
 import { createSendService } from "../sending/service.js";
-import { createSendStore } from "../sending/store.js";
 import {
 	DraftOperationOutputSchema,
 	GetDraftOutputSchema,
 	ListDraftOperationsOutputSchema,
-	ListSendOperationsOutputSchema,
-} from "./output-schemas.js";
+} from "./draft-schemas.js";
+import { ListSendOperationsOutputSchema } from "./send-schemas.js";
 import { createServer } from "./server.js";
 import { createTestClient } from "./test-client.js";
 

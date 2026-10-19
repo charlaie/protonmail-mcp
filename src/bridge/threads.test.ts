@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import type { FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
-import { GetThreadSchema } from "./schemas.js";
+import { GetThreadSchema } from "./requests.js";
 import { FakeImap, fixtureMessage } from "./test-fixtures.js";
 import { bridgeThreadIdentity } from "./thread-identity.js";
 import { getThread } from "./threads.js";

@@ -5,12 +5,10 @@ import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { createImapService } from "../bridge/imap.js";
 import { FakeImap, testConfig } from "../bridge/test-fixtures.js";
-import {
-	CreateMailboxOutputSchema,
-	CreateMailboxSchema,
-} from "../inbox/creation.js";
+import { CreateMailboxSchema } from "../inbox/creation.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { loadReadPolicy, saveReadPolicy } from "../policy/store.js";
+import { CreateMailboxOutputSchema } from "./inbox-schemas.js";
 import { createServer } from "./server.js";
 import { createTestClient } from "./test-client.js";
 

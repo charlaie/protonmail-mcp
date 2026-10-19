@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GetMessageSchema } from "./schemas.js";
+import { GetMessageSchema } from "./identity.js";
 
 export const MessageSummarySchema = z.object({
 	uid: GetMessageSchema.shape.uid,

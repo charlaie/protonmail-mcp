@@ -10,17 +10,17 @@ import {
 	fixtureMessage,
 	testConfig,
 } from "../bridge/test-fixtures.js";
+import { createMailAccess } from "../mail/access.js";
+import { createInboxStore } from "../operations/inbox.js";
+import { createReadPolicy, ReadPolicySchema } from "../policy/schema.js";
+import { parseInboxActions } from "../policy/selection.js";
+import { saveReadPolicy } from "../policy/store.js";
+import { ToolNameSchema } from "../policy/tools.js";
 import {
 	InboxCapabilitiesOutputSchema,
 	InboxOperationOutputSchema,
 	InboxOperationsOutputSchema,
-} from "../inbox/model.js";
-import { createInboxStore } from "../inbox/store.js";
-import { createReadPolicy, ReadPolicySchema } from "../policy/schema.js";
-import { parseInboxActions } from "../policy/selection.js";
-import { createReadService } from "../policy/service.js";
-import { saveReadPolicy } from "../policy/store.js";
-import { ToolNameSchema } from "../policy/tools.js";
+} from "./inbox-schemas.js";
 import { createServer } from "./server.js";
 import { createTestClient } from "./test-client.js";
 
@@ -206,7 +206,7 @@ test("action, source, destination and sender policy are enforced before external
 	);
 	assert.equal(f.client.moves.length + f.client.flagChanges.length, 0);
 	assert.equal(f.client.sourceFetches, 0);
-	const reads = await createReadService(f.imap, "bridge@example.com", f.path);
+	const reads = await createMailAccess(f.imap, "bridge@example.com", f.path);
 	await assert.rejects(
 		reads.manageInbox({
 			...f.input("archive"),

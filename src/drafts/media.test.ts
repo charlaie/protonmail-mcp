@@ -4,20 +4,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { createImapService } from "../bridge/imap.js";
 import { allowAllMessages } from "../bridge/messages.js";
-import { CreateDraftSchema, EditDraftSchema } from "../bridge/schemas.js";
 import { FakeImap, testConfig } from "../bridge/test-fixtures.js";
+import { createDraftStore } from "../operations/drafts.js";
+import { createSendStore } from "../operations/sending.js";
 import { testFile, testImage } from "../outgoing/test-fixtures.js";
 import { createSendService } from "../sending/service.js";
-import { createSendStore } from "../sending/store.js";
-import { createDraftStore } from "./store.js";
+import { CreateDraftSchema, EditDraftSchema } from "./requests.js";
+import { createDraftService } from "./service.js";
 
 async function fixture(t: TestContext, client = new FakeImap()) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-draft-media-"));
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	client.mailboxes.set("Drafts", []);
-	const imap = createImapService(
+	const drafts = createDraftService(
 		testConfig,
 		async (operation) => operation(client),
 		createDraftStore(testConfig.user, directory),
@@ -32,18 +32,15 @@ async function fixture(t: TestContext, client = new FakeImap()) {
 		}),
 		mailbox: "Drafts",
 	};
-	return { imap, directory, client, input };
+	return { drafts, directory, client, input };
 }
 
 test("draft attachment and inline-image bytes survive patch omission and explicit [] independently clears each payload group", async (t) => {
-	const { imap, input } = await fixture(t);
-	const created = await imap.createDraft(input);
+	const { drafts, input } = await fixture(t);
+	const created = await drafts.create(input);
 	assert.equal(created.outcome.status, "completed");
 	assert.ok("identity" in created.outcome);
-	const before = await imap.getDraft(
-		created.outcome.identity,
-		allowAllMessages,
-	);
+	const before = await drafts.read(created.outcome.identity, allowAllMessages);
 	assert.equal(before.media.length, 2);
 	assert.equal(JSON.stringify(before).includes("contentBase64"), false);
 	const patch = {
@@ -55,9 +52,9 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 		}),
 		mailbox: "Drafts",
 	};
-	const edited = await imap.editDraft(patch);
+	const edited = await drafts.edit({ request: patch, mailbox: "Drafts" });
 	assert.ok("identity" in edited.outcome);
-	const preserved = await imap.getDraftSnapshot(
+	const preserved = await drafts.snapshot(
 		edited.outcome.identity,
 		allowAllMessages,
 	);
@@ -70,8 +67,8 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 		preserved.message.media?.find((part) => part.kind === "inline")?.file,
 		testImage,
 	);
-	const clearedFiles = await imap.editDraft({
-		...EditDraftSchema.parse({
+	const clearedFiles = await drafts.edit({
+		request: EditDraftSchema.parse({
 			operationId: randomUUID(),
 			...edited.outcome.identity,
 			expectedRevision: preserved.fingerprint,
@@ -80,14 +77,14 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 		mailbox: "Drafts",
 	});
 	assert.ok("identity" in clearedFiles.outcome);
-	const inlineOnly = await imap.getDraftSnapshot(
+	const inlineOnly = await drafts.snapshot(
 		clearedFiles.outcome.identity,
 		allowAllMessages,
 	);
 	assert.equal(inlineOnly.message.media?.length, 1);
 	assert.equal(inlineOnly.message.media[0]?.kind, "inline");
-	const clearedImages = await imap.editDraft({
-		...EditDraftSchema.parse({
+	const clearedImages = await drafts.edit({
+		request: EditDraftSchema.parse({
 			operationId: randomUUID(),
 			...clearedFiles.outcome.identity,
 			expectedRevision: inlineOnly.fingerprint,
@@ -96,7 +93,7 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 		mailbox: "Drafts",
 	});
 	assert.ok("identity" in clearedImages.outcome);
-	const plain = await imap.getDraftSnapshot(
+	const plain = await drafts.snapshot(
 		clearedImages.outcome.identity,
 		allowAllMessages,
 	);
@@ -104,11 +101,11 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 });
 
 test("sending a supported rich draft binds exact files and returns only byte-free manifests in the journal", async (t) => {
-	const { imap, input, directory, client } = await fixture(t);
-	const created = await imap.createDraft(input);
+	const { drafts, input, directory, client } = await fixture(t);
+	const created = await drafts.create(input);
 	assert.ok("identity" in created.outcome);
 	const identity = created.outcome.identity;
-	const snapshot = await imap.getDraftSnapshot(identity, allowAllMessages);
+	const snapshot = await drafts.snapshot(identity, allowAllMessages);
 	let submits = 0;
 	const sends = createSendService(testConfig, {
 		store: createSendStore(testConfig.user, directory),
@@ -139,7 +136,7 @@ test("sending a supported rich draft binds exact files and returns only byte-fre
 		},
 	});
 	const sent = await sends.send(record, snapshot.message, () =>
-		imap.deleteDraftSnapshot(identity, snapshot.fingerprint, allowAllMessages),
+		drafts.deleteSnapshot(identity, snapshot.fingerprint, allowAllMessages),
 	);
 	assert.equal(sent.outcome.status, "accepted");
 	assert.equal(sent.draftCleanup.status, "deleted");
@@ -155,11 +152,11 @@ test("sending a supported rich draft binds exact files and returns only byte-fre
 });
 
 test("arbitrary HTML on a supported image draft is refused intact before read, edit or send snapshot", async (t) => {
-	const { imap, input, client } = await fixture(t);
-	const created = await imap.createDraft(input);
+	const { drafts, input, client } = await fixture(t);
+	const created = await drafts.create(input);
 	assert.ok("identity" in created.outcome);
 	const identity = created.outcome.identity;
-	const before = await imap.getDraft(identity, allowAllMessages);
+	const before = await drafts.read(identity, allowAllMessages);
 	const message = client.mailboxes
 		.get("Drafts")
 		?.find((candidate) => candidate.uid === identity.uid);
@@ -170,16 +167,16 @@ test("arbitrary HTML on a supported image draft is refused intact before read, e
 			.replace("</body>", "<script>alert(1)</script></body>"),
 	);
 	await assert.rejects(
-		imap.getDraft(identity, allowAllMessages),
+		drafts.read(identity, allowAllMessages),
 		/Arbitrary HTML/,
 	);
 	await assert.rejects(
-		imap.getDraftSnapshot(identity, allowAllMessages),
+		drafts.snapshot(identity, allowAllMessages),
 		/Arbitrary HTML/,
 	);
 	await assert.rejects(
-		imap.editDraft({
-			...EditDraftSchema.parse({
+		drafts.edit({
+			request: EditDraftSchema.parse({
 				operationId: randomUUID(),
 				...identity,
 				expectedRevision: before.revision,
@@ -202,8 +199,8 @@ test("uncertain attachment draft recovery accepts transport headers but refuses 
 	}
 	for (const changed of [false, true])
 		await t.test(String(changed), async (t) => {
-			const { imap, input, client } = await fixture(t, new LostAppend());
-			assert.equal((await imap.createDraft(input)).outcome.status, "appending");
+			const { drafts, input, client } = await fixture(t, new LostAppend());
+			assert.equal((await drafts.create(input)).outcome.status, "appending");
 			const saved = client.mailboxes.get("Drafts")?.[0];
 			assert.ok(saved?.source);
 			if (changed)
@@ -222,17 +219,13 @@ test("uncertain attachment draft recovery accepts transport headers but refuses 
 				]);
 			if (changed)
 				await assert.rejects(
-					imap.reconcileDraftOperation(input.operationId, allowAllMessages),
+					drafts.reconcile(input.operationId, allowAllMessages),
 					/different content/,
 				);
 			else
 				assert.equal(
-					(
-						await imap.reconcileDraftOperation(
-							input.operationId,
-							allowAllMessages,
-						)
-					).outcome.status,
+					(await drafts.reconcile(input.operationId, allowAllMessages)).outcome
+						.status,
 					"completed",
 				);
 			assert.equal(client.appends.length, 1);

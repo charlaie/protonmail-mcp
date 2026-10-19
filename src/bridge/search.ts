@@ -1,6 +1,6 @@
 import type { SearchObject } from "imapflow";
 
-import type { SearchMessagesInput } from "./schemas.js";
+import type { SearchMessagesInput } from "./requests.js";
 
 export function buildSearchQuery(input: SearchMessagesInput): SearchObject {
 	const query: SearchObject = { all: true };

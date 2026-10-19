@@ -6,18 +6,16 @@ import {
 	type MessageFilter,
 	SUMMARY_FIELDS,
 } from "../bridge/messages.js";
-import {
-	type GetMessageInput,
-	GetSendOperationSchema,
-} from "../bridge/schemas.js";
 import { messageSummary } from "../bridge/serializers.js";
 import type { ImapClient, ImapSession } from "../bridge/session.js";
-import { hashContent } from "../sending/model.js";
+import type { GetMessageInput } from "../mail/identity.js";
+import { GetOperationSchema } from "../operations/identity.js";
+import { createInboxStore, type InboxStore } from "../operations/inbox.js";
+import { hashContent } from "../shared/content-hash.js";
 import { safeErrorMessage } from "../shared/errors.js";
 import { MailError } from "../shared/mail-error.js";
 import { inboxPlan, mailboxKind } from "./mailboxes.js";
 import type { InboxOperation, ManageMessageInput } from "./model.js";
-import { createInboxStore, type InboxStore } from "./store.js";
 
 export type InboxAuthorization = (
 	destination: string | undefined,
@@ -68,7 +66,7 @@ export function createInboxService(
 	store: InboxStore = createInboxStore(config.user),
 ) {
 	async function get(operationId: string) {
-		const id = GetSendOperationSchema.shape.operationId.parse(operationId);
+		const id = GetOperationSchema.shape.operationId.parse(operationId);
 		const record = await store.get(id);
 		if (!record)
 			throw new MailError(

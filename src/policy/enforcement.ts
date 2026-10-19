@@ -1,5 +1,5 @@
-import type { MessageSummary } from "../bridge/serializers.js";
 import type { ManageMessageInput } from "../inbox/model.js";
+import type { MessageSummary } from "../mail/message.js";
 import { MailError } from "../shared/mail-error.js";
 import type { ReadPolicy } from "./schema.js";
 

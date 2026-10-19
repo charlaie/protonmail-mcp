@@ -1,11 +1,11 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { ImapFlow, type MessageStructureObject } from "imapflow";
-import type { AttachmentExtension } from "../attachments/formats.js";
-import { getAttachment } from "./attachments.js";
-import { allowAllMessages } from "./messages.js";
-import { GetAttachmentSchema } from "./schemas.js";
-import { fixtureMessage } from "./test-fixtures.js";
+import { allowAllMessages } from "../bridge/messages.js";
+import { fixtureMessage } from "../bridge/test-fixtures.js";
+import type { AttachmentExtension } from "./formats.js";
+import { getAttachment } from "./incoming.js";
+import { GetAttachmentSchema } from "./requests.js";
 
 const input = GetAttachmentSchema.parse({
 	mailbox: "INBOX",
