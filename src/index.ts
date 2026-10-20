@@ -6,20 +6,20 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
-import { createImapService } from "./bridge/imap.js";
-import { SearchMessagesSchema } from "./bridge/requests.js";
+import { SearchMessagesSchema } from "./bridge/imap/reading/requests.js";
+import { createImapService } from "./bridge/imap/service.js";
 import {
 	CLIENTS,
 	ClientNameSchema,
 	launchSpecification,
 	renderClientConfig,
-} from "./clients/configuration.js";
-import { getConfigFilePath } from "./config/paths.js";
-import { requireServerConfig } from "./config/store.js";
+} from "./cli/clients/configuration.js";
 import {
 	type DiagnosticResult,
 	diagnoseServer,
-} from "./diagnostics/service.js";
+} from "./cli/diagnostics/service.js";
+import { getConfigFilePath } from "./config/paths.js";
+import { requireServerConfig } from "./config/store.js";
 import { createMailAccess } from "./mail/access.js";
 import { GetMessageSchema } from "./mail/identity.js";
 import { createServer } from "./mcp/server.js";
@@ -99,7 +99,7 @@ async function main() {
 		)
 		.parse(values.name ?? "protonmail");
 	if (command === "setup") {
-		const { runSetupCommand } = await import("./setup/command.js");
+		const { runSetupCommand } = await import("./cli/setup/command.js");
 		await runSetupCommand({
 			configPath: configPath,
 			entryPath: entryPath,
@@ -167,9 +167,11 @@ async function main() {
 				throw new Error("Choose either --install or --output.");
 			if (values.install) {
 				const { prepareClientInstallation, installClientConfig } = await import(
-					"./clients/configuration.js"
+					"./cli/clients/configuration.js"
 				);
-				const { answer, requireTerminal } = await import("./setup/prompts.js");
+				const { answer, requireTerminal } = await import(
+					"./cli/setup/prompts.js"
+				);
 				const prompts = await import("@clack/prompts");
 				requireTerminal();
 				const plan = await prepareClientInstallation(
@@ -200,12 +202,12 @@ async function main() {
 			return;
 		}
 		case "policy": {
-			const { runPolicyCommand } = await import("./policy/cli.js");
+			const { runPolicyCommand } = await import("./cli/policy.js");
 			await runPolicyCommand(config.storage.policyFile);
 			return;
 		}
 		case "reset-policy": {
-			const { runResetPolicyCommand } = await import("./policy/cli.js");
+			const { runResetPolicyCommand } = await import("./cli/policy.js");
 			await runResetPolicyCommand(config.storage.policyFile);
 			return;
 		}

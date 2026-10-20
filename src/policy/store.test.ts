@@ -11,14 +11,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { GetAttachmentSchema } from "../attachments/requests.js";
-import { createImapService } from "../bridge/imap.js";
+import { createImapService } from "../bridge/imap/service.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../bridge/test-fixtures.js";
+} from "../bridge/testing/fixtures.js";
 import { createMailAccess } from "../mail/access.js";
+import { GetAttachmentSchema } from "../mail/attachments/requests.js";
 import { createReadPolicy, ReadPolicySchema } from "./schema.js";
 import {
 	parseAttachmentApproval,

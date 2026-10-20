@@ -1,17 +1,10 @@
-import type { AttachmentMetadata } from "../attachments/incoming.js";
-import type { GetAttachmentInput } from "../attachments/requests.js";
 import type { MailWriteAuthorization } from "../bridge/authorization.js";
-import type { ImapService } from "../bridge/imap.js";
-import type { ReadResult } from "../bridge/messages.js";
+import type { ReadResult } from "../bridge/imap/reading/messages.js";
 import type {
 	GetThreadInput,
 	SearchMessagesInput,
-} from "../bridge/requests.js";
-import type { EditDraftRequest, GetDraftInput } from "../drafts/requests.js";
-import type { CreateMailboxInput } from "../inbox/creation.js";
-import type { ManageMessageInput } from "../inbox/model.js";
-import type { GetMessageInput } from "../mail/identity.js";
-import type { MessageSummary } from "../mail/message.js";
+} from "../bridge/imap/reading/requests.js";
+import type { ImapService } from "../bridge/imap/service.js";
 import { requireToolPermission } from "../policy/access.js";
 import {
 	canReadMailbox,
@@ -23,6 +16,13 @@ import { loadReadPolicy } from "../policy/store.js";
 import type { ToolName } from "../policy/tools.js";
 import { hashContent } from "../shared/content-hash.js";
 import { MailError } from "../shared/mail-error.js";
+import type { AttachmentMetadata } from "./attachments/incoming.js";
+import type { GetAttachmentInput } from "./attachments/requests.js";
+import type { EditDraftRequest, GetDraftInput } from "./drafts/requests.js";
+import type { GetMessageInput } from "./identity.js";
+import type { CreateMailboxInput } from "./inbox/creation.js";
+import type { ManageMessageInput } from "./inbox/model.js";
+import type { MessageSummary } from "./message.js";
 
 export type AttachmentApprovalInput = {
 	bridgeUser: string;

@@ -12,7 +12,7 @@
 	},
 	"scripts": {
 		"check": "biome check --write",
-		"test": "pnpm build && node --test build/**/*.test.js && node build/policy/test.js",
+		"test": "pnpm build && node --test \"build/**/*.test.js\" && node build/policy/test.js",
 		"prepack": "pnpm build",
 		"build": "node scripts/build.mjs",
 		"policy:check": "pnpm build && node build/policy/test.js",
@@ -33,7 +33,7 @@
 		"!build/**/*.test.js",
 		"!build/**/*fixture*.js",
 		"!build/**/test*.js",
-		"!build/bridge/smtp-test-server.js"
+		"!build/**/testing/**"
 	],
 	"keywords": [
 		"mcp",

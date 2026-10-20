@@ -5,17 +5,20 @@
 This is a TypeScript MCP server for Proton Mail via Proton Bridge. Source lives in `src/` and compiles to `build/`.
 
 - `src/index.ts` is the CLI entry point and MCP stdio startup.
-- `src/mcp/` contains MCP server setup, schemas, responses, and elicitation helpers.
-- `src/bridge/` contains Proton Bridge configuration, IMAP reads, sessions, and SMTP submission.
-- `src/mail/` owns physical message identity, parsed message contracts, and policy-authorized mail access.
-- `src/drafts/` owns draft requests, composition, snapshots, and draft lifecycle logic.
-- `src/sending/` owns send requests, delivery outcomes, and send lifecycle logic.
-- `src/outgoing/` owns message composition contracts, sender selection, and outgoing media.
-- `src/attachments/` owns incoming attachment inspection, downloads, and format limits.
-- `src/inbox/` owns inbox actions, mailbox creation, and inbox lifecycle logic.
-- `src/operations/` owns the SQLite journal, message claims, and logical draft identity bindings.
-- `src/policy/` contains read-policy schema, storage, enforcement, CLI, and checks.
+- `src/cli/` contains setup commands, client configuration, policy commands, and diagnostics.
+- `src/mcp/server.ts` composes the MCP server; `tools/` groups registrations and schemas by mail feature, `protocol/` holds shared protocol behavior, and `integration/` holds cross-feature checks.
+- `src/mail/access.ts` composes policy-authorized access to the mail features.
+- `src/mail/drafts/`, `sending/`, `inbox/`, and `attachments/` own their respective mail workflows and contracts. Draft composition lives in `drafts/composition/`.
+- `src/mail/outgoing/` owns shared outgoing content and sender selection; `media/` owns payload validation, images, and MIME conversion.
+- `src/bridge/` owns Bridge configuration and write authorization contracts. `imap/` contains connection and mailbox operations, with `reading/` and `threads/` grouped separately; `smtp/` owns submission. `testing/` contains transport fixtures.
+- `src/operations/journal.ts` composes the account journal; `sqlite/` owns persistence, migrations, message claims, and draft identity bindings.
+- `src/policy/` owns policy schemas, persistence, evaluation, and checks.
+- `src/config/` owns account configuration and storage locations.
 - `src/shared/` contains cross-cutting helpers such as error formatting.
+
+Directory nesting describes ownership. Keep composition visible in the entry modules above and import implementation modules directly; do not add forwarding barrels. Keep tests beside their owner, with cross-feature MCP checks in `mcp/integration/`.
+
+See [docs/architecture.md](docs/architecture.md) for the source map and composition rules.
 
 Do not edit generated `build/` output directly.
 

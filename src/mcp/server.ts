@@ -1,21 +1,24 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import type { BridgeConfig } from "../bridge/config.js";
-import { createImapService, type ImapService } from "../bridge/imap.js";
+import { createImapService, type ImapService } from "../bridge/imap/service.js";
 import { createMailAccess } from "../mail/access.js";
+import {
+	createSendService,
+	type SendService,
+} from "../mail/sending/service.js";
+import { createSendWorkflow } from "../mail/sending/workflow.js";
 import { createOperationJournal } from "../operations/journal.js";
 import { createToolAccess } from "../policy/access.js";
-import { createSendService, type SendService } from "../sending/service.js";
-import { createSendWorkflow } from "../sending/workflow.js";
-import { registerAttachmentTools } from "./attachment-tools.js";
-import { registerDraftTools } from "./draft-tools.js";
 import {
 	type ApprovalController,
 	createApprovalController,
-} from "./elicitation.js";
-import { registerInboxTools } from "./inbox-tools.js";
-import { registerReadTools } from "./read-tools.js";
-import { registerSendTools } from "./send-tools.js";
-import { ToolRegistry } from "./tool-registry.js";
+} from "./protocol/elicitation.js";
+import { ToolRegistry } from "./protocol/tool-registry.js";
+import { registerAttachmentTools } from "./tools/attachments/register.js";
+import { registerDraftTools } from "./tools/drafts/register.js";
+import { registerInboxTools } from "./tools/inbox/register.js";
+import { registerReadTools } from "./tools/reading/register.js";
+import { registerSendTools } from "./tools/sending/register.js";
 
 export function createServer(options: {
 	config: BridgeConfig;

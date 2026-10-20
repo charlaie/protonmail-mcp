@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { createOperationDatabase } from "./database.js";
-import { createDraftJournal } from "./drafts.js";
-import { createInboxJournal } from "./inbox.js";
-import { createSendJournal } from "./sending.js";
+import { createOperationDatabase } from "./sqlite/database.js";
+import { createDraftJournal } from "./sqlite/drafts.js";
+import { createInboxJournal } from "./sqlite/inbox.js";
+import { createSendJournal } from "./sqlite/sending.js";
 
 const IntegrityResultSchema = z.object({ quick_check: z.literal("ok") });
 

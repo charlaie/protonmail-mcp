@@ -1,4 +1,4 @@
-import type { ManageMessageInput } from "../inbox/model.js";
+import type { ManageMessageInput } from "../mail/inbox/model.js";
 import type { MessageSummary } from "../mail/message.js";
 import { MailError } from "../shared/mail-error.js";
 import type { ReadPolicy } from "./schema.js";

@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { testConfig } from "../bridge/test-fixtures.js";
+import { testConfig } from "../bridge/testing/fixtures.js";
 import { createReadPolicy } from "../policy/schema.js";
 import { saveReadPolicy } from "../policy/store.js";
 import { commitSettings, readSettingsSnapshot } from "./settings.js";
