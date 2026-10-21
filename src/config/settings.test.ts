@@ -6,7 +6,8 @@ import { type TestContext, test } from "node:test";
 import { testConfig } from "@/bridge/testing/fixtures.js";
 import { createReadPolicy } from "@/policy/schema.js";
 import { saveReadPolicy } from "@/policy/store.js";
-import { commitSettings, readSettingsSnapshot } from "./settings.js";
+import { readOptionalTextFile } from "@/shared/private-file.js";
+import { commitSettings } from "./settings.js";
 import { resolveServerConfig, saveServerConfig } from "./store.js";
 
 async function fixture(t: TestContext, existing = true) {
@@ -29,8 +30,8 @@ async function fixture(t: TestContext, existing = true) {
 		await saveServerConfig(config, configPath);
 		await saveReadPolicy(policy, config.storage.policyFile);
 	}
-	const expectedConfig = await readSettingsSnapshot(configPath);
-	const expectedPolicy = await readSettingsSnapshot(config.storage.policyFile);
+	const expectedConfig = await readOptionalTextFile(configPath);
+	const expectedPolicy = await readOptionalTextFile(config.storage.policyFile);
 	const input = {
 		configPath,
 		config,
@@ -53,11 +54,11 @@ for (const existing of [true, false]) {
 			/Simulated/,
 		);
 		assert.equal(
-			await readSettingsSnapshot(input.configPath),
+			await readOptionalTextFile(input.configPath),
 			input.expectedConfig,
 		);
 		assert.equal(
-			await readSettingsSnapshot(input.config.storage.policyFile),
+			await readOptionalTextFile(input.config.storage.policyFile),
 			input.expectedPolicy,
 		);
 		assert.deepEqual(
@@ -74,18 +75,18 @@ test("a settings review cannot overwrite newer grants or another account's polic
 		allowedMailboxes: ["Drafts"],
 	});
 	await saveReadPolicy(other, input.config.storage.policyFile);
-	const changed = await readSettingsSnapshot(input.config.storage.policyFile);
+	const changed = await readOptionalTextFile(input.config.storage.policyFile);
 	await assert.rejects(commitSettings(input), /changed during setup/);
 	await assert.rejects(
 		commitSettings({ ...input, expectedPolicy: changed }),
 		/another Bridge account/,
 	);
 	assert.equal(
-		await readSettingsSnapshot(input.config.storage.policyFile),
+		await readOptionalTextFile(input.config.storage.policyFile),
 		changed,
 	);
 	assert.equal(
-		await readSettingsSnapshot(input.configPath),
+		await readOptionalTextFile(input.configPath),
 		input.expectedConfig,
 	);
 });

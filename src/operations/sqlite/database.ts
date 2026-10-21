@@ -9,6 +9,17 @@ import {
 	migrateDraftIdentities,
 } from "./draft-identities.js";
 
+const JOURNAL_SCHEMA = [
+	"PRAGMA busy_timeout=5000;",
+	"PRAGMA synchronous=FULL;",
+	"CREATE TABLE IF NOT EXISTS sends (id TEXT PRIMARY KEY, record TEXT NOT NULL);",
+	"CREATE TABLE IF NOT EXISTS draft_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL);",
+	"CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, message_id TEXT UNIQUE NOT NULL, record TEXT NOT NULL);",
+	"CREATE TABLE IF NOT EXISTS draft_mutations (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL);",
+	"CREATE TABLE IF NOT EXISTS inbox_operations (id TEXT PRIMARY KEY, record TEXT NOT NULL);",
+	"CREATE TABLE IF NOT EXISTS inbox_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL);",
+].join(" ");
+
 function transact<T>(db: DatabaseSync, operation: (db: DatabaseSync) => T) {
 	db.exec("BEGIN IMMEDIATE");
 	try {
@@ -21,22 +32,35 @@ function transact<T>(db: DatabaseSync, operation: (db: DatabaseSync) => T) {
 	}
 }
 
+async function preparePrivateFile(directory: string, path: string) {
+	await mkdir(directory, { recursive: true, mode: 0o700 });
+	const file = await open(path, "a", 0o600);
+	await file.close();
+	await chmod(path, 0o600);
+}
+
+function storageError(error: unknown) {
+	if (error instanceof MailError) return error;
+	return new MailError(
+		"STORAGE_FAILED",
+		"Operation journal could not be accessed. Restore access and inspect the operation ID before retrying any attempted write.",
+		"configure",
+		{ cause: error },
+	);
+}
+
 export function createOperationDatabase(
 	account: string,
 	directory = join(dirname(getPolicyFilePath()), "send-operations"),
 ) {
 	const path = join(directory, `${hashContent(account)}.sqlite`);
+
 	async function use<T>(operation: (db: DatabaseSync) => T): Promise<T> {
 		try {
-			await mkdir(directory, { recursive: true, mode: 0o700 });
-			const file = await open(path, "a", 0o600);
-			await file.close();
-			await chmod(path, 0o600);
+			await preparePrivateFile(directory, path);
 			const db = new DatabaseSync(path);
 			try {
-				db.exec(
-					"PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS sends (id TEXT PRIMARY KEY, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL); CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, message_id TEXT UNIQUE NOT NULL, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS draft_mutations (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL); CREATE TABLE IF NOT EXISTS inbox_operations (id TEXT PRIMARY KEY, record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS inbox_claims (identity TEXT PRIMARY KEY, operation_id TEXT NOT NULL);",
-				);
+				db.exec(JOURNAL_SCHEMA);
 				// Every facet must observe migrated lineage before inspecting claims.
 				if (!draftIdentitiesReady(db)) transact(db, migrateDraftIdentities);
 				return operation(db);
@@ -44,18 +68,14 @@ export function createOperationDatabase(
 				db.close();
 			}
 		} catch (error) {
-			if (error instanceof MailError) throw error;
-			throw new MailError(
-				"STORAGE_FAILED",
-				"Operation journal could not be accessed. Restore access and inspect the operation ID before retrying any attempted write.",
-				"configure",
-				{ cause: error },
-			);
+			throw storageError(error);
 		}
 	}
+
 	function transaction<T>(operation: (db: DatabaseSync) => T) {
 		return use((db) => transact(db, operation));
 	}
+
 	return { path, use, transaction };
 }
 

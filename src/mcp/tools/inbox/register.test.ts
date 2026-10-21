@@ -26,8 +26,7 @@ import {
 
 async function fixture(t: TestContext, enabled = true) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-inbox-mcp-"));
-	const path = join(directory, "policy.json");
-	const policyFile = path;
+	const policyFile = join(directory, "policy.json");
 	t.after(async () => {
 		await rm(directory, { recursive: true, force: true });
 	});
@@ -61,12 +60,10 @@ async function fixture(t: TestContext, enabled = true) {
 	for (const name of ["Archive", "Trash", "Labels/Work", "Drafts", "Secret"])
 		client.mailboxes.set(name, []);
 	client.capabilities.set("MOVE", true);
-	const imap = createImapService(
-		testConfig,
-		async (operation) => operation(client),
-		undefined,
-		createInboxStore(testConfig.user, directory),
-	);
+	const imap = createImapService(testConfig, {
+		run: async (operation) => operation(client),
+		inboxStore: createInboxStore(testConfig.user, directory),
+	});
 	const mcp = await createTestClient(t, () =>
 		createServer({
 			config: testConfig,
@@ -82,7 +79,7 @@ async function fixture(t: TestContext, enabled = true) {
 		uidValidity: "7",
 		change: { action },
 	});
-	return { directory, path, policy, client, imap, mcp, input };
+	return { directory, policyFile, policy, client, imap, mcp, input };
 }
 
 test("existing policies deny inbox writes; invalid write grants cannot expand readable paths", async (t) => {
@@ -125,11 +122,12 @@ test("MCP capabilities, inbox mutations, and journal tools satisfy advertised co
 	assert.ok("nativeMoveSupported" in capabilities);
 	assert.equal(capabilities.nativeMoveSupported, true);
 	assert.equal(
-		capabilities.mailboxes.some((item) => item.path === "Secret"),
+		capabilities.mailboxes.some((mailbox) => mailbox.path === "Secret"),
 		false,
 	);
 	assert.equal(
-		capabilities.mailboxes.find((item) => item.path === "Drafts")?.writable,
+		capabilities.mailboxes.find((mailbox) => mailbox.path === "Drafts")
+			?.writable,
 		false,
 	);
 	const input = f.input("mark_read");
@@ -144,7 +142,7 @@ test("MCP capabilities, inbox mutations, and journal tools satisfy advertised co
 		record,
 	);
 	assert.equal(f.client.flagChanges.length, 1);
-	await unlink(f.path);
+	await unlink(f.policyFile);
 	assert.deepEqual(
 		(
 			await f.mcp.callTool("get_inbox_operation", {
@@ -174,7 +172,7 @@ test("action, source, destination and sender policy are enforced before external
 				mailboxes: ["INBOX"],
 			},
 		}),
-		f.path,
+		f.policyFile,
 	);
 	const denied = await f.mcp.callTool("manage_message", f.input("archive"));
 	assert.equal(denied.isError, true);
@@ -198,7 +196,7 @@ test("action, source, destination and sender policy are enforced before external
 				mailboxes: ["INBOX", "Archive"],
 			},
 		}),
-		f.path,
+		f.policyFile,
 	);
 	assert.equal(
 		(await f.mcp.callTool("manage_message", f.input("archive"))).isError,
@@ -206,9 +204,13 @@ test("action, source, destination and sender policy are enforced before external
 	);
 	assert.equal(f.client.moves.length + f.client.flagChanges.length, 0);
 	assert.equal(f.client.sourceFetches, 0);
-	const reads = await createMailAccess(f.imap, "bridge@example.com", f.path);
+	const mail = await createMailAccess(
+		f.imap,
+		"bridge@example.com",
+		f.policyFile,
+	);
 	await assert.rejects(
-		reads.manageInbox({
+		mail.manageInbox({
 			...f.input("archive"),
 			mailbox: "Secret",
 			change: { action: "archive" },
@@ -226,7 +228,7 @@ test("policy reload during an inbox action revokes write permission before STORE
 		if (++opens === 1)
 			await saveReadPolicy(
 				{ ...f.policy, inboxWrites: { mode: "disabled" } },
-				f.path,
+				f.policyFile,
 			);
 		return result;
 	};
@@ -243,7 +245,7 @@ test("policy reload during an inbox action revokes write permission before STORE
 	);
 	assert.ok("operations" in listed);
 	assert.deepEqual(listed.operations, []);
-	await saveReadPolicy(f.policy, f.path);
+	await saveReadPolicy(f.policy, f.policyFile);
 	assert.deepEqual(
 		(await f.mcp.callTool("manage_message", aborted.request)).structuredContent,
 		aborted,

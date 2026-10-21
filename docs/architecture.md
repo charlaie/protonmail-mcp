@@ -18,20 +18,25 @@ src/
 │   │   ├── sending/                 Send registrations, schemas, and tests
 │   │   ├── inbox/                   Inbox registrations, schemas, and tests
 │   │   └── attachments/             Attachment registrations and approval tests
-│   ├── protocol/                    Registry, elicitation, and response handling
+│   ├── protocol/                    Registry, annotations, elicitation, and responses
 │   └── integration/                 Cross-feature checks and the test client
 ├── mail/
 │   ├── access.ts                    Compose policy-authorized mail access
 │   ├── identity.ts                  Physical mailbox identity
 │   ├── message.ts                   Shared received-message contracts
+│   ├── mailboxes.ts                 Selectable special-mailbox resolution
 │   ├── drafts/
+│   │   ├── workflow.ts              Authorized creation, reply composition, and replay
 │   │   ├── service.ts               Draft identity, revisions, and recovery
 │   │   ├── snapshots.ts             Inspect and fingerprint saved drafts
 │   │   └── composition/             Compose new drafts and replies
 │   ├── sending/
 │   │   ├── workflow.ts              Replay, approval, and source rechecks
 │   │   └── service.ts               Durable submission and cleanup outcomes
-│   ├── inbox/                       Placement, flags, and mailbox creation
+│   ├── inbox/
+│   │   ├── service.ts               Claims, dispatch, and recorded outcomes
+│   │   ├── evidence.ts              Message inspection and reconciliation evidence
+│   │   └── mailboxes.ts             Placement plans and mailbox classification
 │   ├── attachments/                 Incoming inspection and bounded downloads
 │   └── outgoing/
 │       ├── content.ts               Shared composition fields
@@ -51,7 +56,7 @@ src/
 ├── operations/
 │   ├── journal.ts                   Compose the account journal and integrity check
 │   ├── identity.ts                  Operation UUID and lookup contracts
-│   └── sqlite/                      Persistence, migrations, and shared claims
+│   └── sqlite/                      Persistence, record access, migrations, and shared claims
 ├── policy/                          Access grants, evaluation, and persistence
 ├── config/                          Account profiles, paths, and settings commits
 ├── shared/                          Errors, content hashing, and private files
@@ -68,7 +73,23 @@ The tree above selects entry modules and groups rather than listing every file. 
 
 `bridge/imap/service.ts` combines the session, message reads, thread reconstruction, draft workflow, inbox workflow, and attachment operations. Nesting the IMAP implementation does not make Bridge the owner of draft or inbox rules. Those rules remain under `mail/`.
 
+IMAP composition takes named dependencies (`run`, `draftStore`, and `inboxStore`). Sending takes named `authorize` and `cleanup` callbacks. Callers can override one dependency without positional placeholders.
+
 `operations/journal.ts` assembles typed draft, send, and inbox journal operations over the SQLite implementation. Cross-feature claims and draft lineage belong together under `operations/sqlite/` because all mutations must obey the same account journal.
+
+`config/locks.ts` owns settings lock acquisition and release for account setup and client installation. Each caller holds its locks while checking the reviewed snapshots, saving files, and completing any rollback. `shared/private-file.ts` owns optional text reads and private staged file replacement.
+
+## Workflow contracts
+
+Sending uses one lifecycle for new mail, forwards, and saved drafts: check replay, compose, prepare, request approval, recheck source content, authorize, and submit. Forward plans require a source recheck; draft plans also require cleanup. The send service authorizes again after acquiring its durable claim and persists acceptance before cleanup.
+
+Inbox changes track the current attempt separately from the durable journal outcome. A confirmed reservation can be aborted before dispatch. A confirmed dispatch can be aborted only while its owner knows the IMAP command has not started. A lost dispatch acknowledgement or a failure after starting the command retains uncertainty. Reconciliation gathers evidence through `inbox/evidence.ts` and never repeats a write.
+
+Setup and runtime use `mail/mailboxes.ts` to resolve Drafts, Sent, Archive, and Trash. Server-declared roles take precedence over conventional folder names, and non-selectable namespaces are excluded.
+
+Draft composition distinguishes creation from editing; an edit requires its parsed original. Composition produces MIME bytes without writing to IMAP. The draft service owns the journal claim and APPEND. `drafts/workflow.ts` coordinates mailbox authorization, reply-source reads, composition, and replay; MCP registrations only translate requests and responses.
+
+Message and draft reads share the 10 MiB size rule for advertised sizes and actual fetched bytes. Both authorize parsed sender addresses before returning message content, in addition to checking the IMAP envelope before fetching it.
 
 ## Placement rules
 
@@ -90,3 +111,5 @@ import { safeErrorMessage } from "@/shared/errors.js";
 Keep same-directory imports relative, such as `./model.js`. TypeScript resolves the alias through `compilerOptions.paths` in `tsconfig.json`. After compilation, `pnpm build` uses `tsc-alias` to rewrite aliases to relative paths in `build/`, so the CLI and published package run directly in Node without a runtime loader. Use `pnpm build` rather than invoking `tsc` alone when producing runnable output.
 
 `pnpm test` passes a quoted recursive pattern to Node so nested test files are discovered on every supported shell. Package exclusions keep tests, fixtures, and `testing/` directories out of the published runtime.
+
+TypeScript checks unchecked indexed access, missing return paths, and switch fallthrough in addition to strict mode. Tests must establish that a fetched array element exists before inspecting it.

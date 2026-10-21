@@ -1,39 +1,129 @@
 import type { ListResponse } from "imapflow";
+import { findSpecialMailbox } from "@/mail/mailboxes.js";
 import { MailError } from "@/shared/mail-error.js";
 import type { InboxPlan, ManageMessageInput } from "./model.js";
 
-export function mailboxKind(mailbox: ListResponse, mailboxes: ListResponse[]) {
-	if (
-		mailbox.specialUse === "\\Drafts" ||
-		mailbox.flags.has("\\Drafts") ||
-		mailbox.name === "Drafts"
-	)
+type MailboxKind = "drafts" | "view" | "label" | "folder";
+type InboxChange = ManageMessageInput["change"];
+
+const FLAG_CHANGES = {
+	mark_read: { flag: "\\Seen", enabled: true },
+	mark_unread: { flag: "\\Seen", enabled: false },
+	star: { flag: "\\Flagged", enabled: true },
+	unstar: { flag: "\\Flagged", enabled: false },
+} as const;
+
+function hasRole(mailbox: ListResponse, role: string) {
+	return mailbox.specialUse === role || mailbox.flags.has(role);
+}
+
+function isStarredView(mailbox: ListResponse) {
+	return hasRole(mailbox, "\\Flagged") || mailbox.path === "Starred";
+}
+
+function isLabel(mailbox: ListResponse, mailboxes: ListResponse[]) {
+	const namespaces = mailboxes
+		.filter(
+			(namespace) =>
+				namespace.name === "Labels" && namespace.flags.has("\\Noselect"),
+		)
+		.map((namespace) => `${namespace.path}${namespace.delimiter}`);
+	return [`Labels${mailbox.delimiter}`, ...namespaces].some((prefix) =>
+		mailbox.path.startsWith(prefix),
+	);
+}
+
+export function mailboxKind(
+	mailbox: ListResponse,
+	mailboxes: ListResponse[],
+): MailboxKind {
+	if (hasRole(mailbox, "\\Drafts") || mailbox.name === "Drafts")
 		return "drafts";
 	if (
-		["\\All", "\\Flagged"].some(
-			(flag) => mailbox.specialUse === flag || mailbox.flags.has(flag),
-		) ||
+		hasRole(mailbox, "\\All") ||
 		mailbox.path === "All Mail" ||
-		mailbox.path === "Starred"
+		isStarredView(mailbox)
 	)
 		return "view";
-	const prefixes = [
-		`Labels${mailbox.delimiter}`,
-		...mailboxes
-			.filter((item) => item.name === "Labels" && item.flags.has("\\Noselect"))
-			.map((item) => `${item.path}${item.delimiter}`),
-	];
-	return prefixes.some((prefix) => mailbox.path.startsWith(prefix))
-		? "label"
-		: "folder";
+	return isLabel(mailbox, mailboxes) ? "label" : "folder";
 }
+
+function findSelectable(mailboxes: ListResponse[], path: string | undefined) {
+	return mailboxes.find(
+		(mailbox) => mailbox.path === path && !mailbox.flags.has("\\Noselect"),
+	);
+}
+
+function moveDestination(
+	change: Exclude<InboxChange, { action: keyof typeof FLAG_CHANGES }>,
+	mailboxes: ListResponse[],
+) {
+	switch (change.action) {
+		case "archive":
+		case "trash":
+			return findSpecialMailbox(mailboxes, change.action)?.path;
+		case "move":
+		case "remove_label":
+			return change.destination;
+		case "apply_label":
+			return change.label;
+		default: {
+			const exhaustive: never = change;
+			return exhaustive;
+		}
+	}
+}
+
+function requireValidPlacement(
+	action: InboxChange["action"],
+	sourceKind: MailboxKind,
+	targetKind: MailboxKind,
+	sameMailbox: boolean,
+) {
+	if (sourceKind === "view" || targetKind === "view")
+		throw new MailError(
+			"INVALID_INPUT",
+			"Move from the message's ordinary folder to an ordinary folder or use explicit label actions. All Mail and Starred are views, not placement destinations.",
+			"never",
+		);
+	if (targetKind === "drafts" || sameMailbox)
+		throw new MailError(
+			"INVALID_INPUT",
+			"Choose a different destination outside Drafts.",
+			"never",
+		);
+
+	if (action === "apply_label") {
+		if (targetKind !== "label" || sourceKind === "label")
+			throw new MailError(
+				"INVALID_INPUT",
+				"Apply a label from the message's ordinary folder to an exact Labels mailbox path.",
+				"never",
+			);
+		return;
+	}
+	if (action === "remove_label") {
+		if (sourceKind !== "label" || targetKind !== "folder")
+			throw new MailError(
+				"INVALID_INPUT",
+				"Remove a label by moving from its Labels mailbox to an ordinary folder. This also chooses the message's destination folder.",
+				"never",
+			);
+		return;
+	}
+	if (sourceKind === "label" || targetKind === "label")
+		throw new MailError(
+			"INVALID_INPUT",
+			"Use apply_label or remove_label for label projections. Ordinary moves cannot change labels implicitly.",
+			"never",
+		);
+}
+
 export function inboxPlan(
 	input: ManageMessageInput,
 	mailboxes: ListResponse[],
 ): InboxPlan {
-	const source = mailboxes.find(
-		(item) => item.path === input.mailbox && !item.flags.has("\\Noselect"),
-	);
+	const source = findSelectable(mailboxes, input.mailbox);
 	if (!source)
 		throw new MailError(
 			"NOT_FOUND",
@@ -47,110 +137,36 @@ export function inboxPlan(
 			"Inbox tools cannot mutate Drafts. Use the draft and send tools.",
 			"never",
 		);
-	let destination: string;
-	switch (input.change.action) {
+
+	const { change } = input;
+	switch (change.action) {
 		case "mark_read":
-			return {
-				kind: "flag",
-				flag: "\\Seen",
-				enabled: true,
-				sourceMayDisappear: false,
-			};
 		case "mark_unread":
-			return {
-				kind: "flag",
-				flag: "\\Seen",
-				enabled: false,
-				sourceMayDisappear: false,
-			};
 		case "star":
-			return {
-				kind: "flag",
-				flag: "\\Flagged",
-				enabled: true,
-				sourceMayDisappear: false,
-			};
 		case "unstar":
 			return {
 				kind: "flag",
-				flag: "\\Flagged",
-				enabled: false,
-				sourceMayDisappear:
-					source.specialUse === "\\Flagged" ||
-					source.flags.has("\\Flagged") ||
-					source.path === "Starred",
+				...FLAG_CHANGES[change.action],
+				sourceMayDisappear: change.action === "unstar" && isStarredView(source),
 			};
-		case "archive":
-		case "trash": {
-			const special =
-				input.change.action === "archive" ? "\\Archive" : "\\Trash";
-			const fallback = input.change.action === "archive" ? "Archive" : "Trash";
-			destination =
-				(
-					mailboxes.find(
-						(item) => item.specialUse === special || item.flags.has(special),
-					) ?? mailboxes.find((item) => item.path === fallback)
-				)?.path ?? "";
-			break;
-		}
-		case "move":
-		case "remove_label":
-			destination = input.change.destination;
-			break;
-		case "apply_label":
-			destination = input.change.label;
-			break;
-		default: {
-			const exhaustive: never = input.change;
-			return exhaustive;
-		}
 	}
-	const target = mailboxes.find(
-		(item) => item.path === destination && !item.flags.has("\\Noselect"),
-	);
+
+	const target = findSelectable(mailboxes, moveDestination(change, mailboxes));
 	if (!target)
 		throw new MailError(
 			"NOT_FOUND",
 			"Destination mailbox is not selectable. Refresh list_mailboxes.",
 			"configure",
 		);
-	const targetKind = mailboxKind(target, mailboxes);
-	if (sourceKind === "view" || targetKind === "view")
-		throw new MailError(
-			"INVALID_INPUT",
-			"Move from the message's ordinary folder to an ordinary folder or use explicit label actions. All Mail and Starred are views, not placement destinations.",
-			"never",
-		);
-	if (targetKind === "drafts" || destination === source.path)
-		throw new MailError(
-			"INVALID_INPUT",
-			"Choose a different destination outside Drafts.",
-			"never",
-		);
-	if (input.change.action === "apply_label") {
-		if (targetKind !== "label" || sourceKind === "label")
-			throw new MailError(
-				"INVALID_INPUT",
-				"Apply a label from the message's ordinary folder to an exact Labels mailbox path.",
-				"never",
-			);
-	} else if (input.change.action === "remove_label") {
-		if (sourceKind !== "label" || targetKind !== "folder")
-			throw new MailError(
-				"INVALID_INPUT",
-				"Remove a label by moving from its Labels mailbox to an ordinary folder. This also chooses the message's destination folder.",
-				"never",
-			);
-	} else if (sourceKind === "label" || targetKind === "label") {
-		throw new MailError(
-			"INVALID_INPUT",
-			"Use apply_label or remove_label for label projections. Ordinary moves cannot change labels implicitly.",
-			"never",
-		);
-	}
+	requireValidPlacement(
+		change.action,
+		sourceKind,
+		mailboxKind(target, mailboxes),
+		target.path === source.path,
+	);
 	return {
 		kind: "move",
-		destination,
-		retainsSource: input.change.action === "apply_label",
+		destination: target.path,
+		retainsSource: change.action === "apply_label",
 	};
 }

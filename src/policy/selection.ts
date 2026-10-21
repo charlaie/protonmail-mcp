@@ -6,22 +6,27 @@ import { DomainSchema } from "./schema.js";
 export function splitCsv(value: string) {
 	return value
 		.split(",")
-		.map((item) => item.trim())
+		.map((entry) => entry.trim())
 		.filter(Boolean);
 }
 
+function selectedMailbox(entry: string, mailboxes: string[]) {
+	if (/^\d+$/.test(entry)) return mailboxes[Number(entry) - 1];
+	return mailboxes.find((mailbox) => mailbox === entry);
+}
+
 export function parseMailboxSelection(answer: string, mailboxes: string[]) {
-	const selected = splitCsv(answer).map((item) =>
-		/^\d+$/.test(item)
-			? mailboxes[Number(item) - 1]
-			: mailboxes.find((mailbox) => mailbox === item),
+	const selected = splitCsv(answer).map((entry) =>
+		selectedMailbox(entry, mailboxes),
 	);
 	if (selected.length === 0) throw new Error("Select at least one mailbox.");
-	if (selected.some((mailbox) => mailbox === undefined))
+
+	const known = selected.filter((mailbox) => mailbox !== undefined);
+	if (known.length !== selected.length)
 		throw new Error(
 			"Unknown mailbox selection. Use numbers from the list or exact mailbox paths.",
 		);
-	return [...new Set(selected.filter((mailbox) => mailbox !== undefined))];
+	return [...new Set(known)];
 }
 
 export function parseSenderEmails(answer: string) {
@@ -31,18 +36,16 @@ export function parseSenderEmails(answer: string) {
 export function parseInboxActions(answer: string) {
 	return [...new Set(z.array(InboxActionNameSchema).parse(splitCsv(answer)))];
 }
+
 export function parseSenderDomains(answer: string) {
 	return z.array(DomainSchema).parse(splitCsv(answer));
 }
 
 export function parseAttachmentExtensions(answer: string) {
-	return [
-		...new Set(
-			z
-				.array(AttachmentPermissionSchema)
-				.parse(splitCsv(answer).map((extension) => extension.toLowerCase())),
-		),
-	];
+	const extensions = splitCsv(answer).map((extension) =>
+		extension.toLowerCase(),
+	);
+	return [...new Set(z.array(AttachmentPermissionSchema).parse(extensions))];
 }
 
 export function parseAttachmentApproval(answer: string) {

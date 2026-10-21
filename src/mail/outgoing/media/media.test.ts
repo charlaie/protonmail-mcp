@@ -210,7 +210,10 @@ test("attachment/inline MIME roundtrip preserves exact bytes, filename, MIME and
 			}),
 			mailbox: "Drafts",
 		};
-		const draft = await composeDraft(testConfig, input);
+		const draft = await composeDraft(testConfig, {
+			kind: "create",
+			input: input,
+		});
 		assert.match(draft.content.toString(), /Content-Type: text\/plain/);
 		const original = await simpleParser(draft.content, {
 			skipImageLinks: true,
@@ -300,11 +303,14 @@ test("draft attachment parsing preserves declared octet-stream and non-UTF-8 cha
 		},
 	];
 	const draft = await composeDraft(testConfig, {
-		...CreateDraftSchema.parse({
-			operationId: randomUUID(),
-			attachments: files,
-		}),
-		mailbox: "Drafts",
+		kind: "create",
+		input: {
+			...CreateDraftSchema.parse({
+				operationId: randomUUID(),
+				attachments: files,
+			}),
+			mailbox: "Drafts",
+		},
 	});
 	const parsed = await simpleParser(draft.content, {
 		skipImageLinks: true,
@@ -333,12 +339,15 @@ test("JPEG and GIF inline files pass independent format readers, while malformed
 	for (const image of [testJpeg, testGif]) {
 		assert.equal(InlineImagePayloadSchema.safeParse(image).success, true);
 		const draft = await composeDraft(testConfig, {
-			...CreateDraftSchema.parse({
-				operationId: randomUUID(),
-				text: "Image",
-				inlineImages: [image],
-			}),
-			mailbox: "Drafts",
+			kind: "create",
+			input: {
+				...CreateDraftSchema.parse({
+					operationId: randomUUID(),
+					text: "Image",
+					inlineImages: [image],
+				}),
+				mailbox: "Drafts",
+			},
 		});
 		const parsed = await simpleParser(draft.content, {
 			skipImageLinks: true,

@@ -64,9 +64,9 @@ test("policy persistence stays complete and private; legacy/account mismatch is 
 	assert.equal(await readFile(path, "utf8"), contents);
 	assert.deepEqual(await readdir(directory), ["policy.json"]);
 	const client = new FakeImap();
-	const imap = createImapService(testConfig, async (operation) =>
-		operation(client),
-	);
+	const imap = createImapService(testConfig, {
+		run: async (operation) => operation(client),
+	});
 	await assert.rejects(
 		createMailAccess(imap, "another@example.com", policyFile),
 		/not bound/,
@@ -182,10 +182,10 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 			disposition: "attachment",
 		},
 	});
-	const imap = createImapService(testConfig, async (operation) =>
-		operation(client),
-	);
-	let reads = await createMailAccess(imap, testConfig.user, policyFile);
+	const imap = createImapService(testConfig, {
+		run: async (operation) => operation(client),
+	});
+	let mail = await createMailAccess(imap, testConfig.user, policyFile);
 	const input = GetAttachmentSchema.parse({
 		mailbox: "INBOX",
 		uid: 1,
@@ -193,17 +193,17 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		attachmentId: "2",
 	});
 	assert.equal(
-		(await reads.listAttachments(input)).attachments[0]?.inspection.kind,
+		(await mail.listAttachments(input)).attachments[0]?.inspection.kind,
 		"blocked",
 	);
-	await assert.rejects(reads.getAttachment(input), /not allowed/);
+	await assert.rejects(mail.getAttachment(input), /not allowed/);
 	assert.equal(client.downloads.length, 0);
 	await saveReadPolicy(
 		{ ...policy, allowedAttachmentExtensions: [".txt"] },
 		policyFile,
 	);
-	reads = await createMailAccess(imap, testConfig.user, policyFile);
-	assert.equal((await reads.getAttachment(input)).status, "raw");
+	mail = await createMailAccess(imap, testConfig.user, policyFile);
+	assert.equal((await mail.getAttachment(input)).status, "raw");
 	assert.equal(client.downloads.length, 1);
 	await saveReadPolicy(
 		{
@@ -213,26 +213,26 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		},
 		policyFile,
 	);
-	reads = await createMailAccess(imap, testConfig.user, policyFile);
+	mail = await createMailAccess(imap, testConfig.user, policyFile);
 	assert.equal(
-		(await reads.prepareAttachmentRead(input)).kind,
+		(await mail.prepareAttachmentRead(input)).kind,
 		"approval_required",
 	);
-	await assert.rejects(reads.getAttachment(input), /Approval is required/);
+	await assert.rejects(mail.getAttachment(input), /Approval is required/);
 	assert.equal(client.downloads.length, 1);
 	await saveReadPolicy(
 		{ ...policy, allowedAttachmentExtensions: [".txt"] },
 		policyFile,
 	);
-	reads = await createMailAccess(imap, testConfig.user, policyFile);
+	mail = await createMailAccess(imap, testConfig.user, policyFile);
 	await assert.rejects(
-		reads.getAttachment({ ...input, mailbox: "Archive" }),
+		mail.getAttachment({ ...input, mailbox: "Archive" }),
 		/Mailbox/,
 	);
 	assert.ok(message.envelope);
 	message.envelope.from = [{ address: "untrusted@example.com" }];
-	await assert.rejects(reads.listAttachments(input), /sender/);
-	await assert.rejects(reads.getAttachment(input), /sender/);
+	await assert.rejects(mail.listAttachments(input), /sender/);
+	await assert.rejects(mail.getAttachment(input), /sender/);
 	assert.equal(client.downloads.length, 1);
 	await assert.rejects(
 		createMailAccess(imap, "different@example.com", policyFile),

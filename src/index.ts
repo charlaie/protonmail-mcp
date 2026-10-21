@@ -10,8 +10,13 @@ import { SearchMessagesSchema } from "@/bridge/imap/reading/requests.js";
 import { createImapService } from "@/bridge/imap/service.js";
 import {
 	CLIENTS,
+	type ClientName,
 	ClientNameSchema,
+	clientConfigSavedMessage,
+	installClientConfig,
+	type LaunchSpecification,
 	launchSpecification,
+	prepareClientInstallation,
 	renderClientConfig,
 } from "@/cli/clients/configuration.js";
 import {
@@ -19,7 +24,7 @@ import {
 	diagnoseServer,
 } from "@/cli/diagnostics/service.js";
 import { getConfigFilePath } from "@/config/paths.js";
-import { requireServerConfig } from "@/config/store.js";
+import { requireServerConfig, type ServerConfig } from "@/config/store.js";
 import { createMailAccess } from "@/mail/access.js";
 import { GetMessageSchema } from "@/mail/identity.js";
 import { createServer } from "@/mcp/server.js";
@@ -27,6 +32,7 @@ import { createToolAccess } from "@/policy/access.js";
 import { safeErrorMessage } from "@/shared/errors.js";
 
 const entryPath = fileURLToPath(import.meta.url);
+
 const CommandSchema = z.enum([
 	"serve",
 	"setup",
@@ -38,6 +44,25 @@ const CommandSchema = z.enum([
 	"bridge:search",
 	"bridge:read",
 ]);
+
+type Command = z.infer<typeof CommandSchema>;
+
+type BridgeCommand = Extract<Command, `bridge:${string}`>;
+
+const SetupSectionSchema = z.enum([
+	"all",
+	"credentials",
+	"permissions",
+	"client",
+]);
+
+const ServerNameSchema = z
+	.string()
+	.regex(
+		/^[a-zA-Z0-9_-]+$/,
+		"Server names may contain only letters, digits, underscores and hyphens.",
+	);
+
 function usage() {
 	return [
 		"Usage:",
@@ -84,123 +109,33 @@ async function main() {
 		console.log(usage());
 		return;
 	}
-	const parsedCommand = CommandSchema.safeParse(rawCommand);
-	if (!parsedCommand.success)
-		throw new Error(
-			`Unknown command ${JSON.stringify(rawCommand)}.\n${usage()}`,
-		);
-	const command = parsedCommand.data;
+
+	const command = parseCommand(rawCommand);
 	const configPath = resolve(values.config ?? getConfigFilePath());
-	const serverName = z
-		.string()
-		.regex(
-			/^[a-zA-Z0-9_-]+$/,
-			"Server names may contain only letters, digits, underscores and hyphens.",
-		)
-		.parse(values.name ?? "protonmail");
+	const serverName = ServerNameSchema.parse(values.name ?? "protonmail");
 	if (command === "setup") {
-		const { runSetupCommand } = await import("@/cli/setup/command.js");
-		await runSetupCommand({
-			configPath: configPath,
-			entryPath: entryPath,
-			section: z
-				.enum(["all", "credentials", "permissions", "client"])
-				.parse(values.section ?? "all"),
-			serverName: serverName,
-		});
+		await runSetup(configPath, values.section, serverName);
 		return;
 	}
 	if (command === "doctor") {
-		let results: DiagnosticResult[];
-		try {
-			const config = await requireServerConfig(configPath);
-			results = await diagnoseServer(
-				config,
-				launchSpecification({ configPath: configPath, entryPath: entryPath }),
-			);
-		} catch (error) {
-			results = [
-				{
-					check: "configuration",
-					status: "failed",
-					message: safeErrorMessage(error),
-					fix: `Run protonmail-mcp setup --config ${JSON.stringify(configPath)}.`,
-				},
-			];
-		}
-		if (values.json) printJson({ configPath, results });
-		else
-			for (const result of results)
-				console.log(
-					`${result.status.toUpperCase()} ${result.check}: ${result.message}${result.status === "failed" ? `\n  Fix: ${result.fix}` : ""}`,
-				);
-		if (results.some((result) => result.status === "failed"))
-			process.exitCode = 1;
+		await runDoctor(configPath, values.json);
 		return;
 	}
+
 	const config = await requireServerConfig(configPath);
 	switch (command) {
 		case "serve":
-			serveStdio(
-				() =>
-					createServer({
-						config: config.bridge,
-						policyFile: config.storage.policyFile,
-						operationsDirectory: config.storage.operationsDirectory,
-					}),
-				{
-					onerror: () =>
-						console.error(
-							"MCP transport failed. Run protonmail-mcp doctor with this configuration.",
-						),
-				},
-			);
+			serve(config);
 			return;
-		case "client-config": {
-			const client = ClientNameSchema.parse(values.client);
-			const launch = launchSpecification({
-				configPath: configPath,
-				entryPath: entryPath,
+		case "client-config":
+			await runClientConfig({
+				configPath,
+				serverName,
+				client: values.client,
+				install: values.install,
+				output: values.output,
 			});
-			const snippet = renderClientConfig(client, launch, serverName);
-			if (values.install && values.output)
-				throw new Error("Choose either --install or --output.");
-			if (values.install) {
-				const { prepareClientInstallation, installClientConfig } = await import(
-					"@/cli/clients/configuration.js"
-				);
-				const { answer, requireTerminal } = await import(
-					"@/cli/setup/prompts.js"
-				);
-				const prompts = await import("@clack/prompts");
-				requireTerminal();
-				const plan = await prepareClientInstallation(
-					client,
-					values.install,
-					launch,
-					serverName,
-				);
-				console.log(plan.updated);
-				if (
-					await answer(
-						prompts.confirm({
-							message: `Save changes to ${plan.path} and back up any existing file?`,
-							initialValue: false,
-						}),
-					)
-				) {
-					const backup = await installClientConfig(plan);
-					console.log(
-						`Client configuration saved.${backup ? ` Backup: ${backup}` : ""}`,
-					);
-				}
-			} else if (values.output) {
-				await writeFile(values.output, snippet, { flag: "wx", mode: 0o600 });
-				console.log(`Snippet saved to ${resolve(values.output)}.`);
-			} else console.log(snippet);
-			console.error(CLIENTS[client].instructions);
 			return;
-		}
 		case "policy": {
 			const { runPolicyCommand } = await import("@/cli/policy.js");
 			await runPolicyCommand(config.storage.policyFile);
@@ -213,52 +148,174 @@ async function main() {
 		}
 		case "bridge:list":
 		case "bridge:search":
-		case "bridge:read": {
-			const access = createToolAccess(
-				config.bridge.user,
-				config.storage.policyFile,
-			);
-			const imap = createImapService(config.bridge);
-			if (command === "bridge:list") {
-				await access.require("list_mailboxes");
-				printJson(await imap.listMailboxes());
-				return;
-			}
-			const reads = await createMailAccess(
-				imap,
-				config.bridge.user,
-				config.storage.policyFile,
-			);
-			if (command === "bridge:search") {
-				await access.require("search_messages");
-				printJson(
-					await reads.searchMessages(
-						SearchMessagesSchema.parse({
-							mailbox: args[0],
-							query: args.length > 1 ? args.slice(1).join(" ") : undefined,
-							limit: 10,
-						}),
-					),
-				);
-				return;
-			}
-			await access.require("get_message");
-			printJson(
-				await reads.getMessage(
-					GetMessageSchema.parse({
-						mailbox: args[0],
-						uid: /^\d+$/.test(args[1] ?? "") ? Number(args[1]) : undefined,
-						uidValidity: args[2],
-					}),
-				),
-			);
+		case "bridge:read":
+			await runBridgeCommand(command, config, args);
 			return;
-		}
 		default: {
 			const exhaustive: never = command;
 			return exhaustive;
 		}
 	}
+}
+
+function parseCommand(rawCommand: string): Command {
+	const parsed = CommandSchema.safeParse(rawCommand);
+	if (!parsed.success)
+		throw new Error(
+			`Unknown command ${JSON.stringify(rawCommand)}.\n${usage()}`,
+		);
+	return parsed.data;
+}
+
+async function runSetup(
+	configPath: string,
+	section: string | undefined,
+	serverName: string,
+) {
+	const { runSetupCommand } = await import("@/cli/setup/command.js");
+	await runSetupCommand({
+		configPath,
+		entryPath,
+		section: SetupSectionSchema.parse(section ?? "all"),
+		serverName,
+	});
+}
+
+async function runDoctor(configPath: string, json: boolean | undefined) {
+	const results = await collectDiagnostics(configPath);
+	if (json) printJson({ configPath, results });
+	else for (const result of results) console.log(formatDiagnostic(result));
+	if (results.some((result) => result.status === "failed"))
+		process.exitCode = 1;
+}
+
+async function collectDiagnostics(
+	configPath: string,
+): Promise<DiagnosticResult[]> {
+	try {
+		const config = await requireServerConfig(configPath);
+		return await diagnoseServer(
+			config,
+			launchSpecification({ configPath, entryPath }),
+		);
+	} catch (error) {
+		return [
+			{
+				check: "configuration",
+				status: "failed",
+				message: safeErrorMessage(error),
+				fix: `Run protonmail-mcp setup --config ${JSON.stringify(configPath)}.`,
+			},
+		];
+	}
+}
+
+function formatDiagnostic(result: DiagnosticResult) {
+	const summary = `${result.status.toUpperCase()} ${result.check}: ${result.message}`;
+	if (result.status !== "failed") return summary;
+	return `${summary}\n  Fix: ${result.fix}`;
+}
+
+function serve(config: ServerConfig) {
+	serveStdio(
+		() =>
+			createServer({
+				config: config.bridge,
+				policyFile: config.storage.policyFile,
+				operationsDirectory: config.storage.operationsDirectory,
+			}),
+		{
+			onerror: () =>
+				console.error(
+					"MCP transport failed. Run protonmail-mcp doctor with this configuration.",
+				),
+		},
+	);
+}
+
+async function runClientConfig(input: {
+	configPath: string;
+	serverName: string;
+	client: string | undefined;
+	install: string | undefined;
+	output: string | undefined;
+}) {
+	const { configPath, serverName, install, output } = input;
+	const client = ClientNameSchema.parse(input.client);
+	const launch = launchSpecification({ configPath, entryPath });
+	if (install && output)
+		throw new Error("Choose either --install or --output.");
+
+	if (install) await installInteractively(client, install, launch, serverName);
+	else {
+		const snippet = renderClientConfig(client, launch, serverName);
+		if (output) {
+			await writeFile(output, snippet, { flag: "wx", mode: 0o600 });
+			console.log(`Snippet saved to ${resolve(output)}.`);
+		} else console.log(snippet);
+	}
+	console.error(CLIENTS[client].instructions);
+}
+
+async function installInteractively(
+	client: ClientName,
+	path: string,
+	launch: LaunchSpecification,
+	serverName: string,
+) {
+	const { confirm, requireTerminal } = await import("@/cli/setup/prompts.js");
+	requireTerminal();
+	const plan = await prepareClientInstallation(
+		client,
+		path,
+		launch,
+		serverName,
+	);
+	console.log(plan.updated);
+	const approved = await confirm(
+		`Save changes to ${plan.path} and back up any existing file?`,
+		false,
+	);
+	if (!approved) return;
+	console.log(clientConfigSavedMessage(await installClientConfig(plan)));
+}
+
+async function runBridgeCommand(
+	command: BridgeCommand,
+	config: ServerConfig,
+	args: string[],
+) {
+	const account = config.bridge.user;
+	const policyFile = config.storage.policyFile;
+	const access = createToolAccess(account, policyFile);
+	const imap = createImapService(config.bridge);
+	if (command === "bridge:list") {
+		await access.require("list_mailboxes");
+		printJson(await imap.listMailboxes());
+		return;
+	}
+
+	const mail = await createMailAccess(imap, account, policyFile);
+	if (command === "bridge:search") {
+		const [mailbox, ...queryWords] = args;
+		await access.require("search_messages");
+		const request = SearchMessagesSchema.parse({
+			mailbox,
+			query: queryWords.length ? queryWords.join(" ") : undefined,
+			limit: 10,
+		});
+		printJson(await mail.searchMessages(request));
+		return;
+	}
+
+	const [mailbox, uid, uidValidity] = args;
+	await access.require("get_message");
+	const request = GetMessageSchema.parse({
+		mailbox,
+		uid: uid !== undefined && /^\d+$/.test(uid) ? Number(uid) : undefined,
+		uidValidity,
+	});
+	printJson(await mail.getMessage(request));
 }
 
 main().catch((error) => {

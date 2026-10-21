@@ -1,7 +1,6 @@
 import { type ParsedMail, simpleParser } from "mailparser";
 import type { BridgeConfig } from "@/bridge/config.js";
 import {
-	allowAllMessages,
 	checkUidValidity,
 	type MessageFilter,
 	parseMessageIds,
@@ -14,6 +13,7 @@ import {
 } from "@/bridge/imap/serializers.js";
 import type { ImapClient } from "@/bridge/imap/session.js";
 import type { GetMessageInput } from "@/mail/identity.js";
+import { withinMessageReadLimit } from "@/mail/message.js";
 import { parsedMedia } from "@/mail/outgoing/media/mime.js";
 import { mediaManifest } from "@/mail/outgoing/media/model.js";
 import { OutgoingMessageSchema } from "@/mail/outgoing/message.js";
@@ -37,10 +37,10 @@ export function draftContentHash(original: ParsedMail) {
 	});
 }
 
-export async function inspectDraft(
+async function fetchDraftSummary(
 	client: ImapClient,
 	input: GetMessageInput,
-	accepts: MessageFilter = allowAllMessages,
+	accepts: MessageFilter,
 ) {
 	const mailbox = await client.mailboxOpen(input.mailbox);
 	checkUidValidity(input.uidValidity, mailbox.uidValidity);
@@ -60,8 +60,7 @@ export async function inspectDraft(
 			"configure",
 		);
 	if (
-		summary.size === undefined ||
-		summary.size > 10 * 1024 * 1024 ||
+		!withinMessageReadLimit(summary.size) ||
 		!summary.flags?.has("\\Draft") ||
 		summary.flags.has("\\Deleted")
 	)
@@ -70,10 +69,16 @@ export async function inspectDraft(
 			"Draft is oversized, lacks a known size or Draft flag, or is marked for deletion. Inspect it in Proton Mail.",
 			"never",
 		);
+	return summary;
+}
+
+async function fetchDraftSource(client: ImapClient, uid: number) {
 	const full = await client.fetchOne(
-		input.uid,
+		uid,
 		{ uid: true, source: true },
-		{ uid: true },
+		{
+			uid: true,
+		},
 	);
 	if (full === false)
 		throw new MailError(
@@ -87,20 +92,18 @@ export async function inspectDraft(
 			"Draft exists but its content is unavailable. Restore Bridge access before retrying cleanup.",
 			"reconcile",
 		);
-	if (full.source.length > 10 * 1024 * 1024)
+	if (!withinMessageReadLimit(full.source.length))
 		throw new MailError(
 			"UNSUPPORTED_CONTENT",
 			"Draft exceeds the 10 MiB read limit.",
 			"never",
 		);
-	const original = await simpleParser(full.source, {
-		skipHtmlToText: true,
-		skipTextToHtml: true,
-		skipImageLinks: true,
-	});
-	let media: ReturnType<typeof parsedMedia>;
+	return full.source;
+}
+
+function draftMedia(original: ParsedMail) {
 	try {
-		media = parsedMedia(original);
+		return parsedMedia(original);
 	} catch (error) {
 		if (error instanceof MailError) throw error;
 		throw new MailError(
@@ -110,15 +113,30 @@ export async function inspectDraft(
 			{ cause: error },
 		);
 	}
+}
 
-	if (
-		!accepts(input.mailbox, {
-			...messageSummary(summary, input.uidValidity),
-			senderEmails: parsedAddressEmails(original.from).map((address) =>
-				address.toLowerCase(),
-			),
-		})
-	)
+/** Reads a draft, authorizing its envelope before the fetch and its parsed sender after. */
+export async function inspectDraft(
+	client: ImapClient,
+	input: GetMessageInput,
+	accepts: MessageFilter,
+) {
+	const summary = await fetchDraftSummary(client, input, accepts);
+	const source = await fetchDraftSource(client, input.uid);
+	const original = await simpleParser(source, {
+		skipHtmlToText: true,
+		skipTextToHtml: true,
+		skipImageLinks: true,
+	});
+	const media = draftMedia(original);
+
+	const parsedSummary = {
+		...messageSummary(summary, input.uidValidity),
+		senderEmails: parsedAddressEmails(original.from).map((address) =>
+			address.toLowerCase(),
+		),
+	};
+	if (!accepts(input.mailbox, parsedSummary))
 		throw new MailError(
 			"POLICY_DENIED",
 			"Fetched draft sender is not allowed by the read policy.",
@@ -127,14 +145,26 @@ export async function inspectDraft(
 	return {
 		original,
 		media,
-		summary: {
-			...messageSummary(summary, input.uidValidity),
-			senderEmails: parsedAddressEmails(original.from).map((address) =>
-				address.toLowerCase(),
-			),
-		},
-		fingerprint: hashContent(full.source.toString("base64")),
+		summary: parsedSummary,
+		fingerprint: hashContent(source.toString("base64")),
 	};
+}
+
+export type InspectedDraft = Awaited<ReturnType<typeof inspectDraft>>;
+
+function requireOwnSender(config: BridgeConfig, original: ParsedMail) {
+	const from = parsedAddressEmails(original.from);
+	const [sender] = from;
+	if (
+		from.length !== 1 ||
+		!sender ||
+		!config.ownAddresses.includes(sender.toLowerCase())
+	)
+		throw new MailError(
+			"UNSUPPORTED_CONTENT",
+			"Draft sender must be one of this account's configured own addresses. Configure bridge.ownAddresses in the server configuration for aliases.",
+			"configure",
+		);
 }
 
 export async function readDraftSnapshot(
@@ -148,13 +178,8 @@ export async function readDraftSnapshot(
 		input,
 		accepts,
 	);
-	const from = parsedAddressEmails(original.from);
-	if (from.length !== 1 || !config.ownAddresses.includes(from[0].toLowerCase()))
-		throw new MailError(
-			"UNSUPPORTED_CONTENT",
-			"Draft sender must be one of this account's configured own addresses. Configure bridge.ownAddresses in the server configuration for aliases.",
-			"configure",
-		);
+	requireOwnSender(config, original);
+
 	const message = OutgoingMessageSchema.safeParse({
 		from: original.from?.text,
 		to: parsedAddressEmails(original.to),

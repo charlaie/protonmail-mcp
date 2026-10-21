@@ -166,7 +166,7 @@ test("wildcard attachment policy delivers arbitrary types with their declared MI
 		["photo.png", "image/png"],
 		["misnamed.pdf", "application/octet-stream"],
 		["LICENSE", "application/octet-stream"],
-	]) {
+	] satisfies [string, string][]) {
 		const bytes = Buffer.from([0, 255, 128, 13, 10]);
 		const client = await fixture(t, {
 			filename,

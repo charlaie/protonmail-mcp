@@ -12,6 +12,7 @@ import { SendOutputSchema } from "@/mcp/tools/sending/schemas.js";
 import { createSendStore } from "@/operations/sqlite/sending.js";
 import type { SmtpOutcome } from "./model.js";
 import { createSendService } from "./service.js";
+import { permissiveChecks } from "./test-fixtures.js";
 
 const message: OutgoingMessage = {
 	from: testConfig.user,
@@ -58,14 +59,17 @@ test("concurrent requests and a new server instance submit a send operation only
 		source: { kind: "email" },
 	});
 	assert.match(record.messageId, new RegExp(operationId));
-	await Promise.all([one.send(record, message), two.send(record, message)]);
+	await Promise.all([
+		one.send(record, message, permissiveChecks),
+		two.send(record, message, permissiveChecks),
+	]);
 	assert.equal(attempts, 1);
 	const reopened = createSendService(testConfig, {
 		store: createSendStore(testConfig.user, path),
 		submit,
 	});
 	assert.equal((await reopened.get(operationId)).outcome.status, "accepted");
-	await reopened.send(record, message);
+	await reopened.send(record, message, permissiveChecks);
 	assert.equal(attempts, 1);
 	if (process.platform !== "win32")
 		assert.equal(
@@ -124,7 +128,7 @@ test("a process exiting after the durable claim leaves an uncertain operation th
 	assert.ok("outcome" in publicResult);
 	assert.equal(publicResult.outcome.status, "uncertain");
 	assert.equal(
-		(await service.send(record, message)).outcome.status,
+		(await service.send(record, message, permissiveChecks)).outcome.status,
 		"submitting",
 	);
 	assert.equal(
@@ -175,10 +179,16 @@ test("SMTP acceptance is durable before cleanup, while failures and partial send
 			},
 		});
 		let cleaned = 0;
-		const result = await service.send(record, message, async () => {
-			cleaned++;
-			assert.equal((await service.get(operationId)).outcome.status, "accepted");
-			throw new Error("Deletion failed");
+		const result = await service.send(record, message, {
+			...permissiveChecks,
+			cleanupDraft: async () => {
+				cleaned++;
+				assert.equal(
+					(await service.get(operationId)).outcome.status,
+					"accepted",
+				);
+				throw new Error("Deletion failed");
+			},
 		});
 		assert.equal(result.outcome.status, outcome.status);
 		assert.equal(cleaned, outcome.status === "accepted" ? 1 : 0);
@@ -186,7 +196,7 @@ test("SMTP acceptance is durable before cleanup, while failures and partial send
 			result.draftCleanup.status,
 			outcome.status === "accepted" ? "failed" : "retained",
 		);
-		await service.send(record, message);
+		await service.send(record, message, permissiveChecks);
 		assert.equal(cleaned, outcome.status === "accepted" ? 1 : 0);
 	}
 });
@@ -247,8 +257,8 @@ test("different operation IDs cannot submit the same draft through separate serv
 		source,
 	});
 	const results = await Promise.allSettled([
-		first.send(one, message),
-		second.send(two, message),
+		first.send(one, message, permissiveChecks),
+		second.send(two, message, permissiveChecks),
 	]);
 	assert.equal(attempts, 1);
 	assert.equal(
@@ -280,14 +290,14 @@ test("failure to persist an SMTP outcome leaves the durable claim and prevents a
 		source: { kind: "email" },
 	});
 	assert.equal(
-		(await service.send(record, message)).outcome.status,
+		(await service.send(record, message, permissiveChecks)).outcome.status,
 		"uncertain",
 	);
 	assert.equal(
 		(await store.get(record.operationId))?.outcome.status,
 		"submitting",
 	);
-	await service.send(record, message);
+	await service.send(record, message, permissiveChecks);
 	assert.equal(attempts, 1);
 });
 
@@ -324,7 +334,7 @@ test("Sent reconciliation overlapping SMTP completion preserves both transport o
 				message,
 				source: { kind: "email" },
 			});
-			const sending = service.send(record, message);
+			const sending = service.send(record, message, permissiveChecks);
 			await submitting;
 			const matches = [{ mailbox: "Sent", uid: 12, uidValidity: "7" }];
 			const observed = await service.reconcile(
@@ -367,10 +377,13 @@ test("accepted-draft cleanup retries never submit SMTP and deleted remains termi
 			fingerprint: "original",
 		},
 	});
-	const sent = await service.send(record, message, async () => ({
-		status: "failed",
-		reason: "Disconnected",
-	}));
+	const sent = await service.send(record, message, {
+		...permissiveChecks,
+		cleanupDraft: async () => ({
+			status: "failed",
+			reason: "Disconnected",
+		}),
+	});
 	assert.equal(sent.outcome.status, "accepted");
 	let fail: () => void = () => {};
 	let started: () => void = () => {};
@@ -436,7 +449,8 @@ test("cleanup-only retry refuses prepared, uncertain and partial submissions wit
 				fingerprint: "original",
 			},
 		});
-		if (status !== "prepared") await service.send(record, message);
+		if (status !== "prepared")
+			await service.send(record, message, permissiveChecks);
 		await assert.rejects(
 			service.retryCleanup(record.operationId, async () => {
 				throw new Error("Must not delete");

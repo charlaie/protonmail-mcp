@@ -6,10 +6,12 @@ const HeaderSchema = z
 	.string()
 	.max(998)
 	.regex(/^[^\r\n]*$/);
+
 export const MessageIdSchema = z
 	.string()
 	.max(998)
 	.regex(/^<[^<>\s]+@[^<>\s]+>$/);
+
 export const OutgoingMessageSchema = z
 	.object({
 		from: HeaderSchema.min(1),
@@ -27,4 +29,5 @@ export const OutgoingMessageSchema = z
 		(message) => message.to.length + message.cc.length + message.bcc.length > 0,
 		"At least one recipient is required.",
 	);
+
 export type OutgoingMessage = z.infer<typeof OutgoingMessageSchema>;

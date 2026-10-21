@@ -1,23 +1,13 @@
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { rename, rm } from "node:fs/promises";
+import { resolve } from "node:path";
 import { type ReadPolicy, ReadPolicySchema } from "@/policy/schema.js";
 import {
-	isMissingFile,
+	readOptionalTextFile,
 	stagePrivateFile,
 	writePrivateFile,
 } from "@/shared/private-file.js";
+import { withSettingsLocks } from "./locks.js";
 import { resolveServerConfig, type ServerConfig } from "./store.js";
-
-export async function readSettingsSnapshot(
-	path: string,
-): Promise<string | null> {
-	try {
-		return await readFile(path, "utf8");
-	} catch (error) {
-		if (isMissingFile(error)) return null;
-		throw error;
-	}
-}
 
 export function requirePolicyAccount(
 	policy: ReadPolicy | null,
@@ -31,7 +21,9 @@ export function requirePolicyAccount(
 
 // The wizard reviews snapshots, then commits under exclusive locks. Both files
 // are validated and staged first; a failed config replacement restores policy.
-// This handles write failures, not a process crash between the two renames.
+// A crash between the two renames is not rolled back. It leaves the reviewed
+// policy beside the previous config, and the runtime refuses a policy bound to
+// another account, so no combination grants access that was never reviewed.
 export async function commitSettings(
 	input: {
 		configPath: string;
@@ -45,72 +37,70 @@ export async function commitSettings(
 	const configPath = resolve(input.configPath);
 	const config = resolveServerConfig(input.config, configPath);
 	const policy = ReadPolicySchema.parse(input.policy);
-	requirePolicyAccount(policy, config.bridge.user);
+	const account = config.bridge.user;
+	requirePolicyAccount(policy, account);
 	const policyPath = config.storage.policyFile;
-	const locks: string[] = [];
-	const staged: string[] = [];
-	try {
-		for (const path of [configPath, policyPath].sort()) {
-			await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-			const lockPath = `${path}.setup.lock`;
-			try {
-				const lock = await open(lockPath, "wx", 0o600);
-				locks.push(lockPath);
-				await lock.close();
-			} catch (error) {
-				throw new Error(
-					`Cannot lock settings at ${lockPath}. Another setup may be running; remove a stale lock only after confirming it has stopped.`,
-					{ cause: error },
-				);
-			}
-		}
-		const [currentConfig, currentPolicy] = await Promise.all([
-			readSettingsSnapshot(configPath),
-			readSettingsSnapshot(policyPath),
-		]);
-		if (
-			currentConfig !== input.expectedConfig ||
-			currentPolicy !== input.expectedPolicy
-		)
-			throw new Error(
-				"Settings changed during setup. Run setup again to review the current values before saving.",
-			);
-		if (currentPolicy !== null) {
-			// Invalid policies can be replaced after explicit review in the wizard.
-			let previous: ReadPolicy | null = null;
-			try {
-				previous = ReadPolicySchema.parse(JSON.parse(currentPolicy));
-			} catch {}
-			requirePolicyAccount(previous, config.bridge.user);
-		}
-		const stagedConfig = await stagePrivateFile(
-			configPath,
-			`${JSON.stringify(config, null, 2)}\n`,
-		);
-		staged.push(stagedConfig);
-		const stagedPolicy = await stagePrivateFile(
-			policyPath,
-			`${JSON.stringify(policy, null, 2)}\n`,
-		);
-		staged.push(stagedPolicy);
-		await replace(stagedPolicy, policyPath);
+
+	return withSettingsLocks([configPath, policyPath], async () => {
+		const staged: string[] = [];
 		try {
-			await replace(stagedConfig, configPath);
-		} catch (error) {
-			try {
-				if (currentPolicy === null) await rm(policyPath, { force: true });
-				else await writePrivateFile(policyPath, currentPolicy);
-			} catch (restoreError) {
-				throw new AggregateError(
-					[error, restoreError],
-					`Configuration save failed and policy restoration failed at ${policyPath}. Restore its previous settings before using this server.`,
+			const [currentConfig, currentPolicy] = await Promise.all([
+				readOptionalTextFile(configPath),
+				readOptionalTextFile(policyPath),
+			]);
+			if (
+				currentConfig !== input.expectedConfig ||
+				currentPolicy !== input.expectedPolicy
+			)
+				throw new Error(
+					"Settings changed during setup. Run setup again to review the current values before saving.",
 				);
+			requireStoredPolicyAccount(currentPolicy, account);
+
+			const stagedConfig = await stagePrivateFile(configPath, toJson(config));
+			staged.push(stagedConfig);
+			const stagedPolicy = await stagePrivateFile(policyPath, toJson(policy));
+			staged.push(stagedPolicy);
+
+			await replace(stagedPolicy, policyPath);
+			try {
+				await replace(stagedConfig, configPath);
+			} catch (error) {
+				await restorePolicy(policyPath, currentPolicy, error);
+				throw error;
 			}
-			throw error;
+		} finally {
+			await Promise.all(staged.map((path) => rm(path, { force: true })));
 		}
-	} finally {
-		await Promise.all(
-			[...staged, ...locks].map((path) => rm(path, { force: true })),
+	});
+}
+
+/** An unparseable stored policy may be replaced; the wizard already asked to replace it. */
+function requireStoredPolicyAccount(contents: string | null, account: string) {
+	if (contents === null) return;
+	let stored: ReadPolicy | null = null;
+	try {
+		stored = ReadPolicySchema.parse(JSON.parse(contents));
+	} catch {}
+	requirePolicyAccount(stored, account);
+}
+
+async function restorePolicy(
+	policyPath: string,
+	previousPolicy: string | null,
+	configError: unknown,
+) {
+	try {
+		if (previousPolicy === null) await rm(policyPath, { force: true });
+		else await writePrivateFile(policyPath, previousPolicy);
+	} catch (restoreError) {
+		throw new AggregateError(
+			[configError, restoreError],
+			`Configuration save failed and policy restoration failed at ${policyPath}. Restore its previous settings before using this server.`,
 		);
 	}
+}
+
+function toJson(value: unknown) {
+	return `${JSON.stringify(value, null, 2)}\n`;
 }

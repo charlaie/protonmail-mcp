@@ -7,8 +7,14 @@ import { type ReadPolicy, ReadPolicySchema } from "./schema.js";
 
 export const getPolicyFilePath = getDefaultPolicyFilePath;
 
-function policyLoadError(error: unknown, path: string) {
-	return new Error(
+function parseReadPolicy(contents: string): ReadPolicy {
+	return ReadPolicySchema.parse(JSON.parse(contents));
+}
+
+// A missing file means no policy; any other read or validation failure fails closed.
+function missingPolicyOrThrow(error: unknown, path: string): null {
+	if (isMissingFile(error)) return null;
+	throw new Error(
 		`Unable to load read policy at ${path}: ${safeErrorMessage(error)}. Run protonmail-mcp setup to replace it or reset-policy to remove it.`,
 		{ cause: error },
 	);
@@ -18,10 +24,9 @@ export function loadReadPolicySync(
 	path = getPolicyFilePath(),
 ): ReadPolicy | null {
 	try {
-		return ReadPolicySchema.parse(JSON.parse(readFileSync(path, "utf8")));
+		return parseReadPolicy(readFileSync(path, "utf8"));
 	} catch (error) {
-		if (isMissingFile(error)) return null;
-		throw policyLoadError(error, path);
+		return missingPolicyOrThrow(error, path);
 	}
 }
 
@@ -29,10 +34,9 @@ export async function loadReadPolicy(
 	path = getPolicyFilePath(),
 ): Promise<ReadPolicy | null> {
 	try {
-		return ReadPolicySchema.parse(JSON.parse(await readFile(path, "utf8")));
+		return parseReadPolicy(await readFile(path, "utf8"));
 	} catch (error) {
-		if (isMissingFile(error)) return null;
-		throw policyLoadError(error, path);
+		return missingPolicyOrThrow(error, path);
 	}
 }
 

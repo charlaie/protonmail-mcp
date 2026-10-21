@@ -19,6 +19,7 @@ export type ImapClient = Pick<
 	| "messageFlagsRemove"
 	| "capabilities"
 >;
+
 export type ImapSession = <T>(
 	operation: (client: ImapClient) => Promise<T>,
 ) => Promise<T>;
@@ -41,6 +42,25 @@ function createClient(config: BridgeConfig): Connection {
 		greetingTimeout: 10_000,
 		socketTimeout: 30_000,
 	});
+}
+
+function sessionError(
+	error: unknown,
+	connected: boolean,
+	connectionLost: boolean,
+) {
+	if (error instanceof MailError) return error;
+
+	const code =
+		connected && !connectionLost ? "OPERATION_FAILED" : "CONNECTION_FAILED";
+	// Once connected, a command may already have reached Bridge.
+	const retry = connected ? "never" : "safe";
+	return new MailError(code, safeErrorMessage(error), retry, { cause: error });
+}
+
+async function endSession(client: Connection, healthy: boolean) {
+	if (healthy) await client.logout().catch(() => client.close());
+	else client.close();
 }
 
 export function createImapSession(
@@ -66,21 +86,9 @@ export function createImapSession(
 			connected = true;
 			return await operation(client);
 		} catch (error) {
-			if (error instanceof MailError) throw error;
-			throw new MailError(
-				!connected || connectionError
-					? "CONNECTION_FAILED"
-					: "OPERATION_FAILED",
-				safeErrorMessage(error),
-				!connected ? "safe" : "never",
-				{ cause: error },
-			);
+			throw sessionError(error, connected, connectionError !== undefined);
 		} finally {
-			if (connected && !connectionError) {
-				await client.logout().catch(() => client.close());
-			} else {
-				client.close();
-			}
+			await endSession(client, connected && !connectionError);
 		}
 	};
 }

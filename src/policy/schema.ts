@@ -38,22 +38,24 @@ const AccountReadPolicyFields = {
 	mailboxCreation: z.array(MailboxCreationKindSchema).default([]),
 };
 
-const AccountReadPolicySchema = z
-	.object({
-		...AccountReadPolicyFields,
-		version: z.literal(2),
-	})
-	.refine(
-		(policy) =>
-			policy.inboxWrites.mode === "disabled" ||
-			policy.inboxWrites.mailboxes.every((mailbox) =>
-				policy.allowedMailboxes.includes(mailbox),
-			),
-		{
-			path: ["inboxWrites", "mailboxes"],
-			message: "Inbox writable mailboxes must also be allowed for reading.",
-		},
+function inboxWritesAreReadable(policy: {
+	allowedMailboxes: string[];
+	inboxWrites: InboxWritePolicy;
+}) {
+	if (policy.inboxWrites.mode === "disabled") return true;
+	return policy.inboxWrites.mailboxes.every((mailbox) =>
+		policy.allowedMailboxes.includes(mailbox),
 	);
+}
+
+const InboxWritesReadableIssue = {
+	path: ["inboxWrites", "mailboxes"],
+	message: "Inbox writable mailboxes must also be allowed for reading.",
+};
+
+const AccountReadPolicySchema = z
+	.object({ ...AccountReadPolicyFields, version: z.literal(2) })
+	.refine(inboxWritesAreReadable, InboxWritesReadableIssue);
 
 export const GranularPolicySchema = z
 	.strictObject({
@@ -61,17 +63,7 @@ export const GranularPolicySchema = z
 		version: z.literal(3),
 		allowedTools: z.array(ToolNameSchema),
 	})
-	.refine(
-		(policy) =>
-			policy.inboxWrites.mode === "disabled" ||
-			policy.inboxWrites.mailboxes.every((mailbox) =>
-				policy.allowedMailboxes.includes(mailbox),
-			),
-		{
-			path: ["inboxWrites", "mailboxes"],
-			message: "Inbox writable mailboxes must also be allowed for reading.",
-		},
-	);
+	.refine(inboxWritesAreReadable, InboxWritesReadableIssue);
 
 export const ReadPolicySchema = z.discriminatedUnion("version", [
 	z.object({ ...PolicyFields, version: z.literal(1) }),
@@ -81,7 +73,7 @@ export const ReadPolicySchema = z.discriminatedUnion("version", [
 
 export type ReadPolicy = z.infer<typeof ReadPolicySchema>;
 
-export function createReadPolicy(input: {
+type ReadPolicyInput = {
 	bridgeUser: string;
 	allowedTools?: ToolName[];
 	createdAt?: string;
@@ -92,36 +84,34 @@ export function createReadPolicy(input: {
 	requireAttachmentApproval?: boolean;
 	inboxWrites?: InboxWritePolicy;
 	mailboxCreation?: z.infer<typeof MailboxCreationKindSchema>[];
-}) {
+};
+
+function unique<T>(values: readonly T[]) {
+	return [...new Set(values)];
+}
+
+function normalizedAddresses(values: readonly string[] = []) {
+	return unique(values.map((value) => value.trim().toLowerCase()));
+}
+
+export function createReadPolicy(input: ReadPolicyInput) {
 	const now = new Date().toISOString();
 
 	return GranularPolicySchema.parse({
 		version: 3,
-		allowedTools: [...new Set(input.allowedTools ?? READ_ONLY_TOOLS)],
+		allowedTools: unique(input.allowedTools ?? READ_ONLY_TOOLS),
 		bridgeUser: input.bridgeUser,
 		inboxWrites: input.inboxWrites,
 		mailboxCreation: input.mailboxCreation,
 		requireAttachmentApproval: input.requireAttachmentApproval,
-		allowedAttachmentExtensions: [
-			...new Set(input.allowedAttachmentExtensions ?? []),
-		],
-		allowedMailboxes: [
-			...new Set(input.allowedMailboxes.map((value) => value.trim())),
-		],
-		allowedSenderEmails: [
-			...new Set(
-				(input.allowedSenderEmails ?? []).map((value) =>
-					value.trim().toLowerCase(),
-				),
-			),
-		],
-		allowedSenderDomains: [
-			...new Set(
-				(input.allowedSenderDomains ?? []).map((value) =>
-					value.trim().toLowerCase(),
-				),
-			),
-		],
+		allowedAttachmentExtensions: unique(
+			input.allowedAttachmentExtensions ?? [],
+		),
+		allowedMailboxes: unique(
+			input.allowedMailboxes.map((mailbox) => mailbox.trim()),
+		),
+		allowedSenderEmails: normalizedAddresses(input.allowedSenderEmails),
+		allowedSenderDomains: normalizedAddresses(input.allowedSenderDomains),
 		createdAt: input.createdAt ?? now,
 		updatedAt: now,
 	});

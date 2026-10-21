@@ -1,17 +1,38 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { DraftOperation } from "@/mail/drafts/model.js";
 import {
+	type DraftOperation,
 	DraftOperationSchema,
 	StoredDraftOperationSchema,
 } from "@/mail/drafts/model.js";
 import { type GetMessageInput, GetMessageSchema } from "@/mail/identity.js";
 import { MailError } from "@/shared/mail-error.js";
 import { messageIdentityKey } from "./message-claims.js";
+import { selectRecord, selectRecords } from "./records.js";
+
+export type DraftSnapshotEvidence = {
+	messageId?: string;
+	contentHash: DraftOperation["contentHash"];
+};
+
+type StoredDraftOperation = z.infer<typeof StoredDraftOperationSchema>;
 
 const BindingSchema = z.object({ draft_id: z.uuid() });
-const RecordSchema = z.object({ record: z.string() });
+
+const DRAFT_IDENTITY_SCHEMA = [
+	"CREATE TABLE IF NOT EXISTS draft_identities (identity TEXT PRIMARY KEY, draft_id TEXT NOT NULL, record TEXT NOT NULL);",
+	"CREATE INDEX IF NOT EXISTS draft_identities_by_id ON draft_identities (draft_id);",
+	"CREATE INDEX IF NOT EXISTS drafts_by_logical_id ON drafts (json_extract(record, '$.draftId'));",
+	"CREATE TABLE IF NOT EXISTS draft_identity_migrations (version INTEGER PRIMARY KEY);",
+].join(" ");
+
+function boundDraftId(db: DatabaseSync, identityKey: string) {
+	const binding = db
+		.prepare("SELECT draft_id FROM draft_identities WHERE identity = ?")
+		.get(identityKey);
+	return binding ? BindingSchema.parse(binding).draft_id : undefined;
+}
 
 export function requireUnusedDraftId(db: DatabaseSync, draftId: string) {
 	const binding = db
@@ -37,10 +58,8 @@ export function bindDraftIdentity(
 	draftId: string,
 ) {
 	const key = messageIdentityKey(identity);
-	const existing = db
-		.prepare("SELECT draft_id FROM draft_identities WHERE identity = ?")
-		.get(key);
-	if (existing && BindingSchema.parse(existing).draft_id !== draftId)
+	const existingDraftId = boundDraftId(db, key);
+	if (existingDraftId !== undefined && existingDraftId !== draftId)
 		throw new MailError(
 			"OPERATION_CONFLICT",
 			"This IMAP identity already belongs to another logical draft.",
@@ -57,108 +76,107 @@ export function identifyDraft(
 	identity: GetMessageInput,
 	fallback: string = randomUUID(),
 ) {
-	const row = db
-		.prepare("SELECT draft_id FROM draft_identities WHERE identity = ?")
-		.get(messageIdentityKey(identity));
-	if (row) return BindingSchema.parse(row).draft_id;
+	const existingDraftId = boundDraftId(db, messageIdentityKey(identity));
+	if (existingDraftId !== undefined) return existingDraftId;
 	return bindDraftIdentity(db, identity, requireUnusedDraftId(db, fallback));
 }
 
 export function identifyDraftSnapshot(
 	db: DatabaseSync,
 	identity: GetMessageInput,
-	evidence: { messageId?: string; contentHash: DraftOperation["contentHash"] },
+	evidence: DraftSnapshotEvidence,
 ) {
-	const row = evidence.messageId
-		? db
-				.prepare("SELECT record FROM drafts WHERE message_id = ?")
-				.get(evidence.messageId)
-		: undefined;
-	if (row) {
-		const operation = DraftOperationSchema.parse(
-			JSON.parse(RecordSchema.parse(row).record),
-		);
-		if (
-			operation.contentHash === evidence.contentHash &&
-			operation.outcome.status === "appending"
-		)
-			return bindDraftIdentity(db, identity, operation.draftId);
-	}
+	const appended = evidence.messageId
+		? selectRecord(
+				db,
+				DraftOperationSchema,
+				"SELECT record FROM drafts WHERE message_id = ?",
+				evidence.messageId,
+			)
+		: null;
+	// An APPEND awaiting its result owns the snapshot it wrote.
+	if (
+		appended &&
+		appended.contentHash === evidence.contentHash &&
+		appended.outcome.status === "appending"
+	)
+		return bindDraftIdentity(db, identity, appended.draftId);
 	return identifyDraft(db, identity);
 }
 
 export function draftIdentitiesReady(db: DatabaseSync) {
-	const table = db
+	const migrationTable = db
 		.prepare(
 			"SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'draft_identity_migrations'",
 		)
 		.get();
+	if (!migrationTable) return false;
 	return Boolean(
-		table &&
-			db
-				.prepare("SELECT 1 FROM draft_identity_migrations WHERE version = 1")
-				.get(),
+		db
+			.prepare("SELECT 1 FROM draft_identity_migrations WHERE version = 1")
+			.get(),
+	);
+}
+
+function migrateDraftRecord(db: DatabaseSync, record: StoredDraftOperation) {
+	const draftId =
+		record.source.kind === "edit"
+			? identifyDraft(db, record.source, record.operationId)
+			: record.operationId;
+	const migrated = DraftOperationSchema.parse({ ...record, draftId });
+	if ("identity" in migrated.outcome)
+		bindDraftIdentity(db, migrated.outcome.identity, draftId);
+	db.prepare("UPDATE drafts SET record = ? WHERE id = ?").run(
+		JSON.stringify(migrated),
+		record.operationId,
 	);
 }
 
 // Run once inside a transaction. Existing outcomes and replay hashes stay intact.
 export function migrateDraftIdentities(db: DatabaseSync) {
 	if (draftIdentitiesReady(db)) return;
-	db.exec(
-		"CREATE TABLE IF NOT EXISTS draft_identities (identity TEXT PRIMARY KEY, draft_id TEXT NOT NULL, record TEXT NOT NULL); CREATE INDEX IF NOT EXISTS draft_identities_by_id ON draft_identities (draft_id); CREATE INDEX IF NOT EXISTS drafts_by_logical_id ON drafts (json_extract(record, '$.draftId')); CREATE TABLE IF NOT EXISTS draft_identity_migrations (version INTEGER PRIMARY KEY);",
+
+	db.exec(DRAFT_IDENTITY_SCHEMA);
+	const unmigrated = selectRecords(
+		db,
+		StoredDraftOperationSchema,
+		"SELECT record FROM drafts WHERE json_extract(record, '$.draftId') IS NULL ORDER BY rowid",
 	);
-	for (const row of db
-		.prepare(
-			"SELECT record FROM drafts WHERE json_extract(record, '$.draftId') IS NULL ORDER BY rowid",
-		)
-		.all()) {
-		const record = StoredDraftOperationSchema.parse(
-			JSON.parse(RecordSchema.parse(row).record),
-		);
-		const draftId =
-			record.source.kind === "edit"
-				? identifyDraft(db, record.source, record.operationId)
-				: record.operationId;
-		const migrated = DraftOperationSchema.parse({ ...record, draftId });
-		if ("identity" in migrated.outcome)
-			bindDraftIdentity(db, migrated.outcome.identity, draftId);
-		db.prepare("UPDATE drafts SET record = ? WHERE id = ?").run(
-			JSON.stringify(migrated),
-			record.operationId,
-		);
-	}
+	for (const record of unmigrated) migrateDraftRecord(db, record);
 	db.prepare(
 		"INSERT INTO draft_identity_migrations (version) VALUES (1)",
 	).run();
 }
 
 export function resolveDraftIdentity(db: DatabaseSync, draftId: string) {
-	const row = db
-		.prepare(
-			"SELECT record FROM drafts WHERE json_extract(record, '$.draftId') = ? AND json_extract(record, '$.outcome.status') != 'rejected' ORDER BY rowid DESC LIMIT 1",
-		)
-		.get(draftId);
-	if (row) {
-		const operation = DraftOperationSchema.parse(
-			JSON.parse(RecordSchema.parse(row).record),
-		);
-		if (!("identity" in operation.outcome))
+	const latest = selectRecord(
+		db,
+		DraftOperationSchema,
+		"SELECT record FROM drafts WHERE json_extract(record, '$.draftId') = ? AND json_extract(record, '$.outcome.status') != 'rejected' ORDER BY rowid DESC LIMIT 1",
+		draftId,
+	);
+	if (latest) {
+		if (!("identity" in latest.outcome))
 			throw new MailError(
 				"OPERATION_BUSY",
-				`Draft has an unresolved replacement. Inspect and reconcile draft operation ${operation.operationId} before resolving its current identity.`,
+				`Draft has an unresolved replacement. Inspect and reconcile draft operation ${latest.operationId} before resolving its current identity.`,
 				"reconcile",
 			);
-		return operation.outcome.identity;
+		return latest.outcome.identity;
 	}
-	const binding = db
-		.prepare("SELECT record FROM draft_identities WHERE draft_id = ? LIMIT 1")
-		.get(draftId);
-	if (!binding)
+
+	// Before the first APPEND there is exactly one adopted physical identity.
+	const adopted = selectRecord(
+		db,
+		GetMessageSchema,
+		"SELECT record FROM draft_identities WHERE draft_id = ? LIMIT 1",
+		draftId,
+	);
+	if (!adopted)
 		throw new MailError(
 			"NOT_FOUND",
 			"Logical draft ID was not found in this account's journal.",
 			"never",
 		);
-	// Before the first APPEND there is exactly one adopted physical identity.
-	return GetMessageSchema.parse(JSON.parse(RecordSchema.parse(binding).record));
+	return adopted;
 }

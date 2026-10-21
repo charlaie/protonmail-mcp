@@ -28,6 +28,16 @@ import { saveReadPolicy } from "@/policy/store.js";
 import { ToolNameSchema } from "@/policy/tools.js";
 import { DraftOperationOutputSchema, GetDraftOutputSchema } from "./schemas.js";
 
+type ToolCall = Promise<Record<string, unknown>>;
+
+async function draftOperation(call: ToolCall) {
+	return DraftOperationOutputSchema.parse((await call).structuredContent);
+}
+
+async function editableDraft(call: ToolCall) {
+	return GetDraftOutputSchema.parse((await call).structuredContent);
+}
+
 async function fixture(t: TestContext, fake = new FakeImap()) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-draft-ids-"));
 	t.after(() => rm(directory, { recursive: true, force: true }));
@@ -49,11 +59,10 @@ async function fixture(t: TestContext, fake = new FakeImap()) {
 					config: testConfig,
 					policyFile,
 					operationsDirectory: directory,
-					imap: createImapService(
-						testConfig,
-						async (operation) => operation(fake),
-						createDraftStore(testConfig.user, directory),
-					),
+					imap: createImapService(testConfig, {
+						run: async (operation) => operation(fake),
+						draftStore: createDraftStore(testConfig.user, directory),
+					}),
 					sends: createSendService(testConfig, {
 						store: createSendStore(testConfig.user, directory),
 						submit: async (message) => {
@@ -73,21 +82,17 @@ async function fixture(t: TestContext, fake = new FakeImap()) {
 	}
 	const api = await client();
 	async function read(draftId: string) {
-		const result = GetDraftOutputSchema.parse(
-			(await api.callTool("get_draft", { draftId })).structuredContent,
-		);
+		const result = await editableDraft(api.callTool("get_draft", { draftId }));
 		assert.ok("draftId" in result);
 		return result;
 	}
 	async function create() {
-		const result = DraftOperationOutputSchema.parse(
-			(
-				await api.callTool("create_draft", {
-					operationId: randomUUID(),
-					to: "recipient@example.com",
-					text: "First",
-				})
-			).structuredContent,
+		const result = await draftOperation(
+			api.callTool("create_draft", {
+				operationId: randomUUID(),
+				to: "recipient@example.com",
+				text: "First",
+			}),
 		);
 		assert.ok("draftId" in result);
 		assert.equal(result.outcome.status, "completed");
@@ -118,9 +123,7 @@ test("one draft ID survives repeated logical and physical edits, replays, and pr
 		expectedRevision: first.revision,
 		text: "Second",
 	};
-	const edited = DraftOperationOutputSchema.parse(
-		(await f.api.callTool("edit_draft", request)).structuredContent,
-	);
+	const edited = await draftOperation(f.api.callTool("edit_draft", request));
 	assert.ok("draftId" in edited && "identity" in edited.outcome);
 	assert.equal(edited.draftId, created.draftId);
 	const second = await f.read(created.draftId);
@@ -133,9 +136,7 @@ test("one draft ID survives repeated logical and physical edits, replays, and pr
 		expectedRevision: second.revision,
 		text: "Third",
 	};
-	const next = DraftOperationOutputSchema.parse(
-		(await f.api.callTool("edit_draft", physical)).structuredContent,
-	);
+	const next = await draftOperation(f.api.callTool("edit_draft", physical));
 	assert.ok("draftId" in next);
 	assert.equal(next.draftId, created.draftId);
 	assert.deepEqual(
@@ -144,9 +145,8 @@ test("one draft ID survives repeated logical and physical edits, replays, and pr
 	);
 	assert.equal(f.fake.appends.length, 3);
 	const restarted = await f.client();
-	const current = GetDraftOutputSchema.parse(
-		(await restarted.callTool("get_draft", { draftId: created.draftId }))
-			.structuredContent,
+	const current = await editableDraft(
+		restarted.callTool("get_draft", { draftId: created.draftId }),
 	);
 	assert.ok("draftId" in current);
 	assert.equal(current.text.trim(), "Third");
@@ -169,20 +169,16 @@ test("existing IMAP drafts are adopted once and keep their logical ID after repl
 		fixtureMessage(1, { sender: testConfig.user }),
 	]);
 	const identity = { mailbox: "Drafts", uid: 1, uidValidity: "7" };
-	const original = GetDraftOutputSchema.parse(
-		(await f.api.callTool("get_draft", identity)).structuredContent,
-	);
+	const original = await editableDraft(f.api.callTool("get_draft", identity));
 	assert.ok("draftId" in original);
-	const result = DraftOperationOutputSchema.parse(
-		(
-			await f.api.callTool("edit_draft", {
-				operationId: randomUUID(),
-				uid: 1,
-				uidValidity: "7",
-				expectedRevision: original.revision,
-				text: "Adopted",
-			})
-		).structuredContent,
+	const result = await draftOperation(
+		f.api.callTool("edit_draft", {
+			operationId: randomUUID(),
+			uid: 1,
+			uidValidity: "7",
+			expectedRevision: original.revision,
+			text: "Adopted",
+		}),
 	);
 	assert.ok("draftId" in result);
 	assert.equal(result.draftId, original.draftId);
@@ -204,9 +200,7 @@ test("uncertain replacement keeps its ID, blocks resolution, and recovers withou
 		expectedRevision: original.revision,
 		text: "Recovered",
 	};
-	const uncertain = DraftOperationOutputSchema.parse(
-		(await f.api.callTool("edit_draft", request)).structuredContent,
-	);
+	const uncertain = await draftOperation(f.api.callTool("edit_draft", request));
 	assert.ok("draftId" in uncertain);
 	assert.equal(uncertain.draftId, created.draftId);
 	assert.equal(uncertain.outcome.status, "appending");
@@ -219,23 +213,19 @@ test("uncertain replacement keeps its ID, blocks resolution, and recovers withou
 		uncertain,
 	);
 	// Inspecting a discovered replacement before reconciliation must not invent a second ID.
-	const discovered = GetDraftOutputSchema.parse(
-		(
-			await f.api.callTool("get_draft", {
-				mailbox: "Drafts",
-				uid: 100,
-				uidValidity: "7",
-			})
-		).structuredContent,
+	const discovered = await editableDraft(
+		f.api.callTool("get_draft", {
+			mailbox: "Drafts",
+			uid: 100,
+			uidValidity: "7",
+		}),
 	);
 	assert.ok("draftId" in discovered);
 	assert.equal(discovered.draftId, created.draftId);
-	const recovered = DraftOperationOutputSchema.parse(
-		(
-			await f.api.callTool("reconcile_draft_operation", {
-				operationId: request.operationId,
-			})
-		).structuredContent,
+	const recovered = await draftOperation(
+		f.api.callTool("reconcile_draft_operation", {
+			operationId: request.operationId,
+		}),
 	);
 	assert.ok("draftId" in recovered);
 	assert.equal(recovered.draftId, created.draftId);
@@ -325,10 +315,9 @@ test("rejected edits preserve the original logical binding and pending cleanup b
 	const created = await f.create();
 	const original = await f.read(created.draftId);
 	const claim = f.store.claim;
-	const imap = createImapService(
-		testConfig,
-		async (operation) => operation(f.fake),
-		{
+	const imap = createImapService(testConfig, {
+		run: async (operation) => operation(f.fake),
+		draftStore: {
 			...f.store,
 			claim: async (...args) => {
 				const result = await claim(...args);
@@ -344,10 +333,10 @@ test("rejected edits preserve the original logical binding and pending cleanup b
 				return result;
 			},
 		},
-	);
+	});
 	const { createMailAccess } = await import("@/mail/access.js");
-	const reads = await createMailAccess(imap, testConfig.user, f.policyFile);
-	const rejected = await reads.editDraft({
+	const mail = await createMailAccess(imap, testConfig.user, f.policyFile);
+	const rejected = await mail.editDraft({
 		operationId: randomUUID(),
 		draftId: created.draftId,
 		expectedRevision: original.revision,
@@ -358,15 +347,13 @@ test("rejected edits preserve the original logical binding and pending cleanup b
 	assert.equal((await f.read(created.draftId)).uid, original.uid);
 	await saveReadPolicy(f.policy, f.policyFile);
 	f.fake.deleteFailure = "throw";
-	const replacement = DraftOperationOutputSchema.parse(
-		(
-			await f.api.callTool("edit_draft", {
-				operationId: randomUUID(),
-				draftId: created.draftId,
-				expectedRevision: original.revision,
-				text: "Cleanup pending",
-			})
-		).structuredContent,
+	const replacement = await draftOperation(
+		f.api.callTool("edit_draft", {
+			operationId: randomUUID(),
+			draftId: created.draftId,
+			expectedRevision: original.revision,
+			text: "Cleanup pending",
+		}),
 	);
 	assert.ok("draftId" in replacement);
 	assert.equal(replacement.outcome.status, "cleanup_failed");
@@ -439,7 +426,7 @@ test("restored historical copies receive separate IDs and cannot redirect the cu
 	const original = await f.read(created.draftId);
 	const saved = f.fake.mailboxes
 		.get("Drafts")
-		?.find((item) => item.uid === original.uid);
+		?.find((message) => message.uid === original.uid);
 	assert.ok(saved);
 	await f.api.callTool("edit_draft", {
 		operationId: randomUUID(),
@@ -452,26 +439,22 @@ test("restored historical copies receive separate IDs and cannot redirect the cu
 		...(f.fake.mailboxes.get("Drafts") ?? []),
 		restored,
 	]);
-	const copy = GetDraftOutputSchema.parse(
-		(
-			await f.api.callTool("get_draft", {
-				mailbox: "Drafts",
-				uid: 500,
-				uidValidity: "7",
-			})
-		).structuredContent,
+	const copy = await editableDraft(
+		f.api.callTool("get_draft", {
+			mailbox: "Drafts",
+			uid: 500,
+			uidValidity: "7",
+		}),
 	);
 	assert.ok("draftId" in copy);
 	assert.notEqual(copy.draftId, created.draftId);
-	const edited = DraftOperationOutputSchema.parse(
-		(
-			await f.api.callTool("edit_draft", {
-				operationId: randomUUID(),
-				draftId: copy.draftId,
-				expectedRevision: copy.revision,
-				text: "Independent copy",
-			})
-		).structuredContent,
+	const edited = await draftOperation(
+		f.api.callTool("edit_draft", {
+			operationId: randomUUID(),
+			draftId: copy.draftId,
+			expectedRevision: copy.revision,
+			text: "Independent copy",
+		}),
 	);
 	assert.ok("draftId" in edited);
 	assert.equal(edited.draftId, copy.draftId);
@@ -484,14 +467,12 @@ test("a creation operation cannot reuse an adopted logical ID", async (t) => {
 	f.fake.mailboxes.set("Drafts", [
 		fixtureMessage(1, { sender: testConfig.user }),
 	]);
-	const adopted = GetDraftOutputSchema.parse(
-		(
-			await f.api.callTool("get_draft", {
-				mailbox: "Drafts",
-				uid: 1,
-				uidValidity: "7",
-			})
-		).structuredContent,
+	const adopted = await editableDraft(
+		f.api.callTool("get_draft", {
+			mailbox: "Drafts",
+			uid: 1,
+			uidValidity: "7",
+		}),
 	);
 	assert.ok("draftId" in adopted);
 	const collision = await f.api.callTool("create_draft", {

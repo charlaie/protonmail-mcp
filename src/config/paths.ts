@@ -26,13 +26,7 @@ export function getDefaultPolicyFilePath() {
 
 export function getDefaultStorage(configPath: string) {
 	return {
-		policyFile:
-			resolve(configPath) === resolve(getConfigFilePath())
-				? getDefaultPolicyFilePath()
-				: join(
-						dirname(resolve(configPath)),
-						`${basename(configPath)}.policy.json`,
-					),
+		policyFile: defaultPolicyFileFor(configPath),
 		// Journals are keyed by account. Sharing the directory retains replay
 		// protection when multiple profiles use the same Bridge account.
 		operationsDirectory: join(
@@ -40,4 +34,11 @@ export function getDefaultStorage(configPath: string) {
 			"send-operations",
 		),
 	};
+}
+
+function defaultPolicyFileFor(configPath: string) {
+	const absolutePath = resolve(configPath);
+	if (absolutePath === resolve(getConfigFilePath()))
+		return getDefaultPolicyFilePath();
+	return join(dirname(absolutePath), `${basename(configPath)}.policy.json`);
 }

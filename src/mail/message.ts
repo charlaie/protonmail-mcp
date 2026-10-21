@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { GetMessageSchema } from "./identity.js";
 
+export function withinMessageReadLimit(size: number | undefined) {
+	return (
+		size !== undefined &&
+		Number.isSafeInteger(size) &&
+		size >= 0 &&
+		size <= 10 * 1024 * 1024
+	);
+}
+
 export const MessageSummarySchema = z.object({
 	uid: GetMessageSchema.shape.uid,
 	uidValidity: GetMessageSchema.shape.uidValidity,

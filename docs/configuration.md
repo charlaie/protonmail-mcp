@@ -31,6 +31,8 @@ The config and policy files use atomic replacement and owner-only file permissio
 
 Setup validates and stages both files before saving, locks their paths against other setup sessions, and refuses changes made since review. If saving the config fails, it restores the previous policy. The pair of files is not crash-atomic: after an interrupted save, inspect both files before restarting the server. A stale `.setup.lock` file should be removed only after confirming the previous setup process has stopped.
 
+Client configuration installation uses the same path locks while checking the reviewed file, backing it up, and saving the merge. Concurrent installations cannot overwrite each other's reviewed changes. Each backup has a unique `.bak` filename so successive installations retain their separate originals. Other applications that edit the file do not participate in these locks.
+
 ## Migrate an existing installation
 
 1. Stop the running MCP servers.

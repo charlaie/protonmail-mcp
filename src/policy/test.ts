@@ -32,34 +32,22 @@ function runPolicyChecks() {
 
 	assert.equal(canReadMailbox(policy, "INBOX"), true);
 	assert.equal(canReadMailbox(policy, "Archive"), false);
-	assert.equal(
-		canReadMessage(policy, {
-			mailbox: "INBOX",
-			message: fixtureMessage(["Trusted <trusted@example.com>"]),
-		}),
-		true,
-	);
-	assert.equal(
-		canReadMessage(policy, {
-			mailbox: "INBOX",
-			message: fixtureMessage(["person@partner.test"]),
-		}),
-		true,
-	);
-	assert.equal(
-		canReadMessage(policy, {
-			mailbox: "INBOX",
-			message: fixtureMessage(["stranger@example.org"]),
-		}),
-		false,
-	);
-	assert.equal(
-		canReadMessage(policy, {
-			mailbox: "Archive",
-			message: fixtureMessage(["trusted@example.com"]),
-		}),
-		false,
-	);
+
+	const messageCases: [mailbox: string, sender: string, readable: boolean][] = [
+		["INBOX", "Trusted <trusted@example.com>", true],
+		["INBOX", "person@partner.test", true],
+		["INBOX", "stranger@example.org", false],
+		["Archive", "trusted@example.com", false],
+	];
+	for (const [mailbox, sender, readable] of messageCases)
+		assert.equal(
+			canReadMessage(policy, {
+				mailbox,
+				message: fixtureMessage([sender]),
+			}),
+			readable,
+			`${sender} in ${mailbox}`,
+		);
 }
 
 runPolicyChecks();

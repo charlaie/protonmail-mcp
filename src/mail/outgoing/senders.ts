@@ -11,14 +11,14 @@ export function configuredSenderSchema(config: BridgeConfig) {
 }
 
 export function resolveSender(config: BridgeConfig, address = config.user) {
-	const parsed = configuredSenderSchema(config).safeParse(
+	const sender = configuredSenderSchema(config).safeParse(
 		address.toLowerCase(),
 	);
-	if (!parsed.success)
+	if (!sender.success)
 		throw new MailError(
 			"INVALID_INPUT",
 			"Sender must be one of this account's configured own addresses. Run setup to configure sender aliases.",
 			"configure",
 		);
-	return parsed.data;
+	return sender.data;
 }

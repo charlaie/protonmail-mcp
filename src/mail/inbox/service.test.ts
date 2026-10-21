@@ -14,6 +14,7 @@ import {
 import { newEmailMessage } from "@/mail/sending/model.js";
 import { SendEmailSchema } from "@/mail/sending/requests.js";
 import { createSendService } from "@/mail/sending/service.js";
+import { permissiveChecks } from "@/mail/sending/test-fixtures.js";
 import { createInboxStore } from "@/operations/sqlite/inbox.js";
 import { createSendStore } from "@/operations/sqlite/sending.js";
 import { MailError } from "@/shared/mail-error.js";
@@ -469,7 +470,7 @@ test("attempted draft Message-ID cannot evade send claims via a non-draft folder
 			draftMessageId: f.message.envelope?.messageId,
 		},
 	});
-	await sends.send(record, message);
+	await sends.send(record, message, permissiveChecks);
 	await assert.rejects(
 		f.service.manage(f.request({ action: "star" }), f.authorize),
 		/reserved/,
@@ -501,6 +502,52 @@ test("journal failure before the claim prevents mutation and terminal completion
 		record,
 	);
 	assert.equal((await f.store.list(10, 0)).length, 0);
+});
+
+test("completion storage failures preserve write evidence and never repeat STORE or MOVE", async (t) => {
+	for (const action of ["star", "archive"] as const) {
+		for (const committed of [false, true]) {
+			await t.test(
+				`${action}, completion committed: ${committed}`,
+				async (t) => {
+					const f = await fixture(t);
+					const service = createInboxService(
+						testConfig,
+						async (operation) => operation(f.client),
+						{
+							...f.store,
+							async complete(...args) {
+								if (committed) await f.store.complete(...args);
+								throw new MailError(
+									"STORAGE_FAILED",
+									"Completion acknowledgement lost",
+									"configure",
+								);
+							},
+						},
+					);
+					const request = f.request({ action });
+					const result = await service.manage(request, f.authorize);
+					assert.equal(
+						result.outcome.status,
+						committed ? "completed" : "uncertain",
+					);
+					assert.equal(f.client.flagChanges.length + f.client.moves.length, 1);
+					assert.deepEqual(
+						await f.service.manage(request, f.authorize),
+						result,
+					);
+					assert.equal(
+						(await f.service.reconcile(request.operationId, f.authorize))
+							.outcome.status,
+						"completed",
+					);
+					assert.equal(f.client.flagChanges.length + f.client.moves.length, 1);
+					assert.equal(f.client.deletions, 0);
+				},
+			);
+		}
+	}
 });
 
 test("failed source revalidation and permanent-flag capability drops abort before dispatch and release identity and projection claims", async (t) => {
