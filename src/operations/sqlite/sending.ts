@@ -1,12 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { GetMessageInput } from "../../mail/identity.js";
+import type { GetMessageInput } from "@/mail/identity.js";
 import {
 	type DraftCleanup,
 	type SendOperation,
 	SendOperationSchema,
 	type SmtpOutcome,
-} from "../../mail/sending/model.js";
-import { MailError } from "../../shared/mail-error.js";
+} from "@/mail/sending/model.js";
+import { MailError } from "@/shared/mail-error.js";
 import { createOperationDatabase, type OperationDatabase } from "./database.js";
 import { assertMessageMutable } from "./message-claims.js";
 import { operationRecords, selectRecords } from "./records.js";

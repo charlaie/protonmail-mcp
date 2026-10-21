@@ -5,22 +5,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { simpleParser } from "mailparser";
+import { allowAllMessages } from "@/bridge/imap/reading/messages.js";
 import {
-	CreateDraftSchema,
-	EditDraftSchema,
-} from "../../mail/drafts/requests.js";
+	GetThreadSchema,
+	SearchMessagesSchema,
+} from "@/bridge/imap/reading/requests.js";
+import {
+	FakeImap,
+	fixtureMessage,
+	testConfig,
+} from "@/bridge/testing/fixtures.js";
+import { CreateDraftSchema, EditDraftSchema } from "@/mail/drafts/requests.js";
 import {
 	allowAllWrites,
 	permissiveDraftChecks,
-} from "../../mail/drafts/test-fixtures.js";
-import { createDraftStore } from "../../operations/sqlite/drafts.js";
-import { canReadMessage } from "../../policy/enforcement.js";
-import { createReadPolicy } from "../../policy/schema.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { MailError } from "../../shared/mail-error.js";
-import { FakeImap, fixtureMessage, testConfig } from "../testing/fixtures.js";
-import { allowAllMessages } from "./reading/messages.js";
-import { GetThreadSchema, SearchMessagesSchema } from "./reading/requests.js";
+} from "@/mail/drafts/test-fixtures.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { canReadMessage } from "@/policy/enforcement.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { MailError } from "@/shared/mail-error.js";
 import { messageSummary, parsedAddressText } from "./serializers.js";
 import { createImapService } from "./service.js";
 import { createImapSession } from "./session.js";

@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
-import { SearchMessagesSchema } from "./bridge/imap/reading/requests.js";
-import { createImapService } from "./bridge/imap/service.js";
+import { SearchMessagesSchema } from "@/bridge/imap/reading/requests.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	CLIENTS,
 	type ClientName,
@@ -18,18 +18,18 @@ import {
 	launchSpecification,
 	prepareClientInstallation,
 	renderClientConfig,
-} from "./cli/clients/configuration.js";
+} from "@/cli/clients/configuration.js";
 import {
 	type DiagnosticResult,
 	diagnoseServer,
-} from "./cli/diagnostics/service.js";
-import { getConfigFilePath } from "./config/paths.js";
-import { requireServerConfig, type ServerConfig } from "./config/store.js";
-import { createMailAccess } from "./mail/access.js";
-import { GetMessageSchema } from "./mail/identity.js";
-import { createServer } from "./mcp/server.js";
-import { createToolAccess } from "./policy/access.js";
-import { safeErrorMessage } from "./shared/errors.js";
+} from "@/cli/diagnostics/service.js";
+import { getConfigFilePath } from "@/config/paths.js";
+import { requireServerConfig, type ServerConfig } from "@/config/store.js";
+import { createMailAccess } from "@/mail/access.js";
+import { GetMessageSchema } from "@/mail/identity.js";
+import { createServer } from "@/mcp/server.js";
+import { createToolAccess } from "@/policy/access.js";
+import { safeErrorMessage } from "@/shared/errors.js";
 
 const entryPath = fileURLToPath(import.meta.url);
 
@@ -137,12 +137,12 @@ async function main() {
 			});
 			return;
 		case "policy": {
-			const { runPolicyCommand } = await import("./cli/policy.js");
+			const { runPolicyCommand } = await import("@/cli/policy.js");
 			await runPolicyCommand(config.storage.policyFile);
 			return;
 		}
 		case "reset-policy": {
-			const { runResetPolicyCommand } = await import("./cli/policy.js");
+			const { runResetPolicyCommand } = await import("@/cli/policy.js");
 			await runResetPolicyCommand(config.storage.policyFile);
 			return;
 		}
@@ -172,7 +172,7 @@ async function runSetup(
 	section: string | undefined,
 	serverName: string,
 ) {
-	const { runSetupCommand } = await import("./cli/setup/command.js");
+	const { runSetupCommand } = await import("@/cli/setup/command.js");
 	await runSetupCommand({
 		configPath,
 		entryPath,
@@ -263,7 +263,7 @@ async function installInteractively(
 	launch: LaunchSpecification,
 	serverName: string,
 ) {
-	const { confirm, requireTerminal } = await import("./cli/setup/prompts.js");
+	const { confirm, requireTerminal } = await import("@/cli/setup/prompts.js");
 	requireTerminal();
 	const plan = await prepareClientInstallation(
 		client,

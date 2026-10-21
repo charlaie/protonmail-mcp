@@ -1,10 +1,10 @@
-import { summarizeReadPolicy } from "../policy/enforcement.js";
+import { confirm, requireTerminal } from "@/cli/setup/prompts.js";
+import { summarizeReadPolicy } from "@/policy/enforcement.js";
 import {
 	hasReadPolicyFile,
 	loadReadPolicy,
 	resetReadPolicy,
-} from "../policy/store.js";
-import { confirm, requireTerminal } from "./setup/prompts.js";
+} from "@/policy/store.js";
 
 export async function runPolicyCommand(path: string) {
 	const policy = await loadReadPolicy(path);

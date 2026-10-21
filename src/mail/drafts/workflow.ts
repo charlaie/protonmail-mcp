@@ -1,7 +1,7 @@
 import type { z } from "zod";
-import type { BridgeConfig } from "../../bridge/config.js";
-import type { MailAccess } from "../access.js";
-import { composeReplyDraft } from "./composition/replies.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import type { MailAccess } from "@/mail/access.js";
+import { composeReplyDraft } from "@/mail/drafts/composition/replies.js";
 import type { CreateDraftInput, CreateReplyDraftSchema } from "./requests.js";
 import type { createDraftService } from "./service.js";
 

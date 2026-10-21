@@ -1,6 +1,5 @@
 import type { FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
-import type { MessageContent } from "../../../mail/message.js";
 import {
 	checkUidValidity,
 	type MessageFilter,
@@ -9,10 +8,11 @@ import {
 	readMessage,
 	SUMMARY_FIELDS,
 	uidBatches,
-} from "../reading/messages.js";
-import type { GetThreadInput } from "../reading/requests.js";
-import { messageSummary } from "../serializers.js";
-import type { ImapClient } from "../session.js";
+} from "@/bridge/imap/reading/messages.js";
+import type { GetThreadInput } from "@/bridge/imap/reading/requests.js";
+import { messageSummary } from "@/bridge/imap/serializers.js";
+import type { ImapClient } from "@/bridge/imap/session.js";
+import type { MessageContent } from "@/mail/message.js";
 import {
 	bridgeThreadIdentity,
 	normalizeThreadId,

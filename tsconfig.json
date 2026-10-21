@@ -6,6 +6,9 @@
 		"types": ["node"],
 		"outDir": "./build",
 		"rootDir": "./src",
+		"paths": {
+			"@/*": ["./src/*"]
+		},
 		"strict": true,
 		"noUncheckedIndexedAccess": true,
 		"noImplicitReturns": true,

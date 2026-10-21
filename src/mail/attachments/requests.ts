@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { GetMessageSchema } from "../identity.js";
+import { GetMessageSchema } from "@/mail/identity.js";
 
 export const MAX_ATTACHMENT_ID_LENGTH = 100;
 

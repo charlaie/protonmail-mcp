@@ -1,21 +1,21 @@
 import { htmlToText } from "html-to-text";
 import type { FetchMessageObject } from "imapflow";
 import { type ParsedMail, simpleParser } from "mailparser";
-import type { GetMessageInput } from "../../../mail/identity.js";
-import {
-	type MessageContent,
-	type MessageSummary,
-	withinMessageReadLimit,
-} from "../../../mail/message.js";
-import { MailError } from "../../../shared/mail-error.js";
 import {
 	messageReceivedTime,
 	messageSummary,
 	parsedAddressEmails,
 	parsedAddressText,
 	validDate,
-} from "../serializers.js";
-import type { ImapClient } from "../session.js";
+} from "@/bridge/imap/serializers.js";
+import type { ImapClient } from "@/bridge/imap/session.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import {
+	type MessageContent,
+	type MessageSummary,
+	withinMessageReadLimit,
+} from "@/mail/message.js";
+import { MailError } from "@/shared/mail-error.js";
 import type { SearchMessagesInput } from "./requests.js";
 import { buildSearchQuery } from "./search.js";
 

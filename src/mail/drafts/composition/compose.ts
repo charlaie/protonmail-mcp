@@ -1,16 +1,19 @@
 import { type ParsedMail, simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
-import type { BridgeConfig } from "../../../bridge/config.js";
-import { parsedAddressText } from "../../../bridge/imap/serializers.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import { parsedAddressText } from "@/bridge/imap/serializers.js";
+import type {
+	CreateDraftInput,
+	EditDraftInput,
+} from "@/mail/drafts/requests.js";
+import { draftContentHash } from "@/mail/drafts/snapshots.js";
 import {
 	mediaMailOptions,
 	parsedMedia,
 	verifyComposedMedia,
-} from "../../outgoing/media/mime.js";
-import { mediaManifest, outgoingMedia } from "../../outgoing/media/model.js";
-import { resolveSender } from "../../outgoing/senders.js";
-import type { CreateDraftInput, EditDraftInput } from "../requests.js";
-import { draftContentHash } from "../snapshots.js";
+} from "@/mail/outgoing/media/mime.js";
+import { mediaManifest, outgoingMedia } from "@/mail/outgoing/media/model.js";
+import { resolveSender } from "@/mail/outgoing/senders.js";
 
 export type CreateDraftLookupInput = CreateDraftInput & {
 	mailbox: string;

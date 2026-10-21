@@ -2,8 +2,8 @@ import type { DatabaseSync } from "node:sqlite";
 import {
 	type DraftOperation,
 	DraftOperationSchema,
-} from "../../mail/drafts/model.js";
-import type { GetMessageInput } from "../../mail/identity.js";
+} from "@/mail/drafts/model.js";
+import type { GetMessageInput } from "@/mail/identity.js";
 import { createOperationDatabase, type OperationDatabase } from "./database.js";
 import {
 	bindDraftIdentity,

@@ -5,8 +5,8 @@ import type {
 	FetchQueryObject,
 	SearchObject,
 } from "imapflow";
-import type { BridgeConfig } from "../config.js";
-import type { ImapClient } from "../imap/session.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import type { ImapClient } from "@/bridge/imap/session.js";
 
 export const testConfig: BridgeConfig = {
 	user: "bridge@example.com",

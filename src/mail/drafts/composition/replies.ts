@@ -1,13 +1,13 @@
 import type { z } from "zod";
-import type { BridgeConfig } from "../../../bridge/config.js";
+import type { BridgeConfig } from "@/bridge/config.js";
 import {
 	parseMessageIds,
 	type readMessage,
-} from "../../../bridge/imap/reading/messages.js";
-import { MailError } from "../../../shared/mail-error.js";
-import { OutgoingMessageSchema } from "../../outgoing/message.js";
-import { resolveSender } from "../../outgoing/senders.js";
-import type { CreateReplyDraftSchema } from "../requests.js";
+} from "@/bridge/imap/reading/messages.js";
+import type { CreateReplyDraftSchema } from "@/mail/drafts/requests.js";
+import { OutgoingMessageSchema } from "@/mail/outgoing/message.js";
+import { resolveSender } from "@/mail/outgoing/senders.js";
+import { MailError } from "@/shared/mail-error.js";
 import type { CreateDraftLookupInput } from "./compose.js";
 
 type Message = Extract<

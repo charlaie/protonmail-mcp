@@ -2,12 +2,12 @@ import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { simpleParser } from "mailparser";
-import { testConfig } from "../../../bridge/testing/fixtures.js";
-import { composeDraft } from "../../drafts/composition/compose.js";
-import { CreateDraftSchema, EditDraftSchema } from "../../drafts/requests.js";
-import { draftContentHash } from "../../drafts/snapshots.js";
-import { newEmailMessage, sendContentHash } from "../../sending/model.js";
-import { SendEmailSchema } from "../../sending/requests.js";
+import { testConfig } from "@/bridge/testing/fixtures.js";
+import { composeDraft } from "@/mail/drafts/composition/compose.js";
+import { CreateDraftSchema, EditDraftSchema } from "@/mail/drafts/requests.js";
+import { draftContentHash } from "@/mail/drafts/snapshots.js";
+import { newEmailMessage, sendContentHash } from "@/mail/sending/model.js";
+import { SendEmailSchema } from "@/mail/sending/requests.js";
 import { inlineHtml, parsedMedia, verifyComposedMedia } from "./mime.js";
 import {
 	AttachmentPayloadSchema,

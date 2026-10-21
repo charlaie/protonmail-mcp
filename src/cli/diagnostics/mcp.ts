@@ -8,7 +8,7 @@ import {
 	type JSONRPCResultResponse,
 	parseJSONRPCMessage,
 } from "@modelcontextprotocol/server";
-import type { LaunchSpecification } from "../clients/configuration.js";
+import type { LaunchSpecification } from "@/cli/clients/configuration.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 

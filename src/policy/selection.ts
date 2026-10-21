@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { AttachmentPermissionSchema } from "../mail/attachments/formats.js";
-import { InboxActionNameSchema } from "../mail/inbox/model.js";
+import { AttachmentPermissionSchema } from "@/mail/attachments/formats.js";
+import { InboxActionNameSchema } from "@/mail/inbox/model.js";
 import { DomainSchema } from "./schema.js";
 
 export function splitCsv(value: string) {

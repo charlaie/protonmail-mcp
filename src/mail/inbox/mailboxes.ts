@@ -1,6 +1,6 @@
 import type { ListResponse } from "imapflow";
-import { MailError } from "../../shared/mail-error.js";
-import { findSpecialMailbox } from "../mailboxes.js";
+import { findSpecialMailbox } from "@/mail/mailboxes.js";
+import { MailError } from "@/shared/mail-error.js";
 import type { InboxPlan, ManageMessageInput } from "./model.js";
 
 type MailboxKind = "drafts" | "view" | "label" | "folder";

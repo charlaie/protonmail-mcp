@@ -1,14 +1,14 @@
-import type { BridgeConfig } from "../../bridge/config.js";
-import { submitEmail } from "../../bridge/smtp/submission.js";
-import { OperationIdSchema } from "../../operations/identity.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import { submitEmail } from "@/bridge/smtp/submission.js";
+import { mediaManifest } from "@/mail/outgoing/media/model.js";
+import type { OutgoingMessage } from "@/mail/outgoing/message.js";
+import { OperationIdSchema } from "@/operations/identity.js";
 import {
 	createSendStore,
 	type SendStore,
-} from "../../operations/sqlite/sending.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { MailError } from "../../shared/mail-error.js";
-import { mediaManifest } from "../outgoing/media/model.js";
-import type { OutgoingMessage } from "../outgoing/message.js";
+} from "@/operations/sqlite/sending.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { MailError } from "@/shared/mail-error.js";
 import {
 	type DraftCleanup,
 	type SendOperation,

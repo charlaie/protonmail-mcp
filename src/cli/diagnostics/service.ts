@@ -1,14 +1,11 @@
-import {
-	createImapService,
-	type ImapService,
-} from "../../bridge/imap/service.js";
-import { verifySmtpConnection } from "../../bridge/smtp/submission.js";
-import type { ServerConfig } from "../../config/store.js";
-import { createOperationJournal } from "../../operations/journal.js";
-import { readPolicyStatus } from "../../policy/enforcement.js";
-import { loadReadPolicy } from "../../policy/store.js";
-import { safeErrorMessage } from "../../shared/errors.js";
-import type { LaunchSpecification } from "../clients/configuration.js";
+import { createImapService, type ImapService } from "@/bridge/imap/service.js";
+import { verifySmtpConnection } from "@/bridge/smtp/submission.js";
+import type { LaunchSpecification } from "@/cli/clients/configuration.js";
+import type { ServerConfig } from "@/config/store.js";
+import { createOperationJournal } from "@/operations/journal.js";
+import { readPolicyStatus } from "@/policy/enforcement.js";
+import { loadReadPolicy } from "@/policy/store.js";
+import { safeErrorMessage } from "@/shared/errors.js";
 import { checkMcpStartup } from "./mcp.js";
 
 export type DiagnosticResult =

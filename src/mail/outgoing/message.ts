@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { OutgoingMediaSchema } from "./media/model.js";
+import { OutgoingMediaSchema } from "@/mail/outgoing/media/model.js";
 
 const HeaderSchema = z
 	.string()

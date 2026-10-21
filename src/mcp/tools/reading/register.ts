@@ -2,18 +2,15 @@ import { z } from "zod";
 import {
 	GetThreadSchema,
 	SearchMessagesSchema,
-} from "../../../bridge/imap/reading/requests.js";
-import type { ImapService } from "../../../bridge/imap/service.js";
-import type { MailAccess } from "../../../mail/access.js";
-import { GetMessageSchema } from "../../../mail/identity.js";
-import {
-	canReadMailbox,
-	readPolicyStatus,
-} from "../../../policy/enforcement.js";
-import { loadReadPolicy } from "../../../policy/store.js";
-import { READ_ONLY_TOOL } from "../../protocol/annotations.js";
-import { jsonResponse } from "../../protocol/responses.js";
-import type { ToolRegistry } from "../../protocol/tool-registry.js";
+} from "@/bridge/imap/reading/requests.js";
+import type { ImapService } from "@/bridge/imap/service.js";
+import type { MailAccess } from "@/mail/access.js";
+import { GetMessageSchema } from "@/mail/identity.js";
+import { READ_ONLY_TOOL } from "@/mcp/protocol/annotations.js";
+import { jsonResponse } from "@/mcp/protocol/responses.js";
+import type { ToolRegistry } from "@/mcp/protocol/tool-registry.js";
+import { canReadMailbox, readPolicyStatus } from "@/policy/enforcement.js";
+import { loadReadPolicy } from "@/policy/store.js";
 import {
 	GetMessageOutputSchema,
 	MailboxesOutputSchema,

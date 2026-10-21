@@ -1,35 +1,38 @@
-import type { AttachmentPermission } from "../../mail/attachments/formats.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import {
+	type MessageFilter,
+	readMessage,
+	searchMessages,
+} from "@/bridge/imap/reading/messages.js";
+import type { SearchMessagesInput } from "@/bridge/imap/reading/requests.js";
+import {
+	getThread,
+	type ThreadLookupInput,
+} from "@/bridge/imap/threads/reconstruct.js";
+import type { AttachmentPermission } from "@/mail/attachments/formats.js";
 import {
 	type AttachmentReadOptions,
 	getAttachment,
 	getAttachmentMetadata,
 	listAttachments,
-} from "../../mail/attachments/incoming.js";
-import type { GetAttachmentInput } from "../../mail/attachments/requests.js";
-import { createDraftService } from "../../mail/drafts/service.js";
-import type { GetMessageInput } from "../../mail/identity.js";
+} from "@/mail/attachments/incoming.js";
+import type { GetAttachmentInput } from "@/mail/attachments/requests.js";
+import { createDraftService } from "@/mail/drafts/service.js";
+import type { GetMessageInput } from "@/mail/identity.js";
 import {
 	type CreateMailboxInput,
 	createMailbox,
-} from "../../mail/inbox/creation.js";
-import { createInboxService } from "../../mail/inbox/service.js";
-import type { DraftStore } from "../../operations/sqlite/drafts.js";
-import type { InboxStore } from "../../operations/sqlite/inbox.js";
-import type { BridgeConfig } from "../config.js";
+} from "@/mail/inbox/creation.js";
+import { createInboxService } from "@/mail/inbox/service.js";
+import type { DraftStore } from "@/operations/sqlite/drafts.js";
+import type { InboxStore } from "@/operations/sqlite/inbox.js";
 import { findMessageCopies } from "./message-copies.js";
-import {
-	type MessageFilter,
-	readMessage,
-	searchMessages,
-} from "./reading/messages.js";
-import type { SearchMessagesInput } from "./reading/requests.js";
 import { mailboxSummary } from "./serializers.js";
 import {
 	createImapSession,
 	type ImapClient,
 	type ImapSession,
 } from "./session.js";
-import { getThread, type ThreadLookupInput } from "./threads/reconstruct.js";
 
 async function listMailboxes(client: ImapClient) {
 	const mailboxes = await client.list({

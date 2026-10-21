@@ -1,25 +1,25 @@
 import { z } from "zod";
-import type { ImapService } from "../../../bridge/imap/service.js";
-import type { MailAccess } from "../../../mail/access.js";
-import { CreateMailboxSchema } from "../../../mail/inbox/creation.js";
+import type { ImapService } from "@/bridge/imap/service.js";
+import type { MailAccess } from "@/mail/access.js";
+import { CreateMailboxSchema } from "@/mail/inbox/creation.js";
 import {
 	type InboxOperation,
 	ManageMessageSchema,
-} from "../../../mail/inbox/model.js";
-import {
-	GetOperationSchema,
-	ListOperationsSchema,
-} from "../../../operations/identity.js";
+} from "@/mail/inbox/model.js";
 import {
 	ADDITIVE_WRITE_TOOL,
 	DESTRUCTIVE_WRITE_TOOL,
 	READ_ONLY_TOOL,
-} from "../../protocol/annotations.js";
+} from "@/mcp/protocol/annotations.js";
 import {
 	jsonResponse,
 	operationPageResponse,
-} from "../../protocol/responses.js";
-import type { ToolRegistry } from "../../protocol/tool-registry.js";
+} from "@/mcp/protocol/responses.js";
+import type { ToolRegistry } from "@/mcp/protocol/tool-registry.js";
+import {
+	GetOperationSchema,
+	ListOperationsSchema,
+} from "@/operations/identity.js";
 import {
 	CreateMailboxOutputSchema,
 	InboxCapabilitiesOutputSchema,

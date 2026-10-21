@@ -9,11 +9,11 @@ import {
 } from "jsonc-parser";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { z } from "zod";
-import { withSettingsLocks } from "../../config/locks.js";
+import { withSettingsLocks } from "@/config/locks.js";
 import {
 	readOptionalTextFile,
 	writePrivateFile,
-} from "../../shared/private-file.js";
+} from "@/shared/private-file.js";
 import { resolveLaunchEntryPath } from "./launch-path.js";
 
 export const ClientNameSchema = z.enum(["claude", "codex", "vscode", "cursor"]);

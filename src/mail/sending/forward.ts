@@ -1,7 +1,7 @@
 import type { z } from "zod";
-import { hashContent } from "../../shared/content-hash.js";
-import type { MessageContent } from "../message.js";
-import { OutgoingMessageSchema } from "../outgoing/message.js";
+import type { MessageContent } from "@/mail/message.js";
+import { OutgoingMessageSchema } from "@/mail/outgoing/message.js";
+import { hashContent } from "@/shared/content-hash.js";
 import { requestedMedia } from "./model.js";
 import type { ForwardEmailSchema } from "./requests.js";
 

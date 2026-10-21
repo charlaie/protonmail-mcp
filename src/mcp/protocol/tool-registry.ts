@@ -6,8 +6,8 @@ import type {
 	ServerContext,
 } from "@modelcontextprotocol/server";
 import type { z } from "zod";
-import type { ToolAccess } from "../../policy/access.js";
-import type { ToolName } from "../../policy/tools.js";
+import type { ToolAccess } from "@/policy/access.js";
+import type { ToolName } from "@/policy/tools.js";
 import { errorResponse } from "./responses.js";
 
 type ToolConfig<Input, Output> = Pick<

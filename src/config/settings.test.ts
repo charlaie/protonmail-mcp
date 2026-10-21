@@ -3,10 +3,10 @@ import { mkdtemp, readdir, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { testConfig } from "../bridge/testing/fixtures.js";
-import { createReadPolicy } from "../policy/schema.js";
-import { saveReadPolicy } from "../policy/store.js";
-import { readOptionalTextFile } from "../shared/private-file.js";
+import { testConfig } from "@/bridge/testing/fixtures.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { readOptionalTextFile } from "@/shared/private-file.js";
 import { commitSettings } from "./settings.js";
 import { resolveServerConfig, saveServerConfig } from "./store.js";
 

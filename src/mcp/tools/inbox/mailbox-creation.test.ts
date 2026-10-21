@@ -3,13 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { createImapService } from "../../../bridge/imap/service.js";
-import { FakeImap, testConfig } from "../../../bridge/testing/fixtures.js";
-import { CreateMailboxSchema } from "../../../mail/inbox/creation.js";
-import { createReadPolicy } from "../../../policy/schema.js";
-import { loadReadPolicy, saveReadPolicy } from "../../../policy/store.js";
-import { createTestClient } from "../../integration/test-client.js";
-import { createServer } from "../../server.js";
+import { createImapService } from "@/bridge/imap/service.js";
+import { FakeImap, testConfig } from "@/bridge/testing/fixtures.js";
+import { CreateMailboxSchema } from "@/mail/inbox/creation.js";
+import { createTestClient } from "@/mcp/integration/test-client.js";
+import { createServer } from "@/mcp/server.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { loadReadPolicy, saveReadPolicy } from "@/policy/store.js";
 import { CreateMailboxOutputSchema } from "./schemas.js";
 
 async function fixture(t: TestContext) {

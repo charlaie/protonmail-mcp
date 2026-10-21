@@ -3,8 +3,8 @@
 import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
 import type { ServerContext } from "@modelcontextprotocol/server";
-import type { AttachmentApprovalInput } from "../../mail/access.js";
-import type { SendApprovalInput } from "../../mail/sending/workflow.js";
+import type { AttachmentApprovalInput } from "@/mail/access.js";
+import type { SendApprovalInput } from "@/mail/sending/workflow.js";
 import {
 	type ApprovalController,
 	createApprovalController,

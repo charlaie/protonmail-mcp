@@ -2,12 +2,12 @@ import { z } from "zod";
 import {
 	type AttachmentPermission,
 	AttachmentPermissionSchema,
-} from "../mail/attachments/formats.js";
-import { MailboxCreationKindSchema } from "../mail/inbox/creation.js";
+} from "@/mail/attachments/formats.js";
+import { MailboxCreationKindSchema } from "@/mail/inbox/creation.js";
 import {
 	type InboxWritePolicy,
 	InboxWritePolicySchema,
-} from "../mail/inbox/model.js";
+} from "@/mail/inbox/model.js";
 import { READ_ONLY_TOOLS, type ToolName, ToolNameSchema } from "./tools.js";
 
 export const DomainSchema = z

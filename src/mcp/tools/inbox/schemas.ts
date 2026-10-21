@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { MailboxCreationKindSchema } from "../../../mail/inbox/creation.js";
+import { MailboxCreationKindSchema } from "@/mail/inbox/creation.js";
 import {
 	InboxOperationSchema,
 	InboxWritePolicySchema,
-} from "../../../mail/inbox/model.js";
-import { RetrySchema, ToolErrorSchema } from "../../../shared/mail-error.js";
+} from "@/mail/inbox/model.js";
+import { RetrySchema, ToolErrorSchema } from "@/shared/mail-error.js";
 
 export const InboxRecordOutputSchema = InboxOperationSchema.omit({
 	requestHash: true,

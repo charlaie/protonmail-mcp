@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { ConfigSchema } from "../bridge/config.js";
-import { isMissingFile, writePrivateFile } from "../shared/private-file.js";
+import { ConfigSchema } from "@/bridge/config.js";
+import { isMissingFile, writePrivateFile } from "@/shared/private-file.js";
 import { getConfigFilePath, getDefaultStorage } from "./paths.js";
 
 const StorageSchema = z.strictObject({

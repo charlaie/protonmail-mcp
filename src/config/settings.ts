@@ -1,11 +1,11 @@
 import { rename, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { type ReadPolicy, ReadPolicySchema } from "../policy/schema.js";
+import { type ReadPolicy, ReadPolicySchema } from "@/policy/schema.js";
 import {
 	readOptionalTextFile,
 	stagePrivateFile,
 	writePrivateFile,
-} from "../shared/private-file.js";
+} from "@/shared/private-file.js";
 import { withSettingsLocks } from "./locks.js";
 import { resolveServerConfig, type ServerConfig } from "./store.js";
 

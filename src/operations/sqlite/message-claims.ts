@@ -1,10 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { StoredDraftOperationSchema } from "../../mail/drafts/model.js";
-import type { GetMessageInput } from "../../mail/identity.js";
-import { SendOperationSchema } from "../../mail/sending/model.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { MailError } from "../../shared/mail-error.js";
+import { StoredDraftOperationSchema } from "@/mail/drafts/model.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import { SendOperationSchema } from "@/mail/sending/model.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { MailError } from "@/shared/mail-error.js";
 import { selectId, selectRecord } from "./records.js";
 
 type ClaimTable = "inbox_claims" | "draft_mutations" | "draft_claims";

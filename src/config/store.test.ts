@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { testConfig } from "../bridge/testing/fixtures.js";
+import { testConfig } from "@/bridge/testing/fixtures.js";
 import { getConfigFilePath, getDefaultPolicyFilePath } from "./paths.js";
 import {
 	readServerConfig,

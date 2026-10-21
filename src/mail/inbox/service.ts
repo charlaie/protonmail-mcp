@@ -1,17 +1,17 @@
 import type { CopyResponseObject, MailboxObject } from "imapflow";
-import type { BridgeConfig } from "../../bridge/config.js";
-import type { MessageFilter } from "../../bridge/imap/reading/messages.js";
-import { messageSummary } from "../../bridge/imap/serializers.js";
-import type { ImapClient, ImapSession } from "../../bridge/imap/session.js";
-import { OperationIdSchema } from "../../operations/identity.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import type { MessageFilter } from "@/bridge/imap/reading/messages.js";
+import { messageSummary } from "@/bridge/imap/serializers.js";
+import type { ImapClient, ImapSession } from "@/bridge/imap/session.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import { OperationIdSchema } from "@/operations/identity.js";
 import {
 	createInboxStore,
 	type InboxStore,
-} from "../../operations/sqlite/inbox.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { safeErrorMessage } from "../../shared/errors.js";
-import { MailError } from "../../shared/mail-error.js";
-import type { GetMessageInput } from "../identity.js";
+} from "@/operations/sqlite/inbox.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { safeErrorMessage } from "@/shared/errors.js";
+import { MailError } from "@/shared/mail-error.js";
 import {
 	type InspectedMessage,
 	inspectMessage,

@@ -1,7 +1,7 @@
 import { ImapFlow } from "imapflow";
-import { safeErrorMessage } from "../../shared/errors.js";
-import { MailError } from "../../shared/mail-error.js";
-import type { BridgeConfig } from "../config.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import { safeErrorMessage } from "@/shared/errors.js";
+import { MailError } from "@/shared/mail-error.js";
 
 export type ImapClient = Pick<
 	ImapFlow,

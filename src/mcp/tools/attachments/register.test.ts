@@ -2,8 +2,8 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { isSpecType, LOG_LEVEL_META_KEY } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { saveReadPolicy } from "../../../policy/store.js";
-import { ToolErrorSchema } from "../../../shared/mail-error.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { ToolErrorSchema } from "@/shared/mail-error.js";
 import { BINARY_OUTPUT_CAPABILITY } from "./register.js";
 import { AttachmentListOutputSchema } from "./schemas.js";
 import {

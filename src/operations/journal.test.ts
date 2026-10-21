@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type TestContext, test } from "node:test";
 import { z } from "zod";
-import type { DraftOperation } from "../mail/drafts/model.js";
-import type { SendOperation } from "../mail/sending/model.js";
+import type { DraftOperation } from "@/mail/drafts/model.js";
+import type { SendOperation } from "@/mail/sending/model.js";
 import { createOperationJournal } from "./journal.js";
 
 const account = "journal@example.com";

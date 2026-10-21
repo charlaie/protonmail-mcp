@@ -1,15 +1,15 @@
 import type { FetchMessageObject, MailboxObject } from "imapflow";
-import { findMessageCopies } from "../../bridge/imap/message-copies.js";
+import { findMessageCopies } from "@/bridge/imap/message-copies.js";
 import {
 	checkUidValidity,
 	type MessageFilter,
 	SUMMARY_FIELDS,
-} from "../../bridge/imap/reading/messages.js";
-import { messageSummary } from "../../bridge/imap/serializers.js";
-import type { ImapClient } from "../../bridge/imap/session.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { MailError } from "../../shared/mail-error.js";
-import type { GetMessageInput } from "../identity.js";
+} from "@/bridge/imap/reading/messages.js";
+import { messageSummary } from "@/bridge/imap/serializers.js";
+import type { ImapClient } from "@/bridge/imap/session.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { MailError } from "@/shared/mail-error.js";
 import type { InboxOperation } from "./model.js";
 
 export function metadataHash(message: FetchMessageObject, uidValidity: string) {

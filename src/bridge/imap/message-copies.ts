@@ -1,12 +1,12 @@
 import type { FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
-import type { GetMessageInput } from "../../mail/identity.js";
-import { MailError } from "../../shared/mail-error.js";
 import {
 	type MessageFilter,
 	SUMMARY_FIELDS,
 	uidBatches,
-} from "./reading/messages.js";
+} from "@/bridge/imap/reading/messages.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import { MailError } from "@/shared/mail-error.js";
 import { messageSummary } from "./serializers.js";
 import type { ImapClient } from "./session.js";
 

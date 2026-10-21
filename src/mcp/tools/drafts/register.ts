@@ -1,29 +1,29 @@
-import type { BridgeConfig } from "../../../bridge/config.js";
-import type { ImapService } from "../../../bridge/imap/service.js";
-import type { MailAccess } from "../../../mail/access.js";
-import type { DraftOperation } from "../../../mail/drafts/model.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import type { ImapService } from "@/bridge/imap/service.js";
+import type { MailAccess } from "@/mail/access.js";
+import type { DraftOperation } from "@/mail/drafts/model.js";
 import {
 	CreateDraftSchema,
 	CreateReplyDraftSchema,
 	EditDraftRequestSchema,
 	GetDraftSchema,
-} from "../../../mail/drafts/requests.js";
-import type { DraftWorkflow } from "../../../mail/drafts/workflow.js";
-import { configuredSenderSchema } from "../../../mail/outgoing/senders.js";
-import {
-	GetOperationSchema,
-	ListOperationsSchema,
-} from "../../../operations/identity.js";
+} from "@/mail/drafts/requests.js";
+import type { DraftWorkflow } from "@/mail/drafts/workflow.js";
+import { configuredSenderSchema } from "@/mail/outgoing/senders.js";
 import {
 	ADDITIVE_WRITE_TOOL,
 	DESTRUCTIVE_WRITE_TOOL,
 	READ_ONLY_TOOL,
-} from "../../protocol/annotations.js";
+} from "@/mcp/protocol/annotations.js";
 import {
 	jsonResponse,
 	operationPageResponse,
-} from "../../protocol/responses.js";
-import type { ToolRegistry } from "../../protocol/tool-registry.js";
+} from "@/mcp/protocol/responses.js";
+import type { ToolRegistry } from "@/mcp/protocol/tool-registry.js";
+import {
+	GetOperationSchema,
+	ListOperationsSchema,
+} from "@/operations/identity.js";
 import {
 	DraftOperationOutputSchema,
 	GetDraftOutputSchema,

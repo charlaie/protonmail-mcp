@@ -5,9 +5,9 @@ import {
 	type DraftOperation,
 	DraftOperationSchema,
 	StoredDraftOperationSchema,
-} from "../../mail/drafts/model.js";
-import { type GetMessageInput, GetMessageSchema } from "../../mail/identity.js";
-import { MailError } from "../../shared/mail-error.js";
+} from "@/mail/drafts/model.js";
+import { type GetMessageInput, GetMessageSchema } from "@/mail/identity.js";
+import { MailError } from "@/shared/mail-error.js";
 import { messageIdentityKey } from "./message-claims.js";
 import { selectRecord, selectRecords } from "./records.js";
 

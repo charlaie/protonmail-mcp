@@ -1,4 +1,4 @@
-import { toolError } from "../../shared/mail-error.js";
+import { toolError } from "@/shared/mail-error.js";
 
 /** Return a text response. */
 export function textResponse(text: string) {

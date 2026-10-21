@@ -15,12 +15,12 @@ import {
 	parseJSONRPCMessage,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { SearchMessagesSchema } from "../../bridge/imap/reading/requests.js";
-import { SendEmailSchema } from "../../mail/sending/requests.js";
-import { createReadPolicy } from "../../policy/schema.js";
-import { saveReadPolicy } from "../../policy/store.js";
-import { ToolNameSchema } from "../../policy/tools.js";
-import { ToolErrorSchema } from "../../shared/mail-error.js";
+import { SearchMessagesSchema } from "@/bridge/imap/reading/requests.js";
+import { SendEmailSchema } from "@/mail/sending/requests.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { ToolNameSchema } from "@/policy/tools.js";
+import { ToolErrorSchema } from "@/shared/mail-error.js";
 
 test("stdio loads an explicit JSON config, advertises grants, and checks policy changes over the real SDK", {
 	timeout: 10_000,

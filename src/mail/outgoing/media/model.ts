@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
 	AttachmentMimeTypeSchema,
 	isSafeAttachmentFilename,
-} from "../../attachments/formats.js";
+} from "@/mail/attachments/formats.js";
 import { validInlineImage } from "./images.js";
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;

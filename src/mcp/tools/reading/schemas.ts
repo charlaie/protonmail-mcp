@@ -1,9 +1,6 @@
 import { z } from "zod";
-import {
-	MessageBodySchema,
-	MessageSummarySchema,
-} from "../../../mail/message.js";
-import { ToolErrorSchema } from "../../../shared/mail-error.js";
+import { MessageBodySchema, MessageSummarySchema } from "@/mail/message.js";
+import { ToolErrorSchema } from "@/shared/mail-error.js";
 
 export const GetMessageOutputSchema = z.union([
 	MessageBodySchema,

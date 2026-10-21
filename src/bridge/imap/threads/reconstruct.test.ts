@@ -2,8 +2,8 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import type { FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
-import { FakeImap, fixtureMessage } from "../../testing/fixtures.js";
-import { GetThreadSchema } from "../reading/requests.js";
+import { GetThreadSchema } from "@/bridge/imap/reading/requests.js";
+import { FakeImap, fixtureMessage } from "@/bridge/testing/fixtures.js";
 import { bridgeThreadIdentity } from "./identity.js";
 import { getThread } from "./reconstruct.js";
 

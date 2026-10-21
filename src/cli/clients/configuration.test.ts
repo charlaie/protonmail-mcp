@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { parse as parseJsonc } from "jsonc-parser";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
-import { withSettingsLocks } from "../../config/locks.js";
+import { withSettingsLocks } from "@/config/locks.js";
 import {
 	ClientNameSchema,
 	installClientConfig,

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { GetAttachmentSchema } from "../../../mail/attachments/requests.js";
-import { GetMessageSchema } from "../../../mail/identity.js";
-import { ToolErrorSchema } from "../../../shared/mail-error.js";
+import { GetAttachmentSchema } from "@/mail/attachments/requests.js";
+import { GetMessageSchema } from "@/mail/identity.js";
+import { ToolErrorSchema } from "@/shared/mail-error.js";
 
 const IdentitySchema = GetMessageSchema.extend({
 	attachmentId: GetAttachmentSchema.shape.attachmentId,

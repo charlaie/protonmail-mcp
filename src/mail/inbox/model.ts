@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { OperationIdSchema } from "../../operations/identity.js";
-import { GetMessageSchema } from "../identity.js";
+import { GetMessageSchema } from "@/mail/identity.js";
+import { OperationIdSchema } from "@/operations/identity.js";
 
 export const InboxActionNameSchema = z.enum([
 	"mark_read",

@@ -1,13 +1,13 @@
 import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { readMessage } from "../../../bridge/imap/reading/messages.js";
+import { readMessage } from "@/bridge/imap/reading/messages.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../../bridge/testing/fixtures.js";
-import { CreateReplyDraftSchema } from "../requests.js";
+} from "@/bridge/testing/fixtures.js";
+import { CreateReplyDraftSchema } from "@/mail/drafts/requests.js";
 import { composeReplyDraft } from "./replies.js";
 
 test("reply drafts respect Reply-To, deduplicate reply-all, exclude self and Bcc, and build threading", async () => {

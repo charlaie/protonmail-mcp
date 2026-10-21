@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { OperationIdSchema } from "../../operations/identity.js";
-import { GetMessageSchema } from "../identity.js";
-import { MediaMetadataSchema } from "../outgoing/media/model.js";
+import { GetMessageSchema } from "@/mail/identity.js";
+import { MediaMetadataSchema } from "@/mail/outgoing/media/model.js";
+import { OperationIdSchema } from "@/operations/identity.js";
 
 export const DraftSourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("create") }),

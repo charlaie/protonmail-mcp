@@ -1,9 +1,9 @@
 import { chmod, mkdir, open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { getPolicyFilePath } from "../../policy/store.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { MailError } from "../../shared/mail-error.js";
+import { getPolicyFilePath } from "@/policy/store.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { MailError } from "@/shared/mail-error.js";
 import {
 	draftIdentitiesReady,
 	migrateDraftIdentities,

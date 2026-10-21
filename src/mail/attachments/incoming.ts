@@ -6,12 +6,12 @@ import {
 	type MessageFilter,
 	type ReadResult,
 	SUMMARY_FIELDS,
-} from "../../bridge/imap/reading/messages.js";
-import { messageSummary } from "../../bridge/imap/serializers.js";
-import type { ImapClient } from "../../bridge/imap/session.js";
-import { MailError } from "../../shared/mail-error.js";
-import type { GetMessageInput } from "../identity.js";
-import type { MessageSummary } from "../message.js";
+} from "@/bridge/imap/reading/messages.js";
+import { messageSummary } from "@/bridge/imap/serializers.js";
+import type { ImapClient } from "@/bridge/imap/session.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import type { MessageSummary } from "@/mail/message.js";
+import { MailError } from "@/shared/mail-error.js";
 import {
 	AttachmentMimeTypeSchema,
 	type AttachmentPermission,

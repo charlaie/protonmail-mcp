@@ -3,8 +3,8 @@ import { test } from "node:test";
 import {
 	allowAllMessages,
 	type MessageFilter,
-} from "../../bridge/imap/reading/messages.js";
-import { FakeImap, fixtureMessage } from "../../bridge/testing/fixtures.js";
+} from "@/bridge/imap/reading/messages.js";
+import { FakeImap, fixtureMessage } from "@/bridge/testing/fixtures.js";
 import type { AttachmentExtension, AttachmentPermission } from "./formats.js";
 import {
 	getAttachment,

@@ -1,9 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { GetMessageInput } from "../../mail/identity.js";
+import type { GetMessageInput } from "@/mail/identity.js";
 import {
 	type InboxOperation,
 	InboxOperationSchema,
-} from "../../mail/inbox/model.js";
+} from "@/mail/inbox/model.js";
 import { createOperationDatabase, type OperationDatabase } from "./database.js";
 import { assertMessageMutable, messageIdentityKey } from "./message-claims.js";
 import {

@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createTestClient } from "../integration/test-client.js";
+import { createTestClient } from "@/mcp/integration/test-client.js";
 import { jsonResponse } from "./responses.js";
 import { ToolRegistry } from "./tool-registry.js";
 

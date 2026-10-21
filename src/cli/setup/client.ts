@@ -11,7 +11,7 @@ import {
 	launchSpecification,
 	prepareClientInstallation,
 	renderClientConfig,
-} from "../clients/configuration.js";
+} from "@/cli/clients/configuration.js";
 import { answer, confirm, requireNonBlank, validatedText } from "./prompts.js";
 
 type ClientAction = "copy" | "save" | "install";

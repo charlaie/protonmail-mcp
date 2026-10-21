@@ -1,10 +1,10 @@
 import type { z } from "zod";
-import type { BridgeConfig } from "../../bridge/config.js";
-import type { ToolAccess } from "../../policy/access.js";
-import { MailError } from "../../shared/mail-error.js";
-import type { MailAccess } from "../access.js";
-import type { OutgoingMessage } from "../outgoing/message.js";
-import { resolveSender } from "../outgoing/senders.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import type { MailAccess } from "@/mail/access.js";
+import type { OutgoingMessage } from "@/mail/outgoing/message.js";
+import { resolveSender } from "@/mail/outgoing/senders.js";
+import type { ToolAccess } from "@/policy/access.js";
+import { MailError } from "@/shared/mail-error.js";
 import { forwardFingerprint, forwardMessage } from "./forward.js";
 import {
 	newEmailMessage,

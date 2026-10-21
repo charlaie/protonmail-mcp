@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { strict as assert } from "node:assert";
-import { messageSummary } from "../bridge/imap/serializers.js";
-import type { MessageSummary } from "../mail/message.js";
+import { messageSummary } from "@/bridge/imap/serializers.js";
+import type { MessageSummary } from "@/mail/message.js";
 import { canReadMailbox, canReadMessage } from "./enforcement.js";
 import { createReadPolicy } from "./schema.js";
 

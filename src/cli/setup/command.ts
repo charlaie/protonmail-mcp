@@ -1,20 +1,20 @@
 import { resolve } from "node:path";
 import * as prompts from "@clack/prompts";
-import type { BridgeConfig } from "../../bridge/config.js";
-import { getDefaultStorage } from "../../config/paths.js";
-import { commitSettings, requirePolicyAccount } from "../../config/settings.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import {
+	type LaunchSpecification,
+	launchSpecification,
+} from "@/cli/clients/configuration.js";
+import { checkMcpStartup } from "@/cli/diagnostics/mcp.js";
+import { getDefaultStorage } from "@/config/paths.js";
+import { commitSettings, requirePolicyAccount } from "@/config/settings.js";
 import {
 	readServerConfig,
 	resolveServerConfig,
 	type ServerConfig,
-} from "../../config/store.js";
-import { loadReadPolicy } from "../../policy/store.js";
-import { readOptionalTextFile } from "../../shared/private-file.js";
-import {
-	type LaunchSpecification,
-	launchSpecification,
-} from "../clients/configuration.js";
-import { checkMcpStartup } from "../diagnostics/mcp.js";
+} from "@/config/store.js";
+import { loadReadPolicy } from "@/policy/store.js";
+import { readOptionalTextFile } from "@/shared/private-file.js";
 import { configureClients } from "./client.js";
 import { configureConnection, verifyConnection } from "./connection.js";
 import type { BridgeMailboxes } from "./mailboxes.js";

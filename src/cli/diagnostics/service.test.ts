@@ -3,12 +3,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createImapService } from "../../bridge/imap/service.js";
-import { FakeImap, testConfig } from "../../bridge/testing/fixtures.js";
-import { resolveServerConfig } from "../../config/store.js";
-import { createReadPolicy } from "../../policy/schema.js";
-import { saveReadPolicy } from "../../policy/store.js";
-import { launchSpecification } from "../clients/configuration.js";
+import { createImapService } from "@/bridge/imap/service.js";
+import { FakeImap, testConfig } from "@/bridge/testing/fixtures.js";
+import { launchSpecification } from "@/cli/clients/configuration.js";
+import { resolveServerConfig } from "@/config/store.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
 import { connectionFailureMessage, diagnoseServer } from "./service.js";
 
 test("doctor authenticates without mail mutations and reports client UI as unverified", async (t) => {

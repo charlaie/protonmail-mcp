@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { z } from "zod";
-import { MailError } from "../../shared/mail-error.js";
+import { MailError } from "@/shared/mail-error.js";
 
 const RecordRowSchema = z.object({ record: z.string() });
 const IdRowSchema = z.object({ id: z.string() });

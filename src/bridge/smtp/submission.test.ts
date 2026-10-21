@@ -1,17 +1,14 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { simpleParser } from "mailparser";
-import { outgoingMedia } from "../../mail/outgoing/media/model.js";
-import {
-	testFile,
-	testImage,
-} from "../../mail/outgoing/media/test-fixtures.js";
-import type { OutgoingMessage } from "../../mail/outgoing/message.js";
-import { testConfig } from "../testing/fixtures.js";
+import { testConfig } from "@/bridge/testing/fixtures.js";
 import {
 	createSmtpTestServer,
 	type SmtpScenario,
-} from "../testing/smtp-server.js";
+} from "@/bridge/testing/smtp-server.js";
+import { outgoingMedia } from "@/mail/outgoing/media/model.js";
+import { testFile, testImage } from "@/mail/outgoing/media/test-fixtures.js";
+import type { OutgoingMessage } from "@/mail/outgoing/message.js";
 import {
 	smtpFailure,
 	submitEmail,

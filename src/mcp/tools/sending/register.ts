@@ -1,35 +1,35 @@
 import type { ServerContext } from "@modelcontextprotocol/server";
 import type { z } from "zod";
-import type { BridgeConfig } from "../../../bridge/config.js";
-import { configuredSenderSchema } from "../../../mail/outgoing/senders.js";
-import type { SendOperation } from "../../../mail/sending/model.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import { configuredSenderSchema } from "@/mail/outgoing/senders.js";
+import type { SendOperation } from "@/mail/sending/model.js";
 import {
 	ForwardEmailSchema,
 	SendDraftRequestSchema,
 	SendEmailSchema,
-} from "../../../mail/sending/requests.js";
-import type { SendService } from "../../../mail/sending/service.js";
+} from "@/mail/sending/requests.js";
+import type { SendService } from "@/mail/sending/service.js";
 import type {
 	SendApproval,
 	SendWorkflow,
 	SendWorkflowResult,
-} from "../../../mail/sending/workflow.js";
-import {
-	GetOperationSchema,
-	ListOperationsSchema,
-} from "../../../operations/identity.js";
-import { MailError, type RetrySchema } from "../../../shared/mail-error.js";
+} from "@/mail/sending/workflow.js";
 import {
 	ADDITIVE_WRITE_TOOL,
 	DESTRUCTIVE_WRITE_TOOL,
 	READ_ONLY_TOOL,
-} from "../../protocol/annotations.js";
-import type { ApprovalController } from "../../protocol/elicitation.js";
+} from "@/mcp/protocol/annotations.js";
+import type { ApprovalController } from "@/mcp/protocol/elicitation.js";
 import {
 	jsonResponse,
 	operationPageResponse,
-} from "../../protocol/responses.js";
-import type { ToolRegistry } from "../../protocol/tool-registry.js";
+} from "@/mcp/protocol/responses.js";
+import type { ToolRegistry } from "@/mcp/protocol/tool-registry.js";
+import {
+	GetOperationSchema,
+	ListOperationsSchema,
+} from "@/operations/identity.js";
+import { MailError, type RetrySchema } from "@/shared/mail-error.js";
 import { ListSendOperationsOutputSchema, SendOutputSchema } from "./schemas.js";
 
 type ApprovalResponse = Exclude<

@@ -5,25 +5,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { isSpecType } from "@modelcontextprotocol/server";
-import { createImapService } from "../../../bridge/imap/service.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../../bridge/testing/fixtures.js";
-import {
-	testFile,
-	testImage,
-} from "../../../mail/outgoing/media/test-fixtures.js";
-import { createSendService } from "../../../mail/sending/service.js";
-import { createDraftStore } from "../../../operations/sqlite/drafts.js";
-import { createSendStore } from "../../../operations/sqlite/sending.js";
-import { createReadPolicy } from "../../../policy/schema.js";
-import { saveReadPolicy } from "../../../policy/store.js";
-import { ToolNameSchema } from "../../../policy/tools.js";
-import { createTestClient } from "../../integration/test-client.js";
-import { createServer } from "../../server.js";
-import { ListSendOperationsOutputSchema } from "../sending/schemas.js";
+} from "@/bridge/testing/fixtures.js";
+import { testFile, testImage } from "@/mail/outgoing/media/test-fixtures.js";
+import { createSendService } from "@/mail/sending/service.js";
+import { createTestClient } from "@/mcp/integration/test-client.js";
+import { createServer } from "@/mcp/server.js";
+import { ListSendOperationsOutputSchema } from "@/mcp/tools/sending/schemas.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { ToolNameSchema } from "@/policy/tools.js";
 import {
 	DraftOperationOutputSchema,
 	GetDraftOutputSchema,

@@ -4,7 +4,7 @@ import {
 	MailboxSchema,
 	UidSchema,
 	UidValiditySchema,
-} from "../../../mail/identity.js";
+} from "@/mail/identity.js";
 
 const DateStringSchema = z.iso
 	.date()

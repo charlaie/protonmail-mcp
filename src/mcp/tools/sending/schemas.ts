@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { SendOperationSchema } from "../../../mail/sending/model.js";
-import { RetrySchema, ToolErrorSchema } from "../../../shared/mail-error.js";
+import { SendOperationSchema } from "@/mail/sending/model.js";
+import { RetrySchema, ToolErrorSchema } from "@/shared/mail-error.js";
 
 export const SendRecordOutputSchema = SendOperationSchema.omit({
 	requestHash: true,

@@ -1,16 +1,20 @@
 import { z } from "zod";
-import { OperationIdSchema } from "../../operations/identity.js";
-import { GetMessageSchema, UidSchema, UidValiditySchema } from "../identity.js";
+import {
+	GetMessageSchema,
+	UidSchema,
+	UidValiditySchema,
+} from "@/mail/identity.js";
 import {
 	EmailAddressSchema,
 	EmailListSchema,
 	SubjectSchema,
 	TextSchema,
-} from "../outgoing/content.js";
+} from "@/mail/outgoing/content.js";
 import {
 	MediaInputFields,
 	withinMediaLimits,
-} from "../outgoing/media/model.js";
+} from "@/mail/outgoing/media/model.js";
+import { OperationIdSchema } from "@/operations/identity.js";
 
 const DraftContentSchema = z
 	.object({
