@@ -306,10 +306,12 @@ test("submitting, uncertain, partial, and accepted sends with retained drafts ca
 				message: snapshot.message,
 				source,
 			});
-			await sends.send(record, snapshot.message, async () => ({
-				status: "failed",
-				reason: "Deletion interrupted",
-			}));
+			await sends.send(record, snapshot.message, {
+				cleanup: async () => ({
+					status: "failed",
+					reason: "Deletion interrupted",
+				}),
+			});
 			await assert.rejects(
 				drafts.edit({
 					request: await edit(),
@@ -450,8 +452,11 @@ test("late append completion and failed cleanup cannot regress an already comple
 	const { store, directory } = await fixture(t);
 	const operationId = randomUUID();
 	const composed = await composeDraft(testConfig, {
-		...CreateDraftSchema.parse({ operationId }),
-		mailbox: "Drafts",
+		kind: "create",
+		input: {
+			...CreateDraftSchema.parse({ operationId }),
+			mailbox: "Drafts",
+		},
 	});
 	const now = new Date().toISOString();
 	await store.claim({

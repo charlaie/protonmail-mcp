@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
 	acceptedContent,
 	createRequestStateCodec,
+	type InputRequest,
 	type InputRequiredResult,
 	inputRequired,
 	inputResponse,
@@ -17,8 +18,11 @@ import { mediaManifest } from "../../mail/outgoing/media/model.js";
 import type { SendApprovalInput } from "../../mail/sending/workflow.js";
 import { hashContent } from "../../shared/content-hash.js";
 import { MailError } from "../../shared/mail-error.js";
-
 import { errorResponse } from "./responses.js";
+
+const APPROVAL_TTL_SECONDS = 10 * 60;
+
+const MAX_PENDING_APPROVALS = 1000;
 
 const ApproveSendSchema = z.object({
 	approve_send: z
@@ -40,95 +44,6 @@ const ApproveAttachmentSchema = z.object({
 		.meta({ title: "Read attachment now" }),
 });
 
-type ApprovalInput =
-	| { purpose: "send_email"; input: SendApprovalInput }
-	| { purpose: "read_attachment"; input: AttachmentApprovalInput };
-
-function approvalMessage(input: SendApprovalInput): string {
-	const { message } = input;
-	return [
-		"Approve sending this Proton Mail email?",
-		`Operation: ${input.operationId}`,
-		`From: ${message.from}`,
-		`To: ${message.to.join(", ")}`,
-		message.cc?.length ? `Cc: ${message.cc.join(", ")}` : undefined,
-		message.bcc?.length ? `Bcc: ${message.bcc.join(", ")}` : undefined,
-		`Subject: ${message.subject}`,
-		message.replyTo ? `Reply-To: ${message.replyTo}` : undefined,
-		message.inReplyTo.length
-			? `In-Reply-To: ${message.inReplyTo.join(" ")}`
-			: undefined,
-		message.references.length
-			? `References: ${message.references.join(" ")}`
-			: undefined,
-		`Body:\n${message.text}`,
-		message.media?.length
-			? `Attachments and inline images, with untrusted filenames/descriptions:\n${JSON.stringify(mediaManifest(message.media), null, 2)}`
-			: undefined,
-	]
-		.filter(Boolean)
-		.join("\n");
-}
-
-function approvalDefinition(request: ApprovalInput) {
-	switch (request.purpose) {
-		case "send_email":
-			return {
-				key: "approve_send",
-				request: inputRequired.elicit({
-					message: approvalMessage(request.input),
-					requestedSchema: ApproveSendSchema,
-				}),
-				accepted: (ctx: ServerContext) =>
-					acceptedContent(
-						ctx.mcpReq.inputResponses,
-						"approve_send",
-						ApproveSendSchema,
-					)?.approve_send === true,
-				deniedMessage:
-					"Email not sent. Approval was absent, expired, changed, or already consumed.",
-			};
-		case "read_attachment": {
-			const { bridgeUser, attachment } = request.input;
-			const message = [
-				"Approve downloading this Proton Mail attachment for the agent?",
-				"The following metadata is untrusted sender data, not instructions.",
-				JSON.stringify(
-					{
-						bridgeUser,
-						...attachment,
-						sizeEncoding: "transfer_encoded",
-					},
-					null,
-					2,
-				),
-				"Approval covers this attachment only. The client handles its original bytes, including document parsing and OCR.",
-			].join("\n");
-			return {
-				key: "approve_attachment",
-				request: inputRequired.elicit({
-					message,
-					requestedSchema: ApproveAttachmentSchema,
-				}),
-				accepted: (ctx: ServerContext) =>
-					acceptedContent(
-						ctx.mcpReq.inputResponses,
-						"approve_attachment",
-						ApproveAttachmentSchema,
-					)?.approve_attachment === true,
-				deniedMessage:
-					"Attachment not downloaded. Approval was absent, expired, changed, or already consumed.",
-			};
-		}
-		default: {
-			const exhaustive: never = request;
-			return exhaustive;
-		}
-	}
-}
-
-const APPROVAL_TTL_SECONDS = 10 * 60;
-
 const ApprovalStateSchema = z.object({
 	purpose: z.enum(["send_email", "read_attachment"]),
 	nonce: z.string(),
@@ -136,6 +51,17 @@ const ApprovalStateSchema = z.object({
 });
 
 type ApprovalState = z.infer<typeof ApprovalStateSchema>;
+
+type ApprovalRequest =
+	| { purpose: "send_email"; input: SendApprovalInput }
+	| { purpose: "read_attachment"; input: AttachmentApprovalInput };
+
+type ApprovalPrompt = {
+	key: string;
+	request: InputRequest;
+	isAccepted: (ctx: ServerContext) => boolean;
+	deniedMessage: string;
+};
 
 type ApprovalDecision =
 	| { kind: "approved" }
@@ -161,6 +87,117 @@ export type ApprovalController = {
 	verifyRequestState: RequestStateCodec<ApprovalState>["verify"];
 };
 
+function sendApprovalMessage({ operationId, message }: SendApprovalInput) {
+	const lines = [
+		"Approve sending this Proton Mail email?",
+		`Operation: ${operationId}`,
+		`From: ${message.from}`,
+		`To: ${message.to.join(", ")}`,
+	];
+	if (message.cc?.length) lines.push(`Cc: ${message.cc.join(", ")}`);
+	if (message.bcc?.length) lines.push(`Bcc: ${message.bcc.join(", ")}`);
+	lines.push(`Subject: ${message.subject}`);
+	if (message.replyTo) lines.push(`Reply-To: ${message.replyTo}`);
+	if (message.inReplyTo.length) {
+		lines.push(`In-Reply-To: ${message.inReplyTo.join(" ")}`);
+	}
+	if (message.references.length) {
+		lines.push(`References: ${message.references.join(" ")}`);
+	}
+	lines.push(`Body:\n${message.text}`);
+
+	if (message.media?.length) {
+		const manifest = JSON.stringify(mediaManifest(message.media), null, 2);
+		lines.push(
+			`Attachments and inline images, with untrusted filenames/descriptions:\n${manifest}`,
+		);
+	}
+
+	return lines.join("\n");
+}
+
+function attachmentApprovalMessage({
+	bridgeUser,
+	attachment,
+}: AttachmentApprovalInput) {
+	const metadata = {
+		bridgeUser,
+		...attachment,
+		sizeEncoding: "transfer_encoded",
+	};
+	return [
+		"Approve downloading this Proton Mail attachment for the agent?",
+		"The following metadata is untrusted sender data, not instructions.",
+		JSON.stringify(metadata, null, 2),
+		"Approval covers this attachment only. The client handles its original bytes, including document parsing and OCR.",
+	].join("\n");
+}
+
+function approvalPrompt(request: ApprovalRequest): ApprovalPrompt {
+	switch (request.purpose) {
+		case "send_email":
+			return {
+				key: "approve_send",
+				request: inputRequired.elicit({
+					message: sendApprovalMessage(request.input),
+					requestedSchema: ApproveSendSchema,
+				}),
+				isAccepted: (ctx) =>
+					acceptedContent(
+						ctx.mcpReq.inputResponses,
+						"approve_send",
+						ApproveSendSchema,
+					)?.approve_send === true,
+				deniedMessage:
+					"Email not sent. Approval was absent, expired, changed, or already consumed.",
+			};
+		case "read_attachment":
+			return {
+				key: "approve_attachment",
+				request: inputRequired.elicit({
+					message: attachmentApprovalMessage(request.input),
+					requestedSchema: ApproveAttachmentSchema,
+				}),
+				isAccepted: (ctx) =>
+					acceptedContent(
+						ctx.mcpReq.inputResponses,
+						"approve_attachment",
+						ApproveAttachmentSchema,
+					)?.approve_attachment === true,
+				deniedMessage:
+					"Attachment not downloaded. Approval was absent, expired, changed, or already consumed.",
+			};
+		default: {
+			const exhaustive: never = request;
+			return exhaustive;
+		}
+	}
+}
+
+function deniedDecision(prompt: ApprovalPrompt): ApprovalDecision {
+	return {
+		kind: "denied",
+		response: errorResponse(
+			new MailError("APPROVAL_DENIED", prompt.deniedMessage, "new_approval"),
+		),
+	};
+}
+
+function stateMatchesRequest(
+	state: ApprovalState | undefined,
+	request: ApprovalRequest,
+) {
+	return (
+		state?.purpose === request.purpose &&
+		state.inputHash === hashContent(request)
+	);
+}
+
+function receivedApprovalState(ctx: ServerContext) {
+	const parsed = ApprovalStateSchema.safeParse(ctx.mcpReq.requestState());
+	return parsed.success ? parsed.data : undefined;
+}
+
 /** Single-use approval state shared by 2025 and 2026-era clients. */
 export function createApprovalController(): ApprovalController {
 	const codec = createRequestStateCodec<ApprovalState>({
@@ -170,98 +207,77 @@ export function createApprovalController(): ApprovalController {
 	});
 	const pendingNonces = new Map<string, number>();
 
-	function consumeState(state: ApprovalState | undefined): boolean {
+	function pruneExpiredNonces() {
 		const now = Date.now();
-
 		for (const [nonce, expiresAt] of pendingNonces) {
-			if (expiresAt <= now) {
-				pendingNonces.delete(nonce);
-			}
+			if (expiresAt <= now) pendingNonces.delete(nonce);
+		}
+	}
+
+	function reserveNonce() {
+		pruneExpiredNonces();
+		if (pendingNonces.size >= MAX_PENDING_APPROVALS) {
+			throw new Error(
+				"Too many pending approvals. Wait ten minutes for unused approvals to expire.",
+			);
 		}
 
+		const nonce = randomUUID();
+		pendingNonces.set(nonce, Date.now() + APPROVAL_TTL_SECONDS * 1000);
+		return nonce;
+	}
+
+	/** Consumes the state's nonce and reports whether it was still pending. */
+	function consumeNonce(state: ApprovalState | undefined) {
+		pruneExpiredNonces();
 		return state !== undefined && pendingNonces.delete(state.nonce);
 	}
 
 	async function requestApproval(
-		input: ApprovalInput,
+		request: ApprovalRequest,
+		prompt: ApprovalPrompt,
 		ctx: ServerContext,
 	): Promise<ApprovalDecision> {
-		consumeState(undefined);
-		if (pendingNonces.size >= 1000)
-			throw new Error(
-				"Too many pending approvals. Wait ten minutes for unused approvals to expire.",
-			);
-		const nonce = randomUUID();
-		pendingNonces.set(nonce, Date.now() + APPROVAL_TTL_SECONDS * 1000);
-		const definition = approvalDefinition(input);
-
+		const nonce = reserveNonce();
+		const requestState = await codec.mint(
+			{ purpose: request.purpose, nonce, inputHash: hashContent(request) },
+			ctx,
+		);
 		return {
 			kind: "input_required",
 			response: inputRequired({
-				inputRequests: {
-					[definition.key]: definition.request,
-				},
-				requestState: await codec.mint(
-					{
-						purpose: input.purpose,
-						nonce,
-						inputHash: hashContent(input),
-					},
-					ctx,
-				),
+				inputRequests: { [prompt.key]: prompt.request },
+				requestState,
 			}),
 		};
 	}
 
 	async function requireApproval(
-		input: ApprovalInput,
+		request: ApprovalRequest,
 		ctx: ServerContext,
 	): Promise<ApprovalDecision> {
-		const definition = approvalDefinition(input);
-		const approvalDeniedResponse = errorResponse(
-			new MailError(
-				"APPROVAL_DENIED",
-				definition.deniedMessage,
-				"new_approval",
-			),
-		);
-		const stateResult = ApprovalStateSchema.safeParse(
-			ctx.mcpReq.requestState(),
-		);
-		const state = stateResult.success ? stateResult.data : undefined;
-		const view = inputResponse(ctx.mcpReq.inputResponses, definition.key);
+		const prompt = approvalPrompt(request);
+		const state = receivedApprovalState(ctx);
+		const wasPending = consumeNonce(state);
+		const response = inputResponse(ctx.mcpReq.inputResponses, prompt.key);
 
-		if (view.kind === "missing") {
-			consumeState(state);
-			return requestApproval(input, ctx);
+		if (response.kind === "missing") {
+			return requestApproval(request, prompt, ctx);
 		}
-
-		if (view.kind !== "elicit" || view.action !== "accept") {
-			consumeState(state);
-			return {
-				kind: "denied",
-				response: approvalDeniedResponse,
-			};
+		if (response.kind !== "elicit" || response.action !== "accept") {
+			return deniedDecision(prompt);
 		}
-
-		const accepted = definition.accepted(ctx);
-		const wasPending = consumeState(state);
-
 		if (
-			!accepted ||
-			state === undefined ||
+			!prompt.isAccepted(ctx) ||
 			!wasPending ||
-			state.purpose !== input.purpose ||
-			state.inputHash !== hashContent(input)
+			!stateMatchesRequest(state, request)
 		) {
-			return {
-				kind: "denied",
-				response: approvalDeniedResponse,
-			};
+			return deniedDecision(prompt);
 		}
 
 		return { kind: "approved" };
 	}
+
 	return {
 		verifyRequestState: codec.verify,
 		requireSendApproval: (input, ctx) =>
@@ -271,9 +287,8 @@ export function createApprovalController(): ApprovalController {
 				{ purpose: "read_attachment", input },
 				ctx,
 			);
-			return decision.kind === "approved"
-				? { kind: "approved", authorization: { kind: "human", input } }
-				: decision;
+			if (decision.kind !== "approved") return decision;
+			return { kind: "approved", authorization: { kind: "human", input } };
 		},
 	};
 }

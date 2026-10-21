@@ -35,7 +35,9 @@ test("doctor authenticates without mail mutations and reports client UI as unver
 		config,
 		launchSpecification({ configPath: "config.json", entryPath: "index.js" }),
 		{
-			imap: createImapService(testConfig, async (operation) => operation(imap)),
+			imap: createImapService(testConfig, {
+				run: async (operation) => operation(imap),
+			}),
 			verifySmtp: async () => {
 				smtpChecks++;
 			},

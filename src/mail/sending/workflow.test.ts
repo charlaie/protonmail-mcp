@@ -41,11 +41,10 @@ async function fixture(t: TestContext, revokeAfterClaim = false) {
 	);
 	draft.size = draft.source.length;
 	client.mailboxes.set("Drafts", [draft]);
-	const imap = createImapService(
-		testConfig,
-		async (operation) => operation(client),
-		createDraftStore(testConfig.user, directory),
-	);
+	const imap = createImapService(testConfig, {
+		run: async (operation) => operation(client),
+		draftStore: createDraftStore(testConfig.user, directory),
+	});
 	const store = createSendStore(testConfig.user, directory);
 	let submissions = 0;
 	const sends = createSendService(testConfig, {
@@ -184,4 +183,37 @@ test("the draft workflow records acceptance before deletion and reports cleanup 
 	assert.equal(cleaned.outcome.status, "accepted");
 	assert.equal(cleaned.draftCleanup.status, "deleted");
 	assert.equal(f.submissions(), 1);
+});
+
+test("accepted source-backed sends replay after their source disappears without requesting approval", async (t) => {
+	for (const kind of ["forward", "draft"] as const) {
+		await t.test(kind, async (t) => {
+			const f = await fixture(t);
+			const operationId = randomUUID();
+			const invoke = (approve: Parameters<typeof f.workflow.draft>[1]) =>
+				kind === "draft"
+					? f.workflow.draft({ operationId, uid: 1, uidValidity: "7" }, approve)
+					: f.workflow.forward(
+							{
+								operationId,
+								source: { mailbox: "INBOX", uid: 1, uidValidity: "7" },
+								to: ["recipient@example.com"],
+								text: "FYI",
+							},
+							approve,
+						);
+			const result = await invoke(async () => ({ kind: "approved" }));
+			assert.equal(result.kind, "operation");
+			assert.ok(result.kind === "operation");
+			assert.equal(result.operation.outcome.status, "accepted");
+			f.client.mailboxes.set(kind === "draft" ? "Drafts" : "INBOX", []);
+			assert.deepEqual(
+				await invoke(async () => {
+					throw new Error("An accepted send must not request approval again");
+				}),
+				result,
+			);
+			assert.equal(f.submissions(), 1);
+		});
+	}
 });

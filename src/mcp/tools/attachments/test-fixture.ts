@@ -75,9 +75,9 @@ export async function attachmentFixture(
 		content: bytes,
 		meta: { filename, contentType, disposition: "attachment" },
 	});
-	const service = createImapService(testConfig, async (operation) =>
-		operation(imap),
-	);
+	const service = createImapService(testConfig, {
+		run: async (operation) => operation(imap),
+	});
 	const approval = createApprovalController();
 	const factory = () =>
 		createServer({

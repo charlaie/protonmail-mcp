@@ -15,6 +15,63 @@ type Message = Extract<
 	{ kind: "found" }
 >["value"];
 
+/** Removes own addresses and case-insensitive duplicates, keeping first occurrences. */
+function otherParticipants(addresses: string[], own: Set<string>) {
+	const seen = new Set(own);
+	return addresses.filter((address) => {
+		const key = address.toLowerCase();
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+}
+
+function replyRecipients(original: Message, own: Set<string>) {
+	const { addresses } = original;
+	const to = otherParticipants(
+		addresses.replyTo.length ? addresses.replyTo : addresses.from,
+		own,
+	);
+	const sentByOwnAddress = addresses.from.some((address) =>
+		own.has(address.toLowerCase()),
+	);
+	// Replying to an outgoing message follows up with its original recipients.
+	if (!to.length && sentByOwnAddress)
+		return otherParticipants(addresses.to, own);
+	return to;
+}
+
+function replyAllCc(original: Message, own: Set<string>, to: string[]) {
+	const primary = new Set(to.map((recipient) => recipient.toLowerCase()));
+	return otherParticipants(
+		[...original.addresses.to, ...original.addresses.cc],
+		own,
+	).filter((address) => !primary.has(address.toLowerCase()));
+}
+
+function replySender(
+	config: BridgeConfig,
+	original: Message,
+	own: Set<string>,
+	requested: string | undefined,
+) {
+	const addressedOwn = [
+		...original.addresses.to,
+		...original.addresses.cc,
+	].find((address) => own.has(address.toLowerCase()));
+	return resolveSender(config, requested ?? addressedOwn);
+}
+
+function inheritedReferences(original: Message) {
+	if (original.headers.references.length) return original.headers.references;
+	const inReplyTo = parseMessageIds(original.headers.inReplyTo);
+	return inReplyTo.length === 1 ? inReplyTo : [];
+}
+
+function replySubject(subject: string) {
+	return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
+}
+
 export function composeReplyDraft(
 	config: BridgeConfig,
 	original: Message,
@@ -22,58 +79,20 @@ export function composeReplyDraft(
 	mailbox: string,
 ): CreateDraftLookupInput {
 	const own = new Set(config.ownAddresses);
-	const others = (addresses: string[]) => {
-		const seen = new Set(own);
-		return addresses.filter((address) => {
-			const key = address.toLowerCase();
-			if (seen.has(key)) return false;
-			seen.add(key);
-			return true;
-		});
-	};
-	let to = others(
-		original.addresses.replyTo.length
-			? original.addresses.replyTo
-			: original.addresses.from,
-	);
-	// Replying to an outgoing message follows up with its original recipients.
-	if (
-		!to.length &&
-		original.addresses.from.some((address) => own.has(address.toLowerCase()))
-	)
-		to = others(original.addresses.to);
-	const cc = input.replyAll
-		? others([...original.addresses.to, ...original.addresses.cc]).filter(
-				(address) =>
-					!to.some(
-						(recipient) => recipient.toLowerCase() === address.toLowerCase(),
-					),
-			)
-		: [];
-	const from = resolveSender(
-		config,
-		input.from ??
-			[...original.addresses.to, ...original.addresses.cc].find((address) =>
-				own.has(address.toLowerCase()),
-			),
-	);
+	const to = replyRecipients(original, own);
+	const cc = input.replyAll ? replyAllCc(original, own, to) : [];
+	const from = replySender(config, original, own, input.from);
 	const parent = parseMessageIds(original.messageId);
-	const references = original.headers.references.length
-		? original.headers.references
-		: parseMessageIds(original.headers.inReplyTo).length === 1
-			? parseMessageIds(original.headers.inReplyTo)
-			: [];
+
 	const message = OutgoingMessageSchema.safeParse({
 		from,
 		to,
 		cc,
 		bcc: [],
-		subject: /^re:/i.test(original.subject)
-			? original.subject
-			: `Re: ${original.subject}`,
+		subject: replySubject(original.subject),
 		text: input.text,
 		inReplyTo: parent,
-		references: [...new Set([...references, ...parent])],
+		references: [...new Set([...inheritedReferences(original), ...parent])],
 	});
 	if (!message.success)
 		throw new MailError(

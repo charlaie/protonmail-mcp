@@ -1,8 +1,11 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { allowAllMessages } from "../../bridge/imap/reading/messages.js";
+import {
+	allowAllMessages,
+	type MessageFilter,
+} from "../../bridge/imap/reading/messages.js";
 import { FakeImap, fixtureMessage } from "../../bridge/testing/fixtures.js";
-import type { AttachmentExtension } from "./formats.js";
+import type { AttachmentExtension, AttachmentPermission } from "./formats.js";
 import {
 	getAttachment,
 	getAttachmentMetadata,
@@ -13,14 +16,6 @@ import { GetAttachmentSchema } from "./requests.js";
 
 const identity = { mailbox: "INBOX", uid: 1, uidValidity: "7" };
 const input = GetAttachmentSchema.parse({ ...identity, attachmentId: "2" });
-
-test("attachment reads have no output-format selector", () => {
-	for (const format of ["text", "raw", "base64", "pdf", "", null, 1])
-		assert.equal(
-			GetAttachmentSchema.safeParse({ ...input, format }).success,
-			false,
-		);
-});
 
 function fixture(
 	options: {
@@ -64,6 +59,29 @@ function fixture(
 	return client;
 }
 
+function storedMessage(client: FakeImap) {
+	return client.mailboxes.get("INBOX")?.[0];
+}
+
+async function readKind(
+	client: FakeImap,
+	allowedExtensions: AttachmentPermission[],
+	options: { attachmentId?: string; accepts?: MessageFilter } = {},
+) {
+	const request = { ...input, attachmentId: options.attachmentId ?? "2" };
+	const accepts = options.accepts ?? allowAllMessages;
+	return (await getAttachment(client, request, accepts, { allowedExtensions }))
+		.kind;
+}
+
+test("attachment reads have no output-format selector", () => {
+	for (const format of ["text", "raw", "base64", "pdf", "", null, 1])
+		assert.equal(
+			GetAttachmentSchema.safeParse({ ...input, format }).success,
+			false,
+		);
+});
+
 test("attachment listing reads metadata only; inspection downloads exactly the selected part", async () => {
 	const client = fixture();
 	const listing = await listAttachments(client, identity, allowAllMessages, [
@@ -76,6 +94,7 @@ test("attachment listing reads metadata only; inspection downloads exactly the s
 	assert.equal(listing.value.attachments[0]?.inspection.kind, "allowed");
 	assert.equal(client.downloads.length, 0);
 	assert.equal(client.sourceFetches, 0);
+
 	const result = await getAttachment(client, input, allowAllMessages, {
 		allowedExtensions: [".txt"],
 	});
@@ -91,16 +110,13 @@ test("attachment listing reads metadata only; inspection downloads exactly the s
 
 test("sender refusal, stale identities, disabled extensions, and invalid part IDs never download", async () => {
 	const client = fixture();
+	const refuseAll = () => false;
 	assert.equal(
-		(await listAttachments(client, identity, () => false, [".txt"])).kind,
+		(await listAttachments(client, identity, refuseAll, [".txt"])).kind,
 		"denied",
 	);
 	assert.equal(
-		(
-			await getAttachment(client, input, () => false, {
-				allowedExtensions: [".txt"],
-			})
-		).kind,
+		await readKind(client, [".txt"], { accepts: refuseAll }),
 		"denied",
 	);
 	await assert.rejects(
@@ -109,37 +125,17 @@ test("sender refusal, stale identities, disabled extensions, and invalid part ID
 		}),
 		/UIDVALIDITY/,
 	);
+	assert.equal(await readKind(client, []), "unavailable");
 	assert.equal(
-		(
-			await getAttachment(client, input, allowAllMessages, {
-				allowedExtensions: [],
-			})
-		).kind,
+		await readKind(client, [".txt"], { attachmentId: "1" }),
 		"unavailable",
 	);
 	assert.equal(
-		(
-			await getAttachment(
-				client,
-				{ ...input, attachmentId: "1" },
-				allowAllMessages,
-				{ allowedExtensions: [".txt"] },
-			)
-		).kind,
-		"unavailable",
-	);
-	assert.equal(
-		(
-			await getAttachment(
-				client,
-				{ ...input, attachmentId: "99" },
-				allowAllMessages,
-				{ allowedExtensions: [".txt"] },
-			)
-		).kind,
+		await readKind(client, [".txt"], { attachmentId: "99" }),
 		"unavailable",
 	);
 	assert.equal(client.downloads.length, 0);
+
 	for (const attachmentId of [
 		"HEADER",
 		"2.MIME",
@@ -173,39 +169,28 @@ test("unsafe filenames, invalid MIME types, and oversized parts are blocked befo
 		"notes\u202etxt.pdf",
 	]) {
 		const client = fixture({ filename });
-		const result = await getAttachment(client, input, allowAllMessages, {
-			allowedExtensions: [".txt", ".pdf"],
-		});
-		assert.equal(result.kind, "unavailable", filename);
+		assert.equal(
+			await readKind(client, [".txt", ".pdf"]),
+			"unavailable",
+			filename,
+		);
 		assert.equal(client.downloads.length, 0, filename);
 	}
+
 	for (const client of [
 		fixture({ type: "multipart/mixed" }),
 		fixture({ type: "not-a-mime-type" }),
 		fixture({ size: MAX_ATTACHMENT_BYTES * 2 + 1 }),
 	]) {
-		assert.equal(
-			(
-				await getAttachment(client, input, allowAllMessages, {
-					allowedExtensions: [".txt"],
-				})
-			).kind,
-			"unavailable",
-		);
+		assert.equal(await readKind(client, [".txt"]), "unavailable");
 		assert.equal(client.downloads.length, 0);
 	}
+
 	const client = fixture();
-	const message = client.mailboxes.get("INBOX")?.[0];
+	const message = storedMessage(client);
 	assert.ok(message?.bodyStructure?.childNodes?.[1]);
 	message.bodyStructure.childNodes[1].size = undefined;
-	assert.equal(
-		(
-			await getAttachment(client, input, allowAllMessages, {
-				allowedExtensions: [".txt"],
-			})
-		).kind,
-		"unavailable",
-	);
+	assert.equal(await readKind(client, [".txt"]), "unavailable");
 	assert.equal(client.downloads.length, 0);
 });
 
@@ -224,6 +209,7 @@ test("decoded byte limits and actual part headers are enforced", async () => {
 			/download limit/,
 		);
 	}
+
 	for (const meta of [
 		{ filename: "script.exe", contentType: "application/octet-stream" },
 		{ filename: "renamed.txt", contentType: "text/plain" },
@@ -279,6 +265,7 @@ test("attachment bytes are preserved without decoding, parsing, or text truncati
 		assert.deepEqual(result.value.bytes, bytes);
 		assert.equal("text" in result.value, false);
 	}
+
 	const bytes = Buffer.from("a".repeat(100_001));
 	const result = await getAttachment(
 		fixture({ bytes }),
@@ -303,8 +290,8 @@ test("prepared attachment metadata is rechecked before a download", async () => 
 	assert.equal(client.downloads.length, 0);
 	assert.equal(prepared.value.filename, "notes.txt");
 	assert.deepEqual(prepared.value.senderEmails, ["trusted@example.com"]);
-	const part =
-		client.mailboxes.get("INBOX")?.[0]?.bodyStructure?.childNodes?.[1];
+
+	const part = storedMessage(client)?.bodyStructure?.childNodes?.[1];
 	assert.ok(part);
 	part.size = 99;
 	await assert.rejects(
@@ -339,6 +326,7 @@ test("wildcard permits arbitrary extensions and extensionless files without inte
 		assert.equal(listing.kind, "found");
 		if (listing.kind !== "found") continue;
 		assert.equal(listing.value.attachments[0]?.inspection.kind, "allowed");
+
 		const result = await getAttachment(client, input, allowAllMessages, {
 			allowedExtensions: ["*"],
 		});
@@ -348,6 +336,7 @@ test("wildcard permits arbitrary extensions and extensionless files without inte
 		assert.equal(result.value.mimeType, type);
 		assert.equal(result.value.contentType, type);
 	}
+
 	const client = fixture({ filename: "LICENSE", bytes });
 	const listing = await listAttachments(client, identity, allowAllMessages, [
 		"*",
@@ -362,30 +351,13 @@ test("wildcard permits arbitrary extensions and extensionless files without inte
 
 test("specific new extensions stay restricted, and wildcard never bypasses filename, MIME, sender or size checks", async () => {
 	const client = fixture({ filename: "file.zip", type: "application/zip" });
+	assert.equal(await readKind(client, [".zip"]), "found");
+	assert.equal(await readKind(client, [".pdf"]), "unavailable");
 	assert.equal(
-		(
-			await getAttachment(client, input, allowAllMessages, {
-				allowedExtensions: [".zip"],
-			})
-		).kind,
-		"found",
-	);
-	assert.equal(
-		(
-			await getAttachment(client, input, allowAllMessages, {
-				allowedExtensions: [".pdf"],
-			})
-		).kind,
-		"unavailable",
-	);
-	assert.equal(
-		(
-			await getAttachment(client, input, () => false, {
-				allowedExtensions: ["*"],
-			})
-		).kind,
+		await readKind(client, ["*"], { accepts: () => false }),
 		"denied",
 	);
+
 	for (const unsafe of [
 		fixture({ filename: "../file.zip" }),
 		fixture({ filename: "file\u202e.zip" }),
@@ -393,16 +365,10 @@ test("specific new extensions stay restricted, and wildcard never bypasses filen
 		fixture({ type: "application/pdf\r\nX: evil" }),
 		fixture({ size: MAX_ATTACHMENT_BYTES * 2 + 1 }),
 	]) {
-		assert.equal(
-			(
-				await getAttachment(unsafe, input, allowAllMessages, {
-					allowedExtensions: ["*"],
-				})
-			).kind,
-			"unavailable",
-		);
+		assert.equal(await readKind(unsafe, ["*"]), "unavailable");
 		assert.equal(unsafe.downloads.length, 0);
 	}
+
 	const bytes = Buffer.alloc(1024 * 1024 + 1);
 	const text = await getAttachment(
 		fixture({ bytes }),
@@ -416,7 +382,7 @@ test("specific new extensions stay restricted, and wildcard never bypasses filen
 
 test("attached messages are listed but their nested attachments are never inspected", async () => {
 	const client = fixture();
-	const message = client.mailboxes.get("INBOX")?.[0];
+	const message = storedMessage(client);
 	assert.ok(message?.bodyStructure);
 	message.bodyStructure.childNodes = [
 		{
@@ -436,24 +402,18 @@ test("attached messages are listed but their nested attachments are never inspec
 			],
 		},
 	];
+
 	const result = await listAttachments(client, identity, allowAllMessages, [
 		".txt",
 	]);
 	assert.equal(result.kind, "found");
 	if (result.kind !== "found") return;
 	assert.deepEqual(
-		result.value.attachments.map((item) => item.attachmentId),
+		result.value.attachments.map((attachment) => attachment.attachmentId),
 		["2"],
 	);
 	assert.equal(
-		(
-			await getAttachment(
-				client,
-				{ ...input, attachmentId: "2.2" },
-				allowAllMessages,
-				{ allowedExtensions: [".txt"] },
-			)
-		).kind,
+		await readKind(client, [".txt"], { attachmentId: "2.2" }),
 		"unavailable",
 	);
 	assert.equal(client.downloads.length, 0);
@@ -461,7 +421,7 @@ test("attached messages are listed but their nested attachments are never inspec
 
 test("a standalone attachment uses IMAP part 1 without granting access to ordinary message bodies", async () => {
 	const client = fixture();
-	const message = client.mailboxes.get("INBOX")?.[0];
+	const message = storedMessage(client);
 	assert.ok(message);
 	message.bodyStructure = {
 		type: "text/plain",
@@ -477,6 +437,7 @@ test("a standalone attachment uses IMAP part 1 without granting access to ordina
 			disposition: "attachment",
 		},
 	});
+
 	const listing = await listAttachments(client, identity, allowAllMessages, [
 		".txt",
 	]);
@@ -484,26 +445,13 @@ test("a standalone attachment uses IMAP part 1 without granting access to ordina
 	if (listing.kind === "found")
 		assert.equal(listing.value.attachments[0]?.attachmentId, "1");
 	assert.equal(
-		(
-			await getAttachment(
-				client,
-				{ ...input, attachmentId: "1" },
-				allowAllMessages,
-				{ allowedExtensions: [".txt"] },
-			)
-		).kind,
+		await readKind(client, [".txt"], { attachmentId: "1" }),
 		"found",
 	);
+
 	message.bodyStructure = { type: "text/plain", size: 7 };
 	assert.equal(
-		(
-			await getAttachment(
-				client,
-				{ ...input, attachmentId: "1" },
-				allowAllMessages,
-				{ allowedExtensions: [".txt"] },
-			)
-		).kind,
+		await readKind(client, [".txt"], { attachmentId: "1" }),
 		"unavailable",
 	);
 });
@@ -528,9 +476,7 @@ test("raw output preserves complete original bytes and the declared MIME type", 
 			fixture({ filename, type: "application/octet-stream", bytes }),
 			input,
 			allowAllMessages,
-			{
-				allowedExtensions: [".txt", ".pdf"],
-			},
+			{ allowedExtensions: [".txt", ".pdf"] },
 		);
 		assert.equal(result.kind, "found");
 		if (result.kind !== "found") continue;

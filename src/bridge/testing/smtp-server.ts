@@ -51,12 +51,32 @@ tr8uHywzhgVb05kqDKTnyv4Uwi28VDFgyWnJsVhQrN+cHpxsv6pgxbY3h5WyPZss
 4gQrhXCDrUH3ZM0OySiy3Q6ro5fsVBK229Tm2A==
 -----END CERTIFICATE-----
 `;
+
 export type SmtpScenario =
 	| "accepted"
 	| "partial"
 	| "reject_envelope"
 	| "reject_data"
 	| "drop_after_data";
+
+function greetingReply(encrypted: boolean) {
+	return encrypted
+		? "250-localhost\r\n250 AUTH PLAIN LOGIN\r\n"
+		: "250-localhost\r\n250 STARTTLS\r\n";
+}
+
+function recipientReply(scenario: SmtpScenario, line: string) {
+	const rejected =
+		scenario === "reject_envelope" ||
+		(scenario === "partial" && line.includes("hidden@example.com"));
+	return rejected ? "550 No such recipient\r\n" : "250 Recipient accepted\r\n";
+}
+
+function dataReply(scenario: SmtpScenario) {
+	return scenario === "reject_data"
+		? "550 Message rejected\r\n"
+		: "250 Queued\r\n";
+}
 
 export async function createSmtpTestServer(
 	t: TestContext,
@@ -66,62 +86,55 @@ export async function createSmtpTestServer(
 	const sockets = new Set<Socket>();
 	const messages: string[] = [];
 	const mailFrom: string[] = [];
+
 	const server = createServer((connection) => {
 		let socket: Socket = connection;
-		sockets.add(connection);
 		let encrypted = false;
 		let buffer = "";
 		let data: string[] | null = null;
-		function command(line: string) {
-			if (data !== null) {
-				if (line !== ".") {
-					data.push(line);
-					return;
-				}
-				messages.push(data.join("\r\n"));
-				data = null;
-				if (scenario === "drop_after_data") socket.destroy();
-				else
-					socket.write(
-						scenario === "reject_data"
-							? "550 Message rejected\r\n"
-							: "250 Queued\r\n",
-					);
+		sockets.add(connection);
+
+		function receiveData(line: string, lines: string[]) {
+			if (line !== ".") {
+				lines.push(line);
 				return;
 			}
-			if (/^EHLO|^HELO/.test(line))
-				socket.write(
-					encrypted
-						? "250-localhost\r\n250 AUTH PLAIN LOGIN\r\n"
-						: "250-localhost\r\n250 STARTTLS\r\n",
-				);
-			else if (line === "STARTTLS") {
-				socket.off("data", receive);
-				socket.write("220 Upgrade TLS\r\n");
-				socket = new TLSSocket(connection, {
-					isServer: true,
-					secureContext: context,
-				});
-				sockets.add(socket);
-				encrypted = true;
-				attach();
-			} else if (line.startsWith("AUTH")) socket.write("235 Authenticated\r\n");
+			messages.push(lines.join("\r\n"));
+			data = null;
+			if (scenario === "drop_after_data") socket.destroy();
+			else socket.write(dataReply(scenario));
+		}
+
+		function upgradeToTls() {
+			socket.off("data", receive);
+			socket.write("220 Upgrade TLS\r\n");
+			socket = new TLSSocket(connection, {
+				isServer: true,
+				secureContext: context,
+			});
+			sockets.add(socket);
+			encrypted = true;
+			attach();
+		}
+
+		function command(line: string) {
+			if (data !== null) return receiveData(line, data);
+
+			if (/^EHLO|^HELO/.test(line)) socket.write(greetingReply(encrypted));
+			else if (line === "STARTTLS") upgradeToTls();
+			else if (line.startsWith("AUTH")) socket.write("235 Authenticated\r\n");
 			else if (line.startsWith("MAIL FROM:")) {
 				mailFrom.push(line);
 				socket.write("250 OK\r\n");
 			} else if (line.startsWith("RCPT TO"))
-				socket.write(
-					scenario === "reject_envelope" ||
-						(scenario === "partial" && line.includes("hidden@example.com"))
-						? "550 No such recipient\r\n"
-						: "250 Recipient accepted\r\n",
-				);
+				socket.write(recipientReply(scenario, line));
 			else if (line === "DATA") {
 				data = [];
 				socket.write("354 Send message\r\n");
 			} else if (line === "QUIT") socket.end("221 Bye\r\n");
 			else socket.write("250 OK\r\n");
 		}
+
 		function receive(chunk: Buffer) {
 			buffer += chunk.toString();
 			let newline = buffer.indexOf("\r\n");
@@ -132,13 +145,16 @@ export async function createSmtpTestServer(
 				newline = buffer.indexOf("\r\n");
 			}
 		}
+
 		function attach() {
 			socket.on("data", receive);
 			socket.on("error", () => {});
 		}
+
 		attach();
 		socket.write("220 Isolated test SMTP\r\n");
 	});
+
 	t.after(async () => {
 		for (const socket of sockets) socket.destroy();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -147,6 +163,7 @@ export async function createSmtpTestServer(
 		server.once("error", reject);
 		server.listen(0, "127.0.0.1", resolve);
 	});
+
 	const address = server.address();
 	if (!address || typeof address === "string")
 		throw new Error("Test server has no TCP port.");

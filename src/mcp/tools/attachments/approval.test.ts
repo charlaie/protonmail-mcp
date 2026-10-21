@@ -27,6 +27,13 @@ const modernOptions = {
 	capabilities: { elicitation: { form: {} } },
 } satisfies NonNullable<Parameters<typeof attachmentFixture>[1]>;
 
+function approvedContinuation(pending: { requestState: string }) {
+	return {
+		requestState: pending.requestState,
+		inputResponses: acceptedResponse,
+	};
+}
+
 function refused(value: unknown) {
 	assert.ok(isSpecType.CallToolResult(value));
 	assert.ok(value.content);
@@ -48,10 +55,11 @@ test("modern approval downloads only after consent, and cannot be replayed", asy
 	assert.match(prompt, /scan.pdf/);
 	assert.match(prompt, /trusted@example.com/);
 	assert.match(prompt, /transfer_encoded/);
-	const result = await client.callTool("get_attachment", attachmentIdentity, {
-		requestState: pending.requestState,
-		inputResponses: acceptedResponse,
-	});
+	const result = await client.callTool(
+		"get_attachment",
+		attachmentIdentity,
+		approvedContinuation(pending),
+	);
 	assert.ok(isSpecType.CallToolResult(result));
 	assert.ok(result.content);
 	assert.equal(result.isError, undefined);
@@ -61,10 +69,11 @@ test("modern approval downloads only after consent, and cannot be replayed", asy
 	assert.equal(client.imap.downloads.length, 1);
 	assert.equal(
 		refused(
-			await client.callTool("get_attachment", attachmentIdentity, {
-				requestState: pending.requestState,
-				inputResponses: acceptedResponse,
-			}),
+			await client.callTool(
+				"get_attachment",
+				attachmentIdentity,
+				approvedContinuation(pending),
+			),
 		).code,
 		"APPROVAL_DENIED",
 	);
@@ -89,10 +98,11 @@ test("wildcard extension grants still require content approval for new binary ty
 	assert.equal(client.imap.downloads.length, 0);
 	assert.match(JSON.stringify(first), /archive.zip/);
 	assert.match(JSON.stringify(first), /application\/zip/);
-	const result = await client.callTool("get_attachment", attachmentIdentity, {
-		requestState: pending.requestState,
-		inputResponses: acceptedResponse,
-	});
+	const result = await client.callTool(
+		"get_attachment",
+		attachmentIdentity,
+		approvedContinuation(pending),
+	);
 	assert.ok(isSpecType.CallToolResult(result));
 	assert.equal(result.isError, undefined);
 	assert.ok(result.content);
@@ -171,10 +181,11 @@ test("metadata and policy changes invalidate a pending attachment approval", asy
 			}
 			assert.equal(
 				refused(
-					await client.callTool("get_attachment", attachmentIdentity, {
-						requestState: pending.requestState,
-						inputResponses: acceptedResponse,
-					}),
+					await client.callTool(
+						"get_attachment",
+						attachmentIdentity,
+						approvedContinuation(pending),
+					),
 				).code,
 				"APPROVAL_DENIED",
 			);
@@ -196,10 +207,7 @@ test("approval is bound to the attachment ID and current sender policy", async (
 			await client.callTool(
 				"get_attachment",
 				{ ...attachmentIdentity, attachmentId: "3" },
-				{
-					requestState: pending.requestState,
-					inputResponses: acceptedResponse,
-				},
+				approvedContinuation(pending),
 			),
 		).code,
 		"APPROVAL_DENIED",
@@ -217,10 +225,11 @@ test("approval is bound to the attachment ID and current sender policy", async (
 	);
 	assert.equal(
 		refused(
-			await client.callTool("get_attachment", attachmentIdentity, {
-				requestState: next.requestState,
-				inputResponses: acceptedResponse,
-			}),
+			await client.callTool(
+				"get_attachment",
+				attachmentIdentity,
+				approvedContinuation(next),
+			),
 		).code,
 		"POLICY_DENIED",
 	);

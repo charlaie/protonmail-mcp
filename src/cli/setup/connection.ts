@@ -7,21 +7,22 @@ import {
 import { verifySmtpConnection } from "../../bridge/smtp/submission.js";
 import { parseSenderEmails } from "../../policy/selection.js";
 import { connectionFailureMessage } from "../diagnostics/service.js";
-import { answer, validatedText } from "./prompts.js";
+import { answer, confirm, requireNonBlank, validatedText } from "./prompts.js";
+
+type ConnectionSettings = Pick<
+	BridgeConfig,
+	"host" | "imapPort" | "smtpPort" | "tlsRejectUnauthorized"
+>;
 
 export async function configureConnection(
 	existing?: BridgeConfig,
 ): Promise<BridgeConfig> {
 	if (
 		existing &&
-		!(await answer(
-			prompts.confirm({
-				message: "Change the saved Bridge connection?",
-				initialValue: false,
-			}),
-		))
+		!(await confirm("Change the saved Bridge connection?", false))
 	)
 		return existing;
+
 	prompts.note(
 		"Open Proton Mail Bridge and select your account to copy its IMAP/SMTP username and password. Use the Bridge password, not your Proton account password. Bridge must remain running and signed in.",
 		"Bridge credentials",
@@ -29,9 +30,7 @@ export async function configureConnection(
 	const user = await validatedText(
 		"Bridge username",
 		existing?.user ?? "",
-		(value) => {
-			if (!value.trim()) throw new Error("Enter the username shown in Bridge.");
-		},
+		requireNonBlank("Enter the username shown in Bridge."),
 	);
 	const password = await answer(
 		prompts.password({
@@ -40,61 +39,72 @@ export async function configureConnection(
 				!value ? "Enter the password shown in Bridge." : undefined,
 		}),
 	);
-	let settings = {
+	const settings = await chooseConnectionSettings({
 		host: existing?.host ?? "127.0.0.1",
 		imapPort: existing?.imapPort ?? 1143,
 		smtpPort: existing?.smtpPort ?? 1025,
 		tlsRejectUnauthorized: existing?.tlsRejectUnauthorized ?? false,
-	};
-	if (
-		await answer(
-			prompts.confirm({
-				message: "Change advanced connection settings?",
-				initialValue: false,
-			}),
-		)
-	) {
-		const host = await validatedText("Bridge host", settings.host, (value) => {
-			if (!value.trim()) throw new Error("Enter a host.");
-		});
-		const parsePort = (value: string) => {
-			if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535)
-				throw new Error("Enter a port from 1 to 65535.");
-		};
-		const imapPort = Number(
-			await validatedText("IMAP port", String(settings.imapPort), parsePort),
-		);
-		const smtpPort = Number(
-			await validatedText("SMTP port", String(settings.smtpPort), parsePort),
-		);
-		const tlsRejectUnauthorized = await answer(
-			prompts.confirm({
-				message:
-					"Require a trusted TLS certificate? Required for remote hosts.",
-				initialValue: settings.tlsRejectUnauthorized,
-			}),
-		);
-		settings = { host, imapPort, smtpPort, tlsRejectUnauthorized };
-	}
+	});
+	const ownAddresses = await chooseOwnAddresses(existing, user);
+
+	return ConfigSchema.parse({ user, password, ...settings, ownAddresses });
+}
+
+async function chooseConnectionSettings(
+	defaults: ConnectionSettings,
+): Promise<ConnectionSettings> {
+	if (!(await confirm("Change advanced connection settings?", false)))
+		return defaults;
+
+	const host = await validatedText(
+		"Bridge host",
+		defaults.host,
+		requireNonBlank("Enter a host."),
+	);
+	const imapPort = Number(
+		await validatedText("IMAP port", String(defaults.imapPort), requirePort),
+	);
+	const smtpPort = Number(
+		await validatedText("SMTP port", String(defaults.smtpPort), requirePort),
+	);
+	const tlsRejectUnauthorized = await confirm(
+		"Require a trusted TLS certificate? Required for remote hosts.",
+		defaults.tlsRejectUnauthorized,
+	);
+	return { host, imapPort, smtpPort, tlsRejectUnauthorized };
+}
+
+function requirePort(value: string) {
+	if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535)
+		throw new Error("Enter a port from 1 to 65535.");
+}
+
+async function chooseOwnAddresses(
+	existing: BridgeConfig | undefined,
+	user: string,
+) {
 	prompts.note(
 		"Your Bridge username is already included. Add any other email addresses enabled for sending on this Proton Mail account. These addresses are also excluded from reply-all recipients. Bridge cannot list them over IMAP/SMTP.",
 		"Additional email addresses",
 	);
-	const ownAddresses = await validatedText(
+	const addresses = await validatedText(
 		"Other email addresses you send from, separated by commas. Leave blank to skip.",
-		existing?.user.toLowerCase() === user.trim().toLowerCase()
-			? existing.ownAddresses
-					.filter((address) => address !== existing.user.toLowerCase())
-					.join(", ")
-			: "",
+		savedAdditionalAddresses(existing, user),
 		parseSenderEmails,
 	);
-	return ConfigSchema.parse({
-		user,
-		password,
-		...settings,
-		ownAddresses: parseSenderEmails(ownAddresses),
-	});
+	return parseSenderEmails(addresses);
+}
+
+/** Saved addresses carry over only while the Bridge account stays the same. */
+function savedAdditionalAddresses(
+	existing: BridgeConfig | undefined,
+	user: string,
+) {
+	const savedUser = existing?.user.toLowerCase();
+	if (!existing || savedUser !== user.trim().toLowerCase()) return "";
+	return existing.ownAddresses
+		.filter((address) => address !== savedUser)
+		.join(", ");
 }
 
 export async function verifyConnection(
@@ -104,15 +114,15 @@ export async function verifyConnection(
 		smtp?: () => Promise<unknown>;
 	} = {},
 ) {
+	const verifySmtp = dependencies.smtp ?? (() => verifySmtpConnection(config));
 	const progress = prompts.spinner();
 	progress.start(
 		"Checking Bridge IMAP and SMTP authentication. No mail will be sent.",
 	);
 	try {
-		const mailboxes = await (
-			dependencies.imap ?? createImapService(config)
-		).listMailboxes();
-		await (dependencies.smtp ?? (() => verifySmtpConnection(config)))();
+		const imap = dependencies.imap ?? createImapService(config);
+		const mailboxes = await imap.listMailboxes();
+		await verifySmtp();
 		progress.stop("Bridge connection verified.");
 		return mailboxes.filter((mailbox) => !mailbox.flags.includes("\\Noselect"));
 	} catch (error) {

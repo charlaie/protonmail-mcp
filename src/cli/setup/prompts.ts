@@ -21,6 +21,10 @@ export async function answer(pending: Promise<unknown>): Promise<unknown> {
 	return value;
 }
 
+export function confirm(message: string, initialValue: boolean) {
+	return answer(prompts.confirm({ message, initialValue }));
+}
+
 export async function validatedText(
 	message: string,
 	initialValue: string,
@@ -36,7 +40,14 @@ export async function validatedText(
 				} catch (error) {
 					return error instanceof Error ? error.message : "Invalid value.";
 				}
+				return undefined;
 			},
 		}),
 	);
+}
+
+export function requireNonBlank(message: string) {
+	return (value: string) => {
+		if (!value.trim()) throw new Error(message);
+	};
 }

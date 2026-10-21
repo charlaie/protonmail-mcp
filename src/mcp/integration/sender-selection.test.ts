@@ -65,11 +65,10 @@ async function fixture(t: TestContext) {
 	source.size = source.source.length;
 	imapClient.mailboxes.set("INBOX", [source]);
 	imapClient.mailboxes.set("Drafts", []);
-	const imap = createImapService(
-		config,
-		async (operation) => operation(imapClient),
-		createDraftStore(config.user, directory),
-	);
+	const imap = createImapService(config, {
+		run: async (operation) => operation(imapClient),
+		draftStore: createDraftStore(config.user, directory),
+	});
 	const submissions: OutgoingMessage[] = [];
 	const sends = createSendService(config, {
 		store: createSendStore(config.user, directory),

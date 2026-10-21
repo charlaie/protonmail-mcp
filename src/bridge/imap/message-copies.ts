@@ -1,12 +1,24 @@
+import type { FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
+import type { GetMessageInput } from "../../mail/identity.js";
 import { MailError } from "../../shared/mail-error.js";
 import {
-	FETCH_BATCH_SIZE,
 	type MessageFilter,
 	SUMMARY_FIELDS,
+	uidBatches,
 } from "./reading/messages.js";
 import { messageSummary } from "./serializers.js";
 import type { ImapClient } from "./session.js";
+
+const MAX_RECONCILIATION_CANDIDATES = 1000;
+
+// HEADER search matches substrings, so compare the parsed Message-ID exactly.
+async function hasMessageId(message: FetchMessageObject, messageId: string) {
+	const parsed = message.headers
+		? await simpleParser(message.headers)
+		: undefined;
+	return (parsed?.messageId ?? message.envelope?.messageId) === messageId;
+}
 
 export async function findMessageCopies(
 	client: ImapClient,
@@ -15,6 +27,7 @@ export async function findMessageCopies(
 	accepts: MessageFilter,
 ) {
 	const selected = await client.mailboxOpen(mailbox, { readOnly: true });
+	const uidValidity = selected.uidValidity.toString();
 	const uids = await client.search(
 		{ header: { "Message-ID": messageId } },
 		{ uid: true },
@@ -25,36 +38,24 @@ export async function findMessageCopies(
 			"Could not search the mailbox. The operation remains uncertain.",
 			"safe",
 		);
-	if (uids.length > 1000)
+	if (uids.length > MAX_RECONCILIATION_CANDIDATES)
 		throw new MailError(
 			"OPERATION_FAILED",
 			"Message-ID reconciliation found too many candidates. Inspect the mailbox manually; the operation remains uncertain.",
 			"reconcile",
 		);
-	const matches: { mailbox: string; uid: number; uidValidity: string }[] = [];
-	for (let offset = 0; offset < uids.length; offset += FETCH_BATCH_SIZE) {
-		const batch = await client.fetchAll(
-			uids.slice(offset, offset + FETCH_BATCH_SIZE),
+
+	const matches: GetMessageInput[] = [];
+	for (const batch of uidBatches(uids)) {
+		const fetched = await client.fetchAll(
+			batch,
 			{ ...SUMMARY_FIELDS, headers: ["Message-ID"] },
 			{ uid: true },
 		);
-		for (const message of batch) {
-			if (
-				!accepts(
-					mailbox,
-					messageSummary(message, selected.uidValidity.toString()),
-				)
-			)
-				continue;
-			const parsed = message.headers
-				? await simpleParser(message.headers)
-				: undefined;
-			if ((parsed?.messageId ?? message.envelope?.messageId) === messageId)
-				matches.push({
-					mailbox,
-					uid: message.uid,
-					uidValidity: selected.uidValidity.toString(),
-				});
+		for (const message of fetched) {
+			if (!accepts(mailbox, messageSummary(message, uidValidity))) continue;
+			if (await hasMessageId(message, messageId))
+				matches.push({ mailbox, uid: message.uid, uidValidity });
 		}
 	}
 	return matches;

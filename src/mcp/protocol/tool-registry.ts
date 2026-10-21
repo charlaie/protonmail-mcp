@@ -10,6 +10,19 @@ import type { ToolAccess } from "../../policy/access.js";
 import type { ToolName } from "../../policy/tools.js";
 import { errorResponse } from "./responses.js";
 
+type ToolConfig<Input, Output> = Pick<
+	RegisteredTool,
+	"title" | "description" | "annotations" | "icons" | "_meta"
+> & { inputSchema: z.ZodType<Input>; outputSchema: z.ZodType<Output> };
+
+type ToolResult = CallToolResult | InputRequiredResult;
+
+type ToolHandler<Input> = (
+	input: Input,
+	context: ServerContext,
+) => ToolResult | Promise<ToolResult>;
+
+/** Registers tools behind the account's tool policy and reports failures as tool errors. */
 export class ToolRegistry {
 	constructor(
 		private readonly mcp: McpServer,
@@ -22,17 +35,8 @@ export class ToolRegistry {
 
 	registerTool<Input, Output>(
 		name: ToolName,
-		config: Pick<
-			RegisteredTool,
-			"title" | "description" | "annotations" | "icons" | "_meta"
-		> & { inputSchema: z.ZodType<Input>; outputSchema: z.ZodType<Output> },
-		handler: (
-			input: Input,
-			context: ServerContext,
-		) =>
-			| CallToolResult
-			| InputRequiredResult
-			| Promise<CallToolResult | InputRequiredResult>,
+		config: ToolConfig<Input, Output>,
+		handler: ToolHandler<Input>,
 	) {
 		const tool = this.mcp.registerTool(name, config, async (input, context) => {
 			try {
@@ -42,6 +46,7 @@ export class ToolRegistry {
 				return errorResponse(error);
 			}
 		});
+
 		if (!this.access.visible(name)) tool.disable();
 		return tool;
 	}

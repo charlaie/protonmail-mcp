@@ -1,6 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
+
+export async function readOptionalTextFile(
+	path: string,
+): Promise<string | null> {
+	try {
+		return await readFile(path, "utf8");
+	} catch (error) {
+		if (isMissingFile(error)) return null;
+		throw error;
+	}
+}
 
 export async function stagePrivateFile(path: string, contents: string) {
 	await mkdir(dirname(path), { recursive: true, mode: 0o700 });

@@ -48,7 +48,9 @@ test("SMTP uses the selected alias in both From and the envelope", async (t) => 
 		"<alias-operation@example.com>",
 	);
 	assert.equal(result.status, "accepted");
-	const parsed = await simpleParser(smtp.messages[0]);
+	const [source] = smtp.messages;
+	assert.ok(source);
+	const parsed = await simpleParser(source);
 	assert.equal(parsed.from?.value[0]?.address, alias);
 	assert.deepEqual(smtp.mailFrom, [`MAIL FROM:<${alias}>`]);
 });
@@ -89,7 +91,9 @@ for (const scenario of [
 				outcome.rejected.includes("hidden@example.com"),
 				scenario === "partial",
 			);
-			const parsed = await simpleParser(smtp.messages[0], {
+			const [source] = smtp.messages;
+			assert.ok(source);
+			const parsed = await simpleParser(source, {
 				skipImageLinks: true,
 			});
 			assert.equal(parsed.messageId, "<stable-operation@example.com>");

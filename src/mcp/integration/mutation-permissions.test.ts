@@ -59,12 +59,11 @@ async function fixture(t: TestContext) {
 	const drafts = createDraftStore(testConfig.user, directory);
 	const inbox = createInboxStore(testConfig.user, directory);
 	const sends = createSendStore(testConfig.user, directory);
-	const imap = createImapService(
-		testConfig,
-		async (operation) => operation(fake),
-		drafts,
-		inbox,
-	);
+	const imap = createImapService(testConfig, {
+		run: async (operation) => operation(fake),
+		draftStore: drafts,
+		inboxStore: inbox,
+	});
 	const revoke = (name: ToolName) =>
 		saveReadPolicy(
 			{
@@ -143,12 +142,11 @@ for (const boundary of ["claim", "dispatch"] as const) {
 					return result;
 				},
 			};
-			const imap = createImapService(
-				testConfig,
-				async (operation) => operation(f.fake),
-				f.drafts,
-				store,
-			);
+			const imap = createImapService(testConfig, {
+				run: async (operation) => operation(f.fake),
+				draftStore: f.drafts,
+				inboxStore: store,
+			});
 			const client = await f.connect({ imap });
 			const request = {
 				operationId: randomUUID(),
@@ -237,12 +235,11 @@ for (const tool of ["create_draft", "edit_draft"] as const) {
 				return result;
 			},
 		};
-		const imap = createImapService(
-			testConfig,
-			async (operation) => operation(f.fake),
-			drafts,
-			f.inbox,
-		);
+		const imap = createImapService(testConfig, {
+			run: async (operation) => operation(f.fake),
+			draftStore: drafts,
+			inboxStore: f.inbox,
+		});
 		const client = await f.connect({ imap });
 		const operationId = randomUUID();
 		const request =
@@ -336,10 +333,10 @@ test("revoking send_email during the durable claim prevents SMTP and records non
 test("revoking send_draft during snapshot recheck prevents SMTP before claiming submission", async (t) => {
 	const f = await fixture(t);
 	const fetch = f.fake.fetchOne.bind(f.fake);
-	let reads = 0;
+	let sourceReads = 0;
 	f.fake.fetchOne = async (...args) => {
 		const result = await fetch(...args);
-		if (args[1].source && ++reads === 2) await f.revoke("send_draft");
+		if (args[1].source && ++sourceReads === 2) await f.revoke("send_draft");
 		return result;
 	};
 	let submissions = 0;

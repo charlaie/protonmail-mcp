@@ -174,7 +174,7 @@ test("real transfer decoding preserves new binary formats and extensionless file
 		],
 		["forwarded.eml", "message/rfc822"],
 		["LICENSE", "application/octet-stream"],
-	]) {
+	] satisfies [string, string][]) {
 		const { client, original } = fixture({
 			contentType,
 			filename,

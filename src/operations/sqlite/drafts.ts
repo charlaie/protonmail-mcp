@@ -1,28 +1,147 @@
 import type { DatabaseSync } from "node:sqlite";
-import { z } from "zod";
 import {
 	type DraftOperation,
 	DraftOperationSchema,
 } from "../../mail/drafts/model.js";
 import type { GetMessageInput } from "../../mail/identity.js";
-import { MailError } from "../../shared/mail-error.js";
 import { createOperationDatabase, type OperationDatabase } from "./database.js";
 import {
 	bindDraftIdentity,
+	type DraftSnapshotEvidence,
 	identifyDraft,
 	identifyDraftSnapshot,
 	requireUnusedDraftId,
 	resolveDraftIdentity,
 } from "./draft-identities.js";
 import { assertMessageMutable, messageIdentityKey } from "./message-claims.js";
+import {
+	isRecordedReplay,
+	operationRecords,
+	selectRecords,
+} from "./records.js";
 
-const RowSchema = z.object({ record: z.string() });
-function read(db: DatabaseSync, id: string) {
-	const row = db.prepare("SELECT record FROM drafts WHERE id = ?").get(id);
-	return row
-		? DraftOperationSchema.parse(JSON.parse(RowSchema.parse(row).record))
-		: null;
+type DraftClaim = Omit<DraftOperation, "draftId">;
+
+type EditedDraftSource = Extract<DraftOperation["source"], { kind: "edit" }>;
+
+type DraftCleanupResult =
+	| { status: "completed" }
+	| { status: "cleanup_failed"; reason: string };
+
+const draftRecords = operationRecords(
+	"drafts",
+	DraftOperationSchema,
+	"Draft operation was not found.",
+);
+
+const LIST_OPEN_DRAFTS_SQL =
+	"SELECT record FROM drafts WHERE json_extract(record, '$.outcome.status') IN ('appending', 'saved', 'cleanup_failed') ORDER BY id LIMIT ? OFFSET ?";
+
+function reserveEditedDraft(
+	db: DatabaseSync,
+	source: EditedDraftSource,
+	operationId: string,
+	sourceMessageId: string | undefined,
+) {
+	assertMessageMutable(db, source, sourceMessageId);
+	db.prepare(
+		"INSERT INTO draft_mutations (identity, operation_id) VALUES (?, ?)",
+	).run(messageIdentityKey(source), operationId);
 }
+
+function releaseEditedDraft(
+	db: DatabaseSync,
+	source: EditedDraftSource,
+	operationId: string,
+) {
+	db.prepare(
+		"DELETE FROM draft_mutations WHERE identity = ? AND operation_id = ?",
+	).run(messageIdentityKey(source), operationId);
+}
+
+function logicalDraftId(db: DatabaseSync, claim: DraftClaim) {
+	if (claim.source.kind === "edit")
+		return identifyDraft(db, claim.source, claim.operationId);
+	return requireUnusedDraftId(db, claim.operationId);
+}
+
+function claimDraft(
+	db: DatabaseSync,
+	claim: DraftClaim,
+	sourceMessageId: string | undefined,
+) {
+	const existing = draftRecords.read(db, claim.operationId);
+	if (
+		isRecordedReplay(
+			existing,
+			claim.requestHash,
+			"Draft operation ID belongs to another request.",
+		)
+	)
+		return false;
+
+	if (claim.source.kind === "edit")
+		reserveEditedDraft(db, claim.source, claim.operationId, sourceMessageId);
+
+	const record = DraftOperationSchema.parse({
+		...claim,
+		draftId: logicalDraftId(db, claim),
+	});
+	db.prepare(
+		"INSERT INTO drafts (id, message_id, record) VALUES (?, ?, ?)",
+	).run(record.operationId, record.messageId, JSON.stringify(record));
+	return true;
+}
+
+function rejectDraft(db: DatabaseSync, id: string, reason: string) {
+	const record = draftRecords.require(db, id);
+	if (record.outcome.status !== "appending") return record;
+
+	const rejected = draftRecords.save(db, {
+		...record,
+		outcome: { status: "rejected", reason },
+	});
+	if (record.source.kind === "edit") releaseEditedDraft(db, record.source, id);
+	return rejected;
+}
+
+function recordSavedDraft(
+	db: DatabaseSync,
+	id: string,
+	identity: GetMessageInput,
+	revision: string,
+) {
+	const record = draftRecords.require(db, id);
+	if (record.outcome.status !== "appending") return record;
+
+	bindDraftIdentity(db, identity, record.draftId);
+	const status = record.source.kind === "create" ? "completed" : "saved";
+	return draftRecords.save(db, {
+		...record,
+		outcome: { status, identity, revision },
+	});
+}
+
+function recordDraftCleanup(
+	db: DatabaseSync,
+	id: string,
+	result: DraftCleanupResult,
+) {
+	const record = draftRecords.require(db, id);
+	const { outcome } = record;
+	if (outcome.status !== "saved" && outcome.status !== "cleanup_failed")
+		return record;
+
+	return draftRecords.save(db, {
+		...record,
+		outcome: {
+			...result,
+			identity: outcome.identity,
+			revision: outcome.revision,
+		},
+	});
+}
+
 export function createDraftStore(account: string, directory?: string) {
 	return createDraftJournal(createOperationDatabase(account, directory));
 }
@@ -32,141 +151,40 @@ export function createDraftJournal({
 	use,
 	transaction,
 }: OperationDatabase) {
-	function save(db: DatabaseSync, record: DraftOperation) {
-		const validated = DraftOperationSchema.parse({
-			...record,
-			updatedAt: new Date().toISOString(),
-		});
-		db.prepare("UPDATE drafts SET record = ? WHERE id = ?").run(
-			JSON.stringify(validated),
-			validated.operationId,
-		);
-		return validated;
-	}
 	return {
 		path,
-		get: (id: string) => use((db) => read(db, id)),
-		identify: (
-			identity: GetMessageInput,
-			evidence: Parameters<typeof identifyDraftSnapshot>[2],
-		) => transaction((db) => identifyDraftSnapshot(db, identity, evidence)),
+
+		get: (id: string) => use((db) => draftRecords.read(db, id)),
+
+		identify: (identity: GetMessageInput, evidence: DraftSnapshotEvidence) =>
+			transaction((db) => identifyDraftSnapshot(db, identity, evidence)),
+
 		resolve: (draftId: string) =>
 			use((db) => resolveDraftIdentity(db, draftId)),
+
 		list: (limit: number, offset: number) =>
 			use((db) =>
-				db
-					.prepare(
-						"SELECT record FROM drafts WHERE json_extract(record, '$.outcome.status') IN ('appending', 'saved', 'cleanup_failed') ORDER BY id LIMIT ? OFFSET ?",
-					)
-					.all(limit, offset)
-					.map((row) =>
-						DraftOperationSchema.parse(JSON.parse(RowSchema.parse(row).record)),
-					),
+				selectRecords(
+					db,
+					DraftOperationSchema,
+					LIST_OPEN_DRAFTS_SQL,
+					limit,
+					offset,
+				),
 			),
-		claim: (
-			record: Omit<DraftOperation, "draftId">,
-			sourceMessageId?: string,
-		) =>
-			transaction((db) => {
-				const existing = read(db, record.operationId);
-				if (existing) {
-					if (existing.requestHash !== record.requestHash)
-						throw new MailError(
-							"OPERATION_CONFLICT",
-							"Draft operation ID belongs to another request.",
-							"never",
-						);
-					return false;
-				}
-				if (record.source.kind === "edit") {
-					assertMessageMutable(db, record.source, sourceMessageId);
-					db.prepare(
-						"INSERT INTO draft_mutations (identity, operation_id) VALUES (?, ?)",
-					).run(messageIdentityKey(record.source), record.operationId);
-				}
-				const draftId =
-					record.source.kind === "edit"
-						? identifyDraft(db, record.source, record.operationId)
-						: requireUnusedDraftId(db, record.operationId);
-				const validated = DraftOperationSchema.parse({ ...record, draftId });
-				db.prepare(
-					"INSERT INTO drafts (id, message_id, record) VALUES (?, ?, ?)",
-				).run(
-					validated.operationId,
-					validated.messageId,
-					JSON.stringify(validated),
-				);
-				return true;
-			}),
+
+		claim: (record: DraftClaim, sourceMessageId?: string) =>
+			transaction((db) => claimDraft(db, record, sourceMessageId)),
+
 		reject: (id: string, reason: string) =>
-			transaction((db) => {
-				const record = read(db, id);
-				if (!record)
-					throw new MailError(
-						"NOT_FOUND",
-						"Draft operation was not found.",
-						"never",
-					);
-				if (record.outcome.status !== "appending") return record;
-				const next = save(db, {
-					...record,
-					outcome: { status: "rejected", reason },
-				});
-				if (record.source.kind === "edit")
-					db.prepare(
-						"DELETE FROM draft_mutations WHERE identity = ? AND operation_id = ?",
-					).run(messageIdentityKey(record.source), id);
-				return next;
-			}),
+			transaction((db) => rejectDraft(db, id, reason)),
+
 		saved: (id: string, identity: GetMessageInput, revision: string) =>
-			transaction((db) => {
-				const record = read(db, id);
-				if (!record)
-					throw new MailError(
-						"NOT_FOUND",
-						"Draft operation was not found.",
-						"never",
-					);
-				if (record.outcome.status !== "appending") return record;
-				bindDraftIdentity(db, identity, record.draftId);
-				return save(db, {
-					...record,
-					outcome: {
-						status: record.source.kind === "create" ? "completed" : "saved",
-						identity,
-						revision,
-					},
-				});
-			}),
-		cleanup: (
-			id: string,
-			result:
-				| { status: "completed" }
-				| { status: "cleanup_failed"; reason: string },
-		) =>
-			transaction((db) => {
-				const record = read(db, id);
-				if (!record)
-					throw new MailError(
-						"NOT_FOUND",
-						"Draft operation was not found.",
-						"never",
-					);
-				if (
-					record.outcome.status === "appending" ||
-					record.outcome.status === "rejected" ||
-					record.outcome.status === "completed"
-				)
-					return record;
-				return save(db, {
-					...record,
-					outcome: {
-						...result,
-						identity: record.outcome.identity,
-						revision: record.outcome.revision,
-					},
-				});
-			}),
+			transaction((db) => recordSavedDraft(db, id, identity, revision)),
+
+		cleanup: (id: string, result: DraftCleanupResult) =>
+			transaction((db) => recordDraftCleanup(db, id, result)),
 	};
 }
+
 export type DraftStore = ReturnType<typeof createDraftStore>;

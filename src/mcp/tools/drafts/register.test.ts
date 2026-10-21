@@ -48,11 +48,10 @@ async function fixture(t: TestContext) {
 	const imapClient = new FakeImap();
 	imapClient.mailboxes.set("Drafts", []);
 	imapClient.mailboxes.set("INBOX", [fixtureMessage(2)]);
-	const imap = createImapService(
-		testConfig,
-		async (operation) => operation(imapClient),
-		createDraftStore(testConfig.user, directory),
-	);
+	const imap = createImapService(testConfig, {
+		run: async (operation) => operation(imapClient),
+		draftStore: createDraftStore(testConfig.user, directory),
+	});
 	const sends = createSendService(testConfig, {
 		store: createSendStore(testConfig.user, directory),
 		submit: async () => {
@@ -134,7 +133,7 @@ test("reply draft operation replays after its source disappears without another 
 	);
 	assert.ok("outcome" in reply);
 	assert.equal(reply.outcome.status, "completed");
-	const reads = imapClient.sourceFetches;
+	const sourceFetchesBefore = imapClient.sourceFetches;
 	imapClient.mailboxes.set("INBOX", []);
 	assert.deepEqual(
 		DraftOperationOutputSchema.parse(
@@ -142,7 +141,7 @@ test("reply draft operation replays after its source disappears without another 
 		),
 		reply,
 	);
-	assert.equal(imapClient.sourceFetches, reads);
+	assert.equal(imapClient.sourceFetches, sourceFetchesBefore);
 	assert.equal(imapClient.appends.length, 1);
 });
 
@@ -185,8 +184,10 @@ test("journal metadata remains available during policy outage, pagination ends, 
 	assert.ok("operations" in listed);
 	assert.equal(listed.operations.length, 1);
 	assert.equal(listed.nextOffset, null);
-	assert.equal("requestHash" in listed.operations[0], false);
-	assert.equal("text" in listed.operations[0], false);
+	const [operation] = listed.operations;
+	assert.ok(operation);
+	assert.equal("requestHash" in operation, false);
+	assert.equal("text" in operation, false);
 	const empty = ListDraftOperationsOutputSchema.parse(
 		await callTool("list_draft_operations", { offset: 1 }),
 	);

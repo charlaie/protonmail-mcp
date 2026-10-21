@@ -9,6 +9,7 @@ export const RetrySchema = z.enum([
 	"reconcile",
 	"never",
 ]);
+
 export const ErrorCodeSchema = z.enum([
 	"POLICY_NOT_CONFIGURED",
 	"POLICY_DENIED",
@@ -25,6 +26,7 @@ export const ErrorCodeSchema = z.enum([
 	"STORAGE_FAILED",
 	"OPERATION_FAILED",
 ]);
+
 export const ToolErrorSchema = z.object({
 	status: z.literal("error"),
 	error: z.object({
@@ -47,12 +49,14 @@ export class MailError extends Error {
 }
 
 export function toolError(error: unknown): z.infer<typeof ToolErrorSchema> {
+	const mailError = error instanceof MailError ? error : undefined;
+	const message = typeof error === "string" ? error : safeErrorMessage(error);
 	return {
 		status: "error",
 		error: {
-			code: error instanceof MailError ? error.code : "OPERATION_FAILED",
-			message: typeof error === "string" ? error : safeErrorMessage(error),
-			retry: error instanceof MailError ? error.retry : "never",
+			code: mailError?.code ?? "OPERATION_FAILED",
+			message,
+			retry: mailError?.retry ?? "never",
 		},
 	};
 }

@@ -175,10 +175,15 @@ test("SMTP acceptance is durable before cleanup, while failures and partial send
 			},
 		});
 		let cleaned = 0;
-		const result = await service.send(record, message, async () => {
-			cleaned++;
-			assert.equal((await service.get(operationId)).outcome.status, "accepted");
-			throw new Error("Deletion failed");
+		const result = await service.send(record, message, {
+			cleanup: async () => {
+				cleaned++;
+				assert.equal(
+					(await service.get(operationId)).outcome.status,
+					"accepted",
+				);
+				throw new Error("Deletion failed");
+			},
 		});
 		assert.equal(result.outcome.status, outcome.status);
 		assert.equal(cleaned, outcome.status === "accepted" ? 1 : 0);
@@ -367,10 +372,12 @@ test("accepted-draft cleanup retries never submit SMTP and deleted remains termi
 			fingerprint: "original",
 		},
 	});
-	const sent = await service.send(record, message, async () => ({
-		status: "failed",
-		reason: "Disconnected",
-	}));
+	const sent = await service.send(record, message, {
+		cleanup: async () => ({
+			status: "failed",
+			reason: "Disconnected",
+		}),
+	});
 	assert.equal(sent.outcome.status, "accepted");
 	let fail: () => void = () => {};
 	let started: () => void = () => {};

@@ -1,11 +1,12 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { parse as parseJsonc } from "jsonc-parser";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
+import { withSettingsLocks } from "../../config/locks.js";
 import {
 	ClientNameSchema,
 	installClientConfig,
@@ -90,4 +91,91 @@ test("installation backs up originals and refuses changes made after review", as
 		"other-tool",
 	);
 	await assert.rejects(installClientConfig(plan), /changed/);
+});
+
+test("client installation holds the settings lock across snapshot validation and replacement", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "protonmail-client-lock-"));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	const path = join(directory, "mcp.json");
+	const original = "{}";
+	await writeFile(path, original);
+	const launch = launchSpecification({
+		configPath: "config.json",
+		entryPath: "index.js",
+	});
+	const first = await prepareClientInstallation(
+		"cursor",
+		path,
+		launch,
+		"first",
+	);
+	const second = await prepareClientInstallation(
+		"cursor",
+		path,
+		launch,
+		"second",
+	);
+	await withSettingsLocks([path], async () => {
+		await assert.rejects(installClientConfig(first), /Cannot lock settings/);
+		assert.equal(await readFile(path, "utf8"), original);
+		assert.deepEqual((await readdir(directory)).sort(), [
+			"mcp.json",
+			"mcp.json.setup.lock",
+		]);
+	});
+	const results = await Promise.allSettled([
+		installClientConfig(first),
+		installClientConfig(second),
+	]);
+	assert.equal(
+		results.filter((result) => result.status === "fulfilled").length,
+		1,
+	);
+	assert.equal(
+		results.filter((result) => result.status === "rejected").length,
+		1,
+	);
+	const contents = await readFile(path, "utf8");
+	assert.ok(contents === first.updated || contents === second.updated);
+	const files = await readdir(directory);
+	const backups = files.filter((file) => file.endsWith(".bak"));
+	assert.equal(backups.length, 1);
+	const [backup] = backups;
+	assert.ok(backup);
+	assert.equal(await readFile(join(directory, backup), "utf8"), original);
+	assert.equal(
+		files.some((file) => file.endsWith(".setup.lock")),
+		false,
+	);
+});
+
+test("successive installations keep distinct backups even within one clock tick", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "protonmail-client-backups-"));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	const path = join(directory, "mcp.json");
+	await writeFile(path, "{}");
+	t.mock.method(Date, "now", () => 1234);
+	const launch = launchSpecification({
+		configPath: "config.json",
+		entryPath: "index.js",
+	});
+	const first = await prepareClientInstallation(
+		"cursor",
+		path,
+		launch,
+		"first",
+	);
+	const firstBackup = await installClientConfig(first);
+	const second = await prepareClientInstallation(
+		"cursor",
+		path,
+		launch,
+		"second",
+	);
+	const secondBackup = await installClientConfig(second);
+	assert.ok(firstBackup);
+	assert.ok(secondBackup);
+	assert.notEqual(firstBackup, secondBackup);
+	assert.equal(await readFile(firstBackup, "utf8"), "{}");
+	assert.equal(await readFile(secondBackup, "utf8"), first.updated);
 });

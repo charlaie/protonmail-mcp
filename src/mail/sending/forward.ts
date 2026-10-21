@@ -1,9 +1,11 @@
 import type { z } from "zod";
 import { hashContent } from "../../shared/content-hash.js";
 import type { MessageContent } from "../message.js";
-import { outgoingMedia } from "../outgoing/media/model.js";
 import { OutgoingMessageSchema } from "../outgoing/message.js";
+import { requestedMedia } from "./model.js";
 import type { ForwardEmailSchema } from "./requests.js";
+
+type QuotedSource = ReturnType<typeof quotedSource>;
 
 // Only fields actually quoted into the forward are bound. Original Bcc and attachments are never copied.
 function quotedSource(original: MessageContent) {
@@ -17,42 +19,45 @@ function quotedSource(original: MessageContent) {
 		text: original.text,
 	};
 }
+
+function forwardedHeader(source: QuotedSource) {
+	const lines = [
+		"---------- Forwarded message ----------",
+		`From: ${source.from}`,
+	];
+	if (source.date) lines.push(`Date: ${source.date}`);
+	lines.push(`Subject: ${source.subject}`);
+	if (source.to) lines.push(`To: ${source.to}`);
+	if (source.cc) lines.push(`Cc: ${source.cc}`);
+	return lines.join("\n");
+}
+
+function forwardSubject(originalSubject: string) {
+	return /^fwd:/i.test(originalSubject)
+		? originalSubject
+		: `Fwd: ${originalSubject}`;
+}
+
 export function forwardFingerprint(original: MessageContent) {
 	return hashContent(quotedSource(original));
 }
+
 export function forwardMessage(
 	sender: string,
 	original: MessageContent,
 	request: z.infer<typeof ForwardEmailSchema>,
 ) {
 	const source = quotedSource(original);
-	const header = [
-		"---------- Forwarded message ----------",
-		`From: ${source.from}`,
-		source.date ? `Date: ${source.date}` : undefined,
-		`Subject: ${source.subject}`,
-		source.to ? `To: ${source.to}` : undefined,
-		source.cc ? `Cc: ${source.cc}` : undefined,
-	]
-		.filter((value) => value !== undefined)
-		.join("\n");
+	const quoted = `${forwardedHeader(source)}\n\n${source.text}`;
 	return OutgoingMessageSchema.parse({
 		from: sender,
 		to: request.to,
 		cc: request.cc ?? [],
 		bcc: request.bcc ?? [],
-		subject:
-			request.subject ??
-			(/^fwd:/i.test(original.subject)
-				? original.subject
-				: `Fwd: ${original.subject}`),
-		text: [request.text, `${header}\n\n${source.text}`]
-			.filter(Boolean)
-			.join("\n\n"),
+		subject: request.subject ?? forwardSubject(original.subject),
+		text: [request.text, quoted].filter(Boolean).join("\n\n"),
 		inReplyTo: [],
 		references: [],
-		...(request.attachments?.length || request.inlineImages?.length
-			? { media: outgoingMedia(request) }
-			: {}),
+		...requestedMedia(request),
 	});
 }

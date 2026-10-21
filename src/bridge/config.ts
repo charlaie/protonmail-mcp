@@ -1,6 +1,22 @@
 import { isIP } from "node:net";
 import { z } from "zod";
 
+function isLocalhost(host: string) {
+	return host.toLowerCase() === "localhost";
+}
+
+function isLoopbackHost(host: string) {
+	return (
+		isLocalhost(host) ||
+		host === "::1" ||
+		(isIP(host) === 4 && host.split(".")[0] === "127")
+	);
+}
+
+function uniqueLowercase(addresses: string[]) {
+	return [...new Set(addresses.map((address) => address.toLowerCase()))];
+}
+
 export const ConfigSchema = z
 	.strictObject({
 		user: z.string().trim().min(1),
@@ -21,22 +37,8 @@ export const ConfigSchema = z
 	)
 	.transform((config) => ({
 		...config,
-		host: config.host.toLowerCase() === "localhost" ? "127.0.0.1" : config.host,
-		ownAddresses: [
-			...new Set(
-				[config.user, ...config.ownAddresses].map((address) =>
-					address.toLowerCase(),
-				),
-			),
-		],
+		host: isLocalhost(config.host) ? "127.0.0.1" : config.host,
+		ownAddresses: uniqueLowercase([config.user, ...config.ownAddresses]),
 	}));
-
-function isLoopbackHost(host: string) {
-	return (
-		host.toLowerCase() === "localhost" ||
-		host === "::1" ||
-		(isIP(host) === 4 && host.split(".")[0] === "127")
-	);
-}
 
 export type BridgeConfig = z.infer<typeof ConfigSchema>;

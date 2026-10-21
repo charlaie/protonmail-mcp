@@ -22,6 +22,7 @@ import { createImapSession } from "./session.js";
 
 const journalDirectory = mkdtempSync(join(tmpdir(), "protonmail-imap-drafts-"));
 const mailboxJournals = new WeakMap<FakeImap["mailboxes"], string>();
+
 function journalFor(mailboxes: FakeImap["mailboxes"]) {
 	let directory = mailboxJournals.get(mailboxes);
 	if (!directory) {
@@ -30,9 +31,15 @@ function journalFor(mailboxes: FakeImap["mailboxes"]) {
 	}
 	return directory;
 }
+
 after(() => {
 	rmSync(journalDirectory, { recursive: true, force: true });
 });
+
+function inboxMessage(uid: number) {
+	return { mailbox: "INBOX", uid, uidValidity: "7" };
+}
+
 function editInput(original: ReturnType<typeof fixtureMessage>, input: object) {
 	return EditDraftSchema.parse({
 		operationId: randomUUID(),
@@ -40,18 +47,20 @@ function editInput(original: ReturnType<typeof fixtureMessage>, input: object) {
 		...input,
 	});
 }
+
 function service(client: FakeImap) {
-	return createImapService(
-		testConfig,
-		async (operation) => operation(client),
-		createDraftStore(testConfig.user, journalFor(client.mailboxes)),
-	);
+	return createImapService(testConfig, {
+		run: async (operation) => operation(client),
+		draftStore: createDraftStore(testConfig.user, journalFor(client.mailboxes)),
+	});
 }
+
 const policy = createReadPolicy({
 	bridgeUser: testConfig.user,
 	allowedMailboxes: ["INBOX", "Archive"],
 	allowedSenderEmails: ["trusted@example.com"],
 });
+
 const accepts = (mailbox: string, message: ReturnType<typeof messageSummary>) =>
 	canReadMessage(policy, { mailbox, message });
 
@@ -103,22 +112,11 @@ test("denied and oversized messages never fetch source; UIDVALIDITY is checked f
 		{ ...fixtureMessage(2), size: 11 * 1024 * 1024 },
 	]);
 	assert.equal(
-		(
-			await service(client).getMessage(
-				{ mailbox: "INBOX", uid: 1, uidValidity: "7" },
-				accepts,
-			)
-		).kind,
+		(await service(client).getMessage(inboxMessage(1), accepts)).kind,
 		"denied",
 	);
 	assert.equal(
-		(
-			await service(client).getMessage({
-				mailbox: "INBOX",
-				uid: 2,
-				uidValidity: "7",
-			})
-		).kind,
+		(await service(client).getMessage(inboxMessage(2))).kind,
 		"unavailable",
 	);
 	await assert.rejects(
@@ -135,13 +133,37 @@ test("HTML-only messages become plain text without changing read flags", async (
 		"From: trusted@example.com\r\nContent-Type: text/html\r\n\r\n<p>Hello <b>world</b></p>",
 	);
 	client.mailboxes.set("INBOX", [message]);
-	const result = await service(client).getMessage(
-		{ mailbox: "INBOX", uid: 1, uidValidity: "7" },
-		accepts,
-	);
+	const result = await service(client).getMessage(inboxMessage(1), accepts);
 	assert.equal(result.kind, "found");
 	assert.equal(result.value.text, "Hello world");
 	assert.deepEqual(result.value.flags, ["\\Draft"]);
+});
+
+test("message reads enforce the fetched sender and actual source size independently of the envelope", async () => {
+	const client = new FakeImap();
+	const mismatchedSender = fixtureMessage(1, { sender: "trusted@example.com" });
+	mismatchedSender.source = Buffer.from(
+		"From: other@example.com\r\n\r\nPrivate body",
+	);
+	const oversized = fixtureMessage(2);
+	oversized.source = Buffer.alloc(10 * 1024 * 1024 + 1, "x");
+	client.mailboxes.set("INBOX", [mismatchedSender, oversized]);
+	assert.deepEqual(await service(client).getMessage(inboxMessage(1), accepts), {
+		kind: "denied",
+	});
+	const result = await service(client).getMessage(inboxMessage(2), accepts);
+	assert.equal(result.kind, "unavailable");
+	assert.equal(client.sourceFetches, 2);
+});
+
+test("invalid advertised message sizes are refused before fetching source", async () => {
+	for (const size of [-1, Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
+		const client = new FakeImap();
+		client.mailboxes.set("INBOX", [{ ...fixtureMessage(1), size }]);
+		const result = await service(client).getMessage(inboxMessage(1), accepts);
+		assert.equal(result.kind, "unavailable");
+		assert.equal(client.sourceFetches, 0);
+	}
 });
 
 test("thread traversal excludes substring collisions and denied senders before its cap", async () => {
@@ -383,7 +405,7 @@ test("thread body limits retain summaries and other available bodies", async () 
 	]);
 	const result = await service(client).getThread(
 		{
-			...GetThreadSchema.parse({ mailbox: "INBOX", uid: 1, uidValidity: "7" }),
+			...GetThreadSchema.parse(inboxMessage(1)),
 			mailboxes: ["INBOX"],
 		},
 		accepts,
@@ -401,11 +423,10 @@ test("a socket error after APPEND retains replacement recovery details through t
 	const original = fixtureMessage(32, { sender: "alias@example.com" });
 	client.mailboxes.set("Drafts", [original]);
 	client.deleteFailure = "event";
-	const imap = createImapService(
-		testConfig,
-		createImapSession(testConfig, () => client),
-		createDraftStore(testConfig.user, journalFor(client.mailboxes)),
-	);
+	const imap = createImapService(testConfig, {
+		run: createImapSession(testConfig, () => client),
+		draftStore: createDraftStore(testConfig.user, journalFor(client.mailboxes)),
+	});
 	const result = await imap.drafts.edit({
 		request: editInput(original, {
 			uid: 32,
@@ -443,7 +464,9 @@ test("plain-text drafts with attachments preserve their payload when edits omit 
 	});
 	assert.equal(result.outcome.status, "completed");
 	assert.equal(client.appends.length, 1);
-	const parsed = await simpleParser(client.appends[0].content);
+	const [appended] = client.appends;
+	assert.ok(appended);
+	const parsed = await simpleParser(appended.content);
 	assert.equal(parsed.attachments[0]?.content.toString(), "Keep attachment");
 	assert.deepEqual(parsed.attachments[0]?.headers.get("content-type"), {
 		value: "application/octet-stream",
@@ -457,16 +480,15 @@ test("simultaneous edits on separate IMAP connections create only one replacemen
 		["Drafts", [fixtureMessage(1, { sender: testConfig.user })]],
 	]);
 	const clients: FakeImap[] = [];
-	const imap = createImapService(
-		testConfig,
-		async (operation) => {
+	const imap = createImapService(testConfig, {
+		run: async (operation) => {
 			const client = new FakeImap();
 			client.mailboxes = shared;
 			clients.push(client);
 			return operation(client);
 		},
-		createDraftStore(testConfig.user, journalFor(shared)),
-	);
+		draftStore: createDraftStore(testConfig.user, journalFor(shared)),
+	});
 	const input = {
 		...editInput(fixtureMessage(1, { sender: testConfig.user }), {
 			uid: 1,
@@ -500,17 +522,16 @@ test("queued edits retain one replacement and its identity after every deletion 
 				["Drafts", [fixtureMessage(uid, { sender: testConfig.user })]],
 			]);
 			const clients: FakeImap[] = [];
-			const imap = createImapService(
-				testConfig,
-				(operation) => {
+			const imap = createImapService(testConfig, {
+				run: (operation) => {
 					const client = new FakeImap();
 					client.mailboxes = shared;
 					client.deleteFailure = mode;
 					clients.push(client);
 					return createImapSession(testConfig, () => client)(operation);
 				},
-				createDraftStore(testConfig.user, journalFor(shared)),
-			);
+				draftStore: createDraftStore(testConfig.user, journalFor(shared)),
+			});
 			const input = {
 				...editInput(fixtureMessage(uid, { sender: testConfig.user }), {
 					uid,

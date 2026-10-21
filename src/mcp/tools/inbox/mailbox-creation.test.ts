@@ -31,7 +31,9 @@ async function fixture(t: TestContext) {
 			config: testConfig,
 			policyFile,
 			operationsDirectory: directory,
-			imap: createImapService(testConfig, async (operation) => operation(fake)),
+			imap: createImapService(testConfig, {
+				run: async (operation) => operation(fake),
+			}),
 		}),
 	);
 	return { fake, client, policy, policyFile };

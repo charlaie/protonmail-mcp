@@ -6,6 +6,16 @@ import type { SmtpOutcome } from "../../mail/sending/model.js";
 import { safeErrorMessage } from "../../shared/errors.js";
 import type { BridgeConfig } from "../config.js";
 
+const SmtpErrorSchema = z.object({
+	code: z.string().optional(),
+	command: z.string().optional(),
+	responseCode: z.number().optional(),
+});
+
+// Nodemailer also reports socket failures after DATA as CONN, so that code
+// cannot prove the message was rejected.
+const REJECTION_CODES = ["EAUTH", "EENVELOPE", "EDNS"];
+
 function createSmtpTransport(config: BridgeConfig) {
 	return nodemailer.createTransport({
 		host: config.host,
@@ -22,28 +32,40 @@ function createSmtpTransport(config: BridgeConfig) {
 	});
 }
 
-const SmtpErrorSchema = z.object({
-	code: z.string().optional(),
-	command: z.string().optional(),
-	responseCode: z.number().optional(),
-});
+function isDefiniteRejection(error: unknown) {
+	const parsed = SmtpErrorSchema.safeParse(error);
+	if (!parsed.success) return false;
+
+	const { code, responseCode } = parsed.data;
+	const smtpErrorReply =
+		responseCode !== undefined && responseCode >= 400 && responseCode <= 599;
+	return smtpErrorReply || REJECTION_CODES.includes(code ?? "");
+}
 
 export function smtpFailure(error: unknown): SmtpOutcome {
-	const parsed = SmtpErrorSchema.safeParse(error);
-	const details = parsed.success ? parsed.data : undefined;
-	const rejected =
-		details &&
-		((details.responseCode !== undefined &&
-			details.responseCode >= 400 &&
-			details.responseCode <= 599) ||
-			// Socket failures after DATA are also reported as CONN by Nodemailer.
-			["EAUTH", "EENVELOPE", "EDNS"].includes(details.code ?? ""));
-	return rejected
-		? { status: "rejected", reason: safeErrorMessage(error) }
-		: {
-				status: "uncertain",
-				reason: `SMTP acceptance could not be confirmed: ${safeErrorMessage(error)}. Reconcile this operation before considering another send.`,
-			};
+	const message = safeErrorMessage(error);
+	if (isDefiniteRejection(error))
+		return { status: "rejected", reason: message };
+	return {
+		status: "uncertain",
+		reason: `SMTP acceptance could not be confirmed: ${message}. Reconcile this operation before considering another send.`,
+	};
+}
+
+function submissionOptions(message: OutgoingMessage, messageId: string) {
+	return {
+		...message,
+		...mediaMailOptions(message.text, message.media),
+		messageId,
+		inReplyTo: message.inReplyTo.length
+			? message.inReplyTo.join(" ")
+			: undefined,
+		references: message.references.length ? message.references : undefined,
+	};
+}
+
+function recipientAddress(recipient: string | { address: string }) {
+	return typeof recipient === "string" ? recipient : recipient.address;
 }
 
 export async function submitEmail(
@@ -53,21 +75,15 @@ export async function submitEmail(
 ): Promise<SmtpOutcome> {
 	const transport = createSmtpTransport(config);
 	try {
-		const info = await transport.sendMail({
-			...message,
-			...mediaMailOptions(message.text, message.media),
-			messageId,
-			inReplyTo: message.inReplyTo.length
-				? message.inReplyTo.join(" ")
-				: undefined,
-			references: message.references.length ? message.references : undefined,
-		});
-		const addressText = (value: string | { address: string }) =>
-			typeof value === "string" ? value : value.address;
+		const info = await transport.sendMail(
+			submissionOptions(message, messageId),
+		);
+		const accepted = info.accepted.map(recipientAddress);
+		const rejected = info.rejected.map(recipientAddress);
 		return {
-			status: info.rejected.length ? "partially_accepted" : "accepted",
-			accepted: info.accepted.map(addressText),
-			rejected: info.rejected.map(addressText),
+			status: rejected.length ? "partially_accepted" : "accepted",
+			accepted,
+			rejected,
 		};
 	} catch (error) {
 		return smtpFailure(error);

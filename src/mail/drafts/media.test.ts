@@ -135,9 +135,10 @@ test("sending a supported rich draft binds exact files and returns only byte-fre
 			draftMessageId: snapshot.draftMessageId,
 		},
 	});
-	const sent = await sends.send(record, snapshot.message, () =>
-		drafts.deleteSnapshot(identity, snapshot.fingerprint, allowAllMessages),
-	);
+	const sent = await sends.send(record, snapshot.message, {
+		cleanup: () =>
+			drafts.deleteSnapshot(identity, snapshot.fingerprint, allowAllMessages),
+	});
 	assert.equal(sent.outcome.status, "accepted");
 	assert.equal(sent.draftCleanup.status, "deleted");
 	assert.equal(sent.media?.length, 2);

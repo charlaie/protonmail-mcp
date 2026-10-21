@@ -1,3 +1,5 @@
+import { toolError } from "../../shared/mail-error.js";
+
 /** Return a text response. */
 export function textResponse(text: string) {
 	return {
@@ -25,4 +27,15 @@ export function errorResponse(error: unknown) {
 	};
 }
 
-import { toolError } from "../../shared/mail-error.js";
+/** Return one page of journal operations; `nextOffset` is null once a page is short. */
+export function operationPageResponse<Operation>(
+	operations: Operation[],
+	page: { limit: number; offset: number },
+	present: (operation: Operation) => object,
+) {
+	const isFullPage = operations.length === page.limit;
+	return jsonResponse({
+		operations: operations.map(present),
+		nextOffset: isFullPage ? page.offset + page.limit : null,
+	});
+}

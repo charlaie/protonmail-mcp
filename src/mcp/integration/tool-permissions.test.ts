@@ -35,7 +35,9 @@ test("read-only tool visibility rejects direct calls to every mail mutation", as
 			config: testConfig,
 			policyFile,
 			operationsDirectory: directory,
-			imap: createImapService(testConfig, async (operation) => operation(fake)),
+			imap: createImapService(testConfig, {
+				run: async (operation) => operation(fake),
+			}),
 			sends: createSendService(testConfig, {
 				store: createSendStore(testConfig.user, directory),
 				submit: async () => {
@@ -81,7 +83,9 @@ test("a revoked tool grant is enforced on a running server before reading Bridge
 			config: testConfig,
 			policyFile,
 			operationsDirectory: directory,
-			imap: createImapService(testConfig, async (operation) => operation(fake)),
+			imap: createImapService(testConfig, {
+				run: async (operation) => operation(fake),
+			}),
 		}),
 	);
 	await saveReadPolicy({ ...policy, allowedTools: [] }, policyFile);
@@ -110,7 +114,9 @@ test("legacy policy cannot grant tools implicitly and only exposes local recover
 			config: testConfig,
 			policyFile,
 			operationsDirectory: directory,
-			imap: createImapService(testConfig, async (operation) => operation(fake)),
+			imap: createImapService(testConfig, {
+				run: async (operation) => operation(fake),
+			}),
 		}),
 	);
 	const listed = await client.request("tools/list", {});

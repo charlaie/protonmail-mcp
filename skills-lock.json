@@ -1,65 +1,65 @@
 {
-  "version": 1,
-  "skills": {
-    "codebase-design": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/codebase-design/SKILL.md",
-      "computedHash": "b2888e4f4e8c0af3bfd557575a64b905c44e6248c3101d72077816882b3a92b9"
-    },
-    "domain-modeling": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/domain-modeling/SKILL.md",
-      "computedHash": "b3eb40152b81f0c98fd2095a023c019452dbdce56f7540cc67fece2972db8369"
-    },
-    "grill-me": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/productivity/grill-me/SKILL.md",
-      "computedHash": "9cdbb4b8f7a3aeaef82e6230c9e823500d4a8a1214c726cf342cf9829d34fc7d"
-    },
-    "grilling": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/productivity/grilling/SKILL.md",
-      "computedHash": "ef1641a2047b71b60f1942cd35efb47d3afc9d584dff5a0b01f8c7db923aaa08"
-    },
-    "improve-codebase-architecture": {
-      "source": "mattpocock/skills",
-      "sourceType": "github",
-      "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
-      "computedHash": "ac2c94885f34ff8492dc12aa4543182f661f32ea1722b8d6b6c2c7045af33ae3"
-    },
-    "principle-model-the-domain": {
-      "source": "cursor/plugins",
-      "sourceType": "github",
-      "skillPath": "pstack/skills/principle-model-the-domain/SKILL.md",
-      "computedHash": "7bf96c26a8d4a064488a534e5a9e75cabafa6bdc8c486529ab02d746b8796801"
-    },
-    "principle-type-system-discipline": {
-      "source": "cursor/plugins",
-      "sourceType": "github",
-      "skillPath": "pstack/skills/principle-type-system-discipline/SKILL.md",
-      "computedHash": "3d9cd69afc4b41f99dd94b3dc169942995e721a73318f55412a858f9a66658fb"
-    },
-    "thermo-nuclear-code-quality-review": {
-      "source": "cursor/plugins",
-      "sourceType": "github",
-      "skillPath": "cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md",
-      "computedHash": "9052b01b46b1d8dbf94c45f9313ec1983443f9a460e83d49cdc7fe0f640ca476"
-    },
-    "typescript-best-practices": {
-      "source": "cursor/plugins",
-      "sourceType": "github",
-      "skillPath": "pstack/skills/typescript-best-practices/SKILL.md",
-      "computedHash": "2ef9e9307b23e38676b122330079a68315f87182e7fc308e263e3d2381090cb3"
-    },
-    "unslop": {
-      "source": "cursor/plugins",
-      "sourceType": "github",
-      "skillPath": "pstack/skills/unslop/SKILL.md",
-      "computedHash": "eca0ad9fa3a3867c83f3aaf3a058e247a569c8976a68ca423a569b93eb86de5d"
-    }
-  }
+	"version": 1,
+	"skills": {
+		"codebase-design": {
+			"source": "mattpocock/skills",
+			"sourceType": "github",
+			"skillPath": "skills/engineering/codebase-design/SKILL.md",
+			"computedHash": "b2888e4f4e8c0af3bfd557575a64b905c44e6248c3101d72077816882b3a92b9"
+		},
+		"domain-modeling": {
+			"source": "mattpocock/skills",
+			"sourceType": "github",
+			"skillPath": "skills/engineering/domain-modeling/SKILL.md",
+			"computedHash": "b3eb40152b81f0c98fd2095a023c019452dbdce56f7540cc67fece2972db8369"
+		},
+		"grill-me": {
+			"source": "mattpocock/skills",
+			"sourceType": "github",
+			"skillPath": "skills/productivity/grill-me/SKILL.md",
+			"computedHash": "9cdbb4b8f7a3aeaef82e6230c9e823500d4a8a1214c726cf342cf9829d34fc7d"
+		},
+		"grilling": {
+			"source": "mattpocock/skills",
+			"sourceType": "github",
+			"skillPath": "skills/productivity/grilling/SKILL.md",
+			"computedHash": "ef1641a2047b71b60f1942cd35efb47d3afc9d584dff5a0b01f8c7db923aaa08"
+		},
+		"improve-codebase-architecture": {
+			"source": "mattpocock/skills",
+			"sourceType": "github",
+			"skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
+			"computedHash": "ac2c94885f34ff8492dc12aa4543182f661f32ea1722b8d6b6c2c7045af33ae3"
+		},
+		"principle-model-the-domain": {
+			"source": "cursor/plugins",
+			"sourceType": "github",
+			"skillPath": "pstack/skills/principle-model-the-domain/SKILL.md",
+			"computedHash": "7bf96c26a8d4a064488a534e5a9e75cabafa6bdc8c486529ab02d746b8796801"
+		},
+		"principle-type-system-discipline": {
+			"source": "cursor/plugins",
+			"sourceType": "github",
+			"skillPath": "pstack/skills/principle-type-system-discipline/SKILL.md",
+			"computedHash": "3d9cd69afc4b41f99dd94b3dc169942995e721a73318f55412a858f9a66658fb"
+		},
+		"thermo-nuclear-code-quality-review": {
+			"source": "cursor/plugins",
+			"sourceType": "github",
+			"skillPath": "cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md",
+			"computedHash": "9052b01b46b1d8dbf94c45f9313ec1983443f9a460e83d49cdc7fe0f640ca476"
+		},
+		"typescript-best-practices": {
+			"source": "cursor/plugins",
+			"sourceType": "github",
+			"skillPath": "pstack/skills/typescript-best-practices/SKILL.md",
+			"computedHash": "2ef9e9307b23e38676b122330079a68315f87182e7fc308e263e3d2381090cb3"
+		},
+		"unslop": {
+			"source": "cursor/plugins",
+			"sourceType": "github",
+			"skillPath": "pstack/skills/unslop/SKILL.md",
+			"computedHash": "eca0ad9fa3a3867c83f3aaf3a058e247a569c8976a68ca423a569b93eb86de5d"
+		}
+	}
 }
