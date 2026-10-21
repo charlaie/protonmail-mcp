@@ -6,10 +6,10 @@ import {
 	parseMessageIds,
 	readMessage,
 	SUMMARY_FIELDS,
-} from "../reading/messages.js";
-import type { GetThreadInput } from "../reading/requests.js";
-import { messageSummary } from "../serializers.js";
-import type { ImapClient } from "../session.js";
+} from "@/bridge/imap/reading/messages.js";
+import type { GetThreadInput } from "@/bridge/imap/reading/requests.js";
+import { messageSummary } from "@/bridge/imap/serializers.js";
+import type { ImapClient } from "@/bridge/imap/session.js";
 import {
 	bridgeThreadIdentity,
 	normalizeThreadId,

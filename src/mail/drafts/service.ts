@@ -1,29 +1,29 @@
-import type { MailWriteAuthorization } from "../../bridge/authorization.js";
-import type { BridgeConfig } from "../../bridge/config.js";
-import { findMessageCopies } from "../../bridge/imap/message-copies.js";
+import type { MailWriteAuthorization } from "@/bridge/authorization.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import { findMessageCopies } from "@/bridge/imap/message-copies.js";
 import {
 	allowAllMessages,
 	checkUidValidity,
 	type MessageFilter,
-} from "../../bridge/imap/reading/messages.js";
-import { parsedAddressEmails } from "../../bridge/imap/serializers.js";
-import type { ImapSession } from "../../bridge/imap/session.js";
-import { OperationIdSchema } from "../../operations/identity.js";
-import {
-	createDraftStore,
-	type DraftStore,
-} from "../../operations/sqlite/drafts.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { safeErrorMessage } from "../../shared/errors.js";
-import { MailError } from "../../shared/mail-error.js";
-import type { GetMessageInput } from "../identity.js";
-import { mediaManifest } from "../outgoing/media/model.js";
+} from "@/bridge/imap/reading/messages.js";
+import { parsedAddressEmails } from "@/bridge/imap/serializers.js";
+import type { ImapSession } from "@/bridge/imap/session.js";
 import {
 	appendDraft,
 	type CreateDraftLookupInput,
 	composeDraft,
 	type EditDraftLookupInput,
-} from "./composition/compose.js";
+} from "@/mail/drafts/composition/compose.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import { mediaManifest } from "@/mail/outgoing/media/model.js";
+import { OperationIdSchema } from "@/operations/identity.js";
+import {
+	createDraftStore,
+	type DraftStore,
+} from "@/operations/sqlite/drafts.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { safeErrorMessage } from "@/shared/errors.js";
+import { MailError } from "@/shared/mail-error.js";
 import type { DraftOperation } from "./model.js";
 import type { EditDraftRequest, GetDraftInput } from "./requests.js";
 import {

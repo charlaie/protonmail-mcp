@@ -4,20 +4,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { createImapService } from "../../bridge/imap/service.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../bridge/testing/fixtures.js";
-import { createDraftStore } from "../../operations/sqlite/drafts.js";
-import { createSendStore } from "../../operations/sqlite/sending.js";
-import { createToolAccess } from "../../policy/access.js";
-import { createReadPolicy } from "../../policy/schema.js";
-import { saveReadPolicy } from "../../policy/store.js";
-import { ToolNameSchema } from "../../policy/tools.js";
-import { MailError } from "../../shared/mail-error.js";
-import { createMailAccess } from "../access.js";
+} from "@/bridge/testing/fixtures.js";
+import { createMailAccess } from "@/mail/access.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
+import { createToolAccess } from "@/policy/access.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { ToolNameSchema } from "@/policy/tools.js";
+import { MailError } from "@/shared/mail-error.js";
 import { SendEmailSchema } from "./requests.js";
 import { createSendService } from "./service.js";
 import { createSendWorkflow } from "./workflow.js";

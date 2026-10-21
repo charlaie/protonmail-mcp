@@ -1,11 +1,11 @@
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { type ReadPolicy, ReadPolicySchema } from "../policy/schema.js";
+import { type ReadPolicy, ReadPolicySchema } from "@/policy/schema.js";
 import {
 	isMissingFile,
 	stagePrivateFile,
 	writePrivateFile,
-} from "../shared/private-file.js";
+} from "@/shared/private-file.js";
 import { resolveServerConfig, type ServerConfig } from "./store.js";
 
 export async function readSettingsSnapshot(

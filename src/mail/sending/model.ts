@@ -1,13 +1,16 @@
 import { z } from "zod";
-import { OperationIdSchema } from "../../operations/identity.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { GetMessageSchema } from "../identity.js";
-import { MediaMetadataSchema, outgoingMedia } from "../outgoing/media/model.js";
+import { GetMessageSchema } from "@/mail/identity.js";
+import {
+	MediaMetadataSchema,
+	outgoingMedia,
+} from "@/mail/outgoing/media/model.js";
 import {
 	MessageIdSchema,
 	type OutgoingMessage,
 	OutgoingMessageSchema,
-} from "../outgoing/message.js";
+} from "@/mail/outgoing/message.js";
+import { OperationIdSchema } from "@/operations/identity.js";
+import { hashContent } from "@/shared/content-hash.js";
 import type { SendEmailInput } from "./requests.js";
 
 export const SendSourceSchema = z.discriminatedUnion("kind", [

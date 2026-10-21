@@ -70,6 +70,7 @@
 		"@types/mailparser": "^3.4.6",
 		"@types/node": "^25.6.0",
 		"@types/nodemailer": "^8.0.0",
+		"tsc-alias": "^1.9.8",
 		"typescript": "^6.0.3"
 	}
 }

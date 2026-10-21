@@ -6,16 +6,20 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import { simpleParser } from "mailparser";
 import {
-	CreateDraftSchema,
-	EditDraftSchema,
-} from "../../mail/drafts/requests.js";
-import { createDraftStore } from "../../operations/sqlite/drafts.js";
-import { canReadMessage } from "../../policy/enforcement.js";
-import { createReadPolicy } from "../../policy/schema.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { MailError } from "../../shared/mail-error.js";
-import { FakeImap, fixtureMessage, testConfig } from "../testing/fixtures.js";
-import { GetThreadSchema, SearchMessagesSchema } from "./reading/requests.js";
+	GetThreadSchema,
+	SearchMessagesSchema,
+} from "@/bridge/imap/reading/requests.js";
+import {
+	FakeImap,
+	fixtureMessage,
+	testConfig,
+} from "@/bridge/testing/fixtures.js";
+import { CreateDraftSchema, EditDraftSchema } from "@/mail/drafts/requests.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { canReadMessage } from "@/policy/enforcement.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { MailError } from "@/shared/mail-error.js";
 import { messageSummary, parsedAddressText } from "./serializers.js";
 import { createImapService } from "./service.js";
 import { createImapSession } from "./session.js";

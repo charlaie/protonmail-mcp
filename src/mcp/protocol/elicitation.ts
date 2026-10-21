@@ -12,11 +12,11 @@ import { z } from "zod";
 import type {
 	AttachmentApprovalInput,
 	AttachmentReadAuthorization,
-} from "../../mail/access.js";
-import { mediaManifest } from "../../mail/outgoing/media/model.js";
-import type { SendApprovalInput } from "../../mail/sending/workflow.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { MailError } from "../../shared/mail-error.js";
+} from "@/mail/access.js";
+import { mediaManifest } from "@/mail/outgoing/media/model.js";
+import type { SendApprovalInput } from "@/mail/sending/workflow.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { MailError } from "@/shared/mail-error.js";
 
 import { errorResponse } from "./responses.js";
 

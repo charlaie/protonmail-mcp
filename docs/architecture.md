@@ -79,4 +79,14 @@ The tree above selects entry modules and groups rather than listing every file. 
 - Add a subdirectory when a set of modules has a specific owner. Keep small cohesive groups flat.
 - Import the implementing file directly. Do not add barrel exports or forwarding modules to hide the directory structure.
 
+## Imports
+
+Use `@/` for imports across directories, rooted at `src/`, and keep `.js` extensions:
+
+```ts
+import { safeErrorMessage } from "@/shared/errors.js";
+```
+
+Keep same-directory imports relative, such as `./model.js`. TypeScript resolves the alias through `compilerOptions.paths` in `tsconfig.json`. After compilation, `pnpm build` uses `tsc-alias` to rewrite aliases to relative paths in `build/`, so the CLI and published package run directly in Node without a runtime loader. Use `pnpm build` rather than invoking `tsc` alone when producing runnable output.
+
 `pnpm test` passes a quoted recursive pattern to Node so nested test files are discovered on every supported shell. Package exclusions keep tests, fixtures, and `testing/` directories out of the published runtime.

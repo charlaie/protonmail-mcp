@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { allowAllMessages } from "../../bridge/imap/reading/messages.js";
-import { FakeImap, fixtureMessage } from "../../bridge/testing/fixtures.js";
+import { allowAllMessages } from "@/bridge/imap/reading/messages.js";
+import { FakeImap, fixtureMessage } from "@/bridge/testing/fixtures.js";
 import type { AttachmentExtension } from "./formats.js";
 import {
 	getAttachment,

@@ -3,19 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
 import { specTypeSchemas } from "@modelcontextprotocol/server";
-import { createImapService } from "../../../bridge/imap/service.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../../bridge/testing/fixtures.js";
-import type { AttachmentPermission } from "../../../mail/attachments/formats.js";
-import { createReadPolicy } from "../../../policy/schema.js";
-import { saveReadPolicy } from "../../../policy/store.js";
-import { ToolNameSchema } from "../../../policy/tools.js";
-import { createTestClient } from "../../integration/test-client.js";
-import { createApprovalController } from "../../protocol/elicitation.js";
-import { createServer } from "../../server.js";
+} from "@/bridge/testing/fixtures.js";
+import type { AttachmentPermission } from "@/mail/attachments/formats.js";
+import { createTestClient } from "@/mcp/integration/test-client.js";
+import { createApprovalController } from "@/mcp/protocol/elicitation.js";
+import { createServer } from "@/mcp/server.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { ToolNameSchema } from "@/policy/tools.js";
 
 export const attachmentIdentity = {
 	mailbox: "Archive/Invoices",

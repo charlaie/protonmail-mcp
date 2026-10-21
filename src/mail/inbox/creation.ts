@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { ImapSession } from "../../bridge/imap/session.js";
-import { MailError } from "../../shared/mail-error.js";
+import type { ImapSession } from "@/bridge/imap/session.js";
+import { MailError } from "@/shared/mail-error.js";
 
 export const MailboxCreationKindSchema = z.enum(["folder", "label"]);
 const NameSchema = z

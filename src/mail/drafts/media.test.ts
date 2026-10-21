@@ -4,12 +4,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { allowAllMessages } from "../../bridge/imap/reading/messages.js";
-import { FakeImap, testConfig } from "../../bridge/testing/fixtures.js";
-import { createDraftStore } from "../../operations/sqlite/drafts.js";
-import { createSendStore } from "../../operations/sqlite/sending.js";
-import { testFile, testImage } from "../outgoing/media/test-fixtures.js";
-import { createSendService } from "../sending/service.js";
+import { allowAllMessages } from "@/bridge/imap/reading/messages.js";
+import { FakeImap, testConfig } from "@/bridge/testing/fixtures.js";
+import { testFile, testImage } from "@/mail/outgoing/media/test-fixtures.js";
+import { createSendService } from "@/mail/sending/service.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
 import { CreateDraftSchema, EditDraftSchema } from "./requests.js";
 import { createDraftService } from "./service.js";
 

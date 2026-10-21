@@ -1,24 +1,24 @@
 import { type ParsedMail, simpleParser } from "mailparser";
-import type { BridgeConfig } from "../../bridge/config.js";
+import type { BridgeConfig } from "@/bridge/config.js";
 import {
 	allowAllMessages,
 	checkUidValidity,
 	type MessageFilter,
 	parseMessageIds,
 	SUMMARY_FIELDS,
-} from "../../bridge/imap/reading/messages.js";
+} from "@/bridge/imap/reading/messages.js";
 import {
 	messageSummary,
 	parsedAddressEmails,
 	parsedAddressText,
-} from "../../bridge/imap/serializers.js";
-import type { ImapClient } from "../../bridge/imap/session.js";
-import { hashContent } from "../../shared/content-hash.js";
-import { MailError } from "../../shared/mail-error.js";
-import type { GetMessageInput } from "../identity.js";
-import { parsedMedia } from "../outgoing/media/mime.js";
-import { mediaManifest } from "../outgoing/media/model.js";
-import { OutgoingMessageSchema } from "../outgoing/message.js";
+} from "@/bridge/imap/serializers.js";
+import type { ImapClient } from "@/bridge/imap/session.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import { parsedMedia } from "@/mail/outgoing/media/mime.js";
+import { mediaManifest } from "@/mail/outgoing/media/model.js";
+import { OutgoingMessageSchema } from "@/mail/outgoing/message.js";
+import { hashContent } from "@/shared/content-hash.js";
+import { MailError } from "@/shared/mail-error.js";
 
 export function draftContentHash(original: ParsedMail) {
 	const media = parsedMedia(original);

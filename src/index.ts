@@ -6,25 +6,25 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
-import { SearchMessagesSchema } from "./bridge/imap/reading/requests.js";
-import { createImapService } from "./bridge/imap/service.js";
+import { SearchMessagesSchema } from "@/bridge/imap/reading/requests.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	CLIENTS,
 	ClientNameSchema,
 	launchSpecification,
 	renderClientConfig,
-} from "./cli/clients/configuration.js";
+} from "@/cli/clients/configuration.js";
 import {
 	type DiagnosticResult,
 	diagnoseServer,
-} from "./cli/diagnostics/service.js";
-import { getConfigFilePath } from "./config/paths.js";
-import { requireServerConfig } from "./config/store.js";
-import { createMailAccess } from "./mail/access.js";
-import { GetMessageSchema } from "./mail/identity.js";
-import { createServer } from "./mcp/server.js";
-import { createToolAccess } from "./policy/access.js";
-import { safeErrorMessage } from "./shared/errors.js";
+} from "@/cli/diagnostics/service.js";
+import { getConfigFilePath } from "@/config/paths.js";
+import { requireServerConfig } from "@/config/store.js";
+import { createMailAccess } from "@/mail/access.js";
+import { GetMessageSchema } from "@/mail/identity.js";
+import { createServer } from "@/mcp/server.js";
+import { createToolAccess } from "@/policy/access.js";
+import { safeErrorMessage } from "@/shared/errors.js";
 
 const entryPath = fileURLToPath(import.meta.url);
 const CommandSchema = z.enum([
@@ -99,7 +99,7 @@ async function main() {
 		)
 		.parse(values.name ?? "protonmail");
 	if (command === "setup") {
-		const { runSetupCommand } = await import("./cli/setup/command.js");
+		const { runSetupCommand } = await import("@/cli/setup/command.js");
 		await runSetupCommand({
 			configPath: configPath,
 			entryPath: entryPath,
@@ -167,10 +167,10 @@ async function main() {
 				throw new Error("Choose either --install or --output.");
 			if (values.install) {
 				const { prepareClientInstallation, installClientConfig } = await import(
-					"./cli/clients/configuration.js"
+					"@/cli/clients/configuration.js"
 				);
 				const { answer, requireTerminal } = await import(
-					"./cli/setup/prompts.js"
+					"@/cli/setup/prompts.js"
 				);
 				const prompts = await import("@clack/prompts");
 				requireTerminal();
@@ -202,12 +202,12 @@ async function main() {
 			return;
 		}
 		case "policy": {
-			const { runPolicyCommand } = await import("./cli/policy.js");
+			const { runPolicyCommand } = await import("@/cli/policy.js");
 			await runPolicyCommand(config.storage.policyFile);
 			return;
 		}
 		case "reset-policy": {
-			const { runResetPolicyCommand } = await import("./cli/policy.js");
+			const { runResetPolicyCommand } = await import("@/cli/policy.js");
 			await runResetPolicyCommand(config.storage.policyFile);
 			return;
 		}

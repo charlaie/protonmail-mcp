@@ -1,11 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import type { GetMessageInput } from "../../mail/identity.js";
+import type { GetMessageInput } from "@/mail/identity.js";
 import {
 	type InboxOperation,
 	InboxOperationSchema,
-} from "../../mail/inbox/model.js";
-import { MailError } from "../../shared/mail-error.js";
+} from "@/mail/inbox/model.js";
+import { MailError } from "@/shared/mail-error.js";
 import { createOperationDatabase, type OperationDatabase } from "./database.js";
 import { assertMessageMutable, messageIdentityKey } from "./message-claims.js";
 

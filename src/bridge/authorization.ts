@@ -1,4 +1,4 @@
-import type { MessageSummary } from "../mail/message.js";
+import type { MessageSummary } from "@/mail/message.js";
 
 // Called after asynchronous preflight and journal claims, immediately before
 // dispatching a mail mutation. No Bridge I/O may intervene after authorization.

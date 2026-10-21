@@ -1,10 +1,10 @@
 import nodemailer from "nodemailer";
 import { z } from "zod";
-import { mediaMailOptions } from "../../mail/outgoing/media/mime.js";
-import type { OutgoingMessage } from "../../mail/outgoing/message.js";
-import type { SmtpOutcome } from "../../mail/sending/model.js";
-import { safeErrorMessage } from "../../shared/errors.js";
-import type { BridgeConfig } from "../config.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import { mediaMailOptions } from "@/mail/outgoing/media/mime.js";
+import type { OutgoingMessage } from "@/mail/outgoing/message.js";
+import type { SmtpOutcome } from "@/mail/sending/model.js";
+import { safeErrorMessage } from "@/shared/errors.js";
 
 function createSmtpTransport(config: BridgeConfig) {
 	return nodemailer.createTransport({

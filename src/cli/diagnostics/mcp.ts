@@ -8,7 +8,7 @@ import {
 	type JSONRPCResultResponse,
 	parseJSONRPCMessage,
 } from "@modelcontextprotocol/server";
-import type { LaunchSpecification } from "../clients/configuration.js";
+import type { LaunchSpecification } from "@/cli/clients/configuration.js";
 
 export async function checkMcpStartup(launch: LaunchSpecification) {
 	const child = spawn(launch.command, launch.args, {

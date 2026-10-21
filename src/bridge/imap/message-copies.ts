@@ -1,10 +1,10 @@
 import { simpleParser } from "mailparser";
-import { MailError } from "../../shared/mail-error.js";
 import {
 	FETCH_BATCH_SIZE,
 	type MessageFilter,
 	SUMMARY_FIELDS,
-} from "./reading/messages.js";
+} from "@/bridge/imap/reading/messages.js";
+import { MailError } from "@/shared/mail-error.js";
 import { messageSummary } from "./serializers.js";
 import type { ImapClient } from "./session.js";
 

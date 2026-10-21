@@ -3,9 +3,9 @@ import { z } from "zod";
 import {
 	type DraftOperation,
 	DraftOperationSchema,
-} from "../../mail/drafts/model.js";
-import type { GetMessageInput } from "../../mail/identity.js";
-import { MailError } from "../../shared/mail-error.js";
+} from "@/mail/drafts/model.js";
+import type { GetMessageInput } from "@/mail/identity.js";
+import { MailError } from "@/shared/mail-error.js";
 import { createOperationDatabase, type OperationDatabase } from "./database.js";
 import {
 	bindDraftIdentity,

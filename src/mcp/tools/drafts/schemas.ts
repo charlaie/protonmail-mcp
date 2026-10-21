@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { DraftOperationSchema } from "../../../mail/drafts/model.js";
-import { DraftIdSchema } from "../../../mail/drafts/requests.js";
-import { GetMessageSchema } from "../../../mail/identity.js";
-import { MediaMetadataSchema } from "../../../mail/outgoing/media/model.js";
-import { RetrySchema, ToolErrorSchema } from "../../../shared/mail-error.js";
+import { DraftOperationSchema } from "@/mail/drafts/model.js";
+import { DraftIdSchema } from "@/mail/drafts/requests.js";
+import { GetMessageSchema } from "@/mail/identity.js";
+import { MediaMetadataSchema } from "@/mail/outgoing/media/model.js";
+import { RetrySchema, ToolErrorSchema } from "@/shared/mail-error.js";
 
 export const DraftRecordOutputSchema = DraftOperationSchema.omit({
 	requestHash: true,

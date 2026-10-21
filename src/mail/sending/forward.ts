@@ -1,8 +1,8 @@
 import type { z } from "zod";
-import { hashContent } from "../../shared/content-hash.js";
-import type { MessageContent } from "../message.js";
-import { outgoingMedia } from "../outgoing/media/model.js";
-import { OutgoingMessageSchema } from "../outgoing/message.js";
+import type { MessageContent } from "@/mail/message.js";
+import { outgoingMedia } from "@/mail/outgoing/media/model.js";
+import { OutgoingMessageSchema } from "@/mail/outgoing/message.js";
+import { hashContent } from "@/shared/content-hash.js";
 import type { ForwardEmailSchema } from "./requests.js";
 
 // Only fields actually quoted into the forward are bound. Original Bcc and attachments are never copied.

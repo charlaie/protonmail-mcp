@@ -1,5 +1,5 @@
-import type { ImapService } from "../../bridge/imap/service.js";
-import type { InboxWritePolicy } from "../../mail/inbox/model.js";
+import type { ImapService } from "@/bridge/imap/service.js";
+import type { InboxWritePolicy } from "@/mail/inbox/model.js";
 
 type Mailboxes = Awaited<ReturnType<ImapService["listMailboxes"]>>;
 

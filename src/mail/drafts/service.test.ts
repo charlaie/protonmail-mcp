@@ -5,18 +5,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { allowAllMessages } from "../../bridge/imap/reading/messages.js";
+import { allowAllMessages } from "@/bridge/imap/reading/messages.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../bridge/testing/fixtures.js";
-import { createDraftStore } from "../../operations/sqlite/drafts.js";
-import { createSendStore } from "../../operations/sqlite/sending.js";
-import { hashContent } from "../../shared/content-hash.js";
-import type { SmtpOutcome } from "../sending/model.js";
-import { createSendService } from "../sending/service.js";
-import { composeDraft } from "./composition/compose.js";
+} from "@/bridge/testing/fixtures.js";
+import { composeDraft } from "@/mail/drafts/composition/compose.js";
+import type { SmtpOutcome } from "@/mail/sending/model.js";
+import { createSendService } from "@/mail/sending/service.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
+import { hashContent } from "@/shared/content-hash.js";
 import { CreateDraftSchema, EditDraftSchema } from "./requests.js";
 import { createDraftService } from "./service.js";
 

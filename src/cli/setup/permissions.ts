@@ -1,22 +1,22 @@
 import * as prompts from "@clack/prompts";
-import type { ImapService } from "../../bridge/imap/service.js";
-import { MailboxCreationKindSchema } from "../../mail/inbox/creation.js";
+import type { ImapService } from "@/bridge/imap/service.js";
+import { MailboxCreationKindSchema } from "@/mail/inbox/creation.js";
 import {
 	InboxActionNameSchema,
 	type InboxWritePolicy,
-} from "../../mail/inbox/model.js";
-import { createReadPolicy, type ReadPolicy } from "../../policy/schema.js";
+} from "@/mail/inbox/model.js";
+import { createReadPolicy, type ReadPolicy } from "@/policy/schema.js";
 import {
 	parseAttachmentExtensions,
 	parseSenderDomains,
 	parseSenderEmails,
-} from "../../policy/selection.js";
+} from "@/policy/selection.js";
 import {
 	READ_ONLY_TOOLS,
 	TOOL_DEFINITIONS,
 	type ToolName,
 	ToolNameSchema,
-} from "../../policy/tools.js";
+} from "@/policy/tools.js";
 import { inboxDestinations } from "./mailboxes.js";
 import { answer, validatedText } from "./prompts.js";
 

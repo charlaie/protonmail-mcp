@@ -1,19 +1,19 @@
 import { resolve } from "node:path";
 import * as prompts from "@clack/prompts";
-import { getDefaultStorage } from "../../config/paths.js";
+import { launchSpecification } from "@/cli/clients/configuration.js";
+import { checkMcpStartup } from "@/cli/diagnostics/mcp.js";
+import { getDefaultStorage } from "@/config/paths.js";
 import {
 	commitSettings,
 	readSettingsSnapshot,
 	requirePolicyAccount,
-} from "../../config/settings.js";
+} from "@/config/settings.js";
 import {
 	readServerConfig,
 	resolveServerConfig,
 	type ServerConfig,
-} from "../../config/store.js";
-import { loadReadPolicy } from "../../policy/store.js";
-import { launchSpecification } from "../clients/configuration.js";
-import { checkMcpStartup } from "../diagnostics/mcp.js";
+} from "@/config/store.js";
+import { loadReadPolicy } from "@/policy/store.js";
 import { configureClients } from "./client.js";
 import { configureConnection, verifyConnection } from "./connection.js";
 import { configurePermissions, permissionReview } from "./permissions.js";

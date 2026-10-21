@@ -6,26 +6,23 @@ import { join } from "node:path";
 import { type TestContext, test } from "node:test";
 import { isSpecType } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createImapService } from "../../../bridge/imap/service.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../../bridge/testing/fixtures.js";
-import {
-	testFile,
-	testImage,
-} from "../../../mail/outgoing/media/test-fixtures.js";
-import type { OutgoingMessage } from "../../../mail/outgoing/message.js";
-import { createSendService } from "../../../mail/sending/service.js";
-import { createDraftStore } from "../../../operations/sqlite/drafts.js";
-import { createSendStore } from "../../../operations/sqlite/sending.js";
-import { createReadPolicy } from "../../../policy/schema.js";
-import { saveReadPolicy } from "../../../policy/store.js";
-import { ToolNameSchema } from "../../../policy/tools.js";
-import { createTestClient } from "../../integration/test-client.js";
-import { createApprovalController } from "../../protocol/elicitation.js";
-import { createServer } from "../../server.js";
+} from "@/bridge/testing/fixtures.js";
+import { testFile, testImage } from "@/mail/outgoing/media/test-fixtures.js";
+import type { OutgoingMessage } from "@/mail/outgoing/message.js";
+import { createSendService } from "@/mail/sending/service.js";
+import { createTestClient } from "@/mcp/integration/test-client.js";
+import { createApprovalController } from "@/mcp/protocol/elicitation.js";
+import { createServer } from "@/mcp/server.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { ToolNameSchema } from "@/policy/tools.js";
 import { SendOutputSchema } from "./schemas.js";
 
 const identity = { uid: 1, uidValidity: "7" };

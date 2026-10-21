@@ -1,5 +1,5 @@
 import type { ListResponse } from "imapflow";
-import { MailError } from "../../shared/mail-error.js";
+import { MailError } from "@/shared/mail-error.js";
 import type { InboxPlan, ManageMessageInput } from "./model.js";
 
 export function mailboxKind(mailbox: ListResponse, mailboxes: ListResponse[]) {

@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { ParsedMail } from "mailparser";
 import type { SendMailOptions } from "nodemailer";
 import { z } from "zod";
-import { MailError } from "../../../shared/mail-error.js";
+import { MailError } from "@/shared/mail-error.js";
 import {
 	AttachmentPayloadSchema,
 	InlineImagePayloadSchema,

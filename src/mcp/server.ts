@@ -1,24 +1,21 @@
 import { McpServer } from "@modelcontextprotocol/server";
-import type { BridgeConfig } from "../bridge/config.js";
-import { createImapService, type ImapService } from "../bridge/imap/service.js";
-import { createMailAccess } from "../mail/access.js";
-import {
-	createSendService,
-	type SendService,
-} from "../mail/sending/service.js";
-import { createSendWorkflow } from "../mail/sending/workflow.js";
-import { createOperationJournal } from "../operations/journal.js";
-import { createToolAccess } from "../policy/access.js";
+import type { BridgeConfig } from "@/bridge/config.js";
+import { createImapService, type ImapService } from "@/bridge/imap/service.js";
+import { createMailAccess } from "@/mail/access.js";
+import { createSendService, type SendService } from "@/mail/sending/service.js";
+import { createSendWorkflow } from "@/mail/sending/workflow.js";
 import {
 	type ApprovalController,
 	createApprovalController,
-} from "./protocol/elicitation.js";
-import { ToolRegistry } from "./protocol/tool-registry.js";
-import { registerAttachmentTools } from "./tools/attachments/register.js";
-import { registerDraftTools } from "./tools/drafts/register.js";
-import { registerInboxTools } from "./tools/inbox/register.js";
-import { registerReadTools } from "./tools/reading/register.js";
-import { registerSendTools } from "./tools/sending/register.js";
+} from "@/mcp/protocol/elicitation.js";
+import { ToolRegistry } from "@/mcp/protocol/tool-registry.js";
+import { registerAttachmentTools } from "@/mcp/tools/attachments/register.js";
+import { registerDraftTools } from "@/mcp/tools/drafts/register.js";
+import { registerInboxTools } from "@/mcp/tools/inbox/register.js";
+import { registerReadTools } from "@/mcp/tools/reading/register.js";
+import { registerSendTools } from "@/mcp/tools/sending/register.js";
+import { createOperationJournal } from "@/operations/journal.js";
+import { createToolAccess } from "@/policy/access.js";
 
 export function createServer(options: {
 	config: BridgeConfig;

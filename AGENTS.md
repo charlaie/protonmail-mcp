@@ -33,6 +33,8 @@ Use PNPM for all package operations.
 
 The project uses strict TypeScript with ES modules (`NodeNext`) and `.js` import specifiers for local TypeScript files. Use tabs for indentation and double quotes for strings. Prefer feature modules (`mcp`, `bridge`, `policy`) and descriptive camelCase function names.
 
+Use `@/` imports rooted at `src/` across directories (for example, `@/shared/errors.js`). Keep same-directory imports relative (`./model.js`). `pnpm build` rewrites aliases to relative paths for Node; plain `tsc` does not produce runnable output.
+
 
 ## Rules
 

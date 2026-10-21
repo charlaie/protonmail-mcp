@@ -5,19 +5,16 @@ import {
 	type ServerContext,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import type {
-	AttachmentReadAuthorization,
-	MailAccess,
-} from "../../../mail/access.js";
-import type { AttachmentContent } from "../../../mail/attachments/incoming.js";
+import type { AttachmentReadAuthorization, MailAccess } from "@/mail/access.js";
+import type { AttachmentContent } from "@/mail/attachments/incoming.js";
 import {
 	GetAttachmentSchema,
 	ListAttachmentsSchema,
-} from "../../../mail/attachments/requests.js";
-import { MailError } from "../../../shared/mail-error.js";
-import type { ApprovalController } from "../../protocol/elicitation.js";
-import { jsonResponse } from "../../protocol/responses.js";
-import type { ToolRegistry } from "../../protocol/tool-registry.js";
+} from "@/mail/attachments/requests.js";
+import type { ApprovalController } from "@/mcp/protocol/elicitation.js";
+import { jsonResponse } from "@/mcp/protocol/responses.js";
+import type { ToolRegistry } from "@/mcp/protocol/tool-registry.js";
+import { MailError } from "@/shared/mail-error.js";
 import {
 	AttachmentListOutputSchema,
 	AttachmentOutputSchema,

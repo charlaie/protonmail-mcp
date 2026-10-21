@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { GetMessageSchema } from "../identity.js";
+import { GetMessageSchema } from "@/mail/identity.js";
 
 export const ListAttachmentsSchema = GetMessageSchema;
 export const GetAttachmentSchema = GetMessageSchema.extend({

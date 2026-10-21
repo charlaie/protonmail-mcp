@@ -4,25 +4,25 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { allowAllMessages } from "../../bridge/imap/reading/messages.js";
-import { createImapService } from "../../bridge/imap/service.js";
+import { allowAllMessages } from "@/bridge/imap/reading/messages.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../bridge/testing/fixtures.js";
-import { createSendService } from "../../mail/sending/service.js";
-import { createDraftStore } from "../../operations/sqlite/drafts.js";
-import { createInboxStore } from "../../operations/sqlite/inbox.js";
-import { createSendStore } from "../../operations/sqlite/sending.js";
-import { createReadPolicy } from "../../policy/schema.js";
-import { saveReadPolicy } from "../../policy/store.js";
+} from "@/bridge/testing/fixtures.js";
+import { createSendService } from "@/mail/sending/service.js";
+import { createServer } from "@/mcp/server.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { createInboxStore } from "@/operations/sqlite/inbox.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
 import {
 	READ_ONLY_TOOLS,
 	type ToolName,
 	ToolNameSchema,
-} from "../../policy/tools.js";
-import { createServer } from "../server.js";
+} from "@/policy/tools.js";
 import { createTestClient } from "./test-client.js";
 
 const identity = { mailbox: "Drafts", uid: 1, uidValidity: "7" };

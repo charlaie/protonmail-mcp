@@ -8,7 +8,7 @@ import {
 	launchSpecification,
 	prepareClientInstallation,
 	renderClientConfig,
-} from "../clients/configuration.js";
+} from "@/cli/clients/configuration.js";
 import { answer, validatedText } from "./prompts.js";
 
 export async function configureClients(

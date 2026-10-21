@@ -25,4 +25,4 @@ export function errorResponse(error: unknown) {
 	};
 }
 
-import { toolError } from "../../shared/mail-error.js";
+import { toolError } from "@/shared/mail-error.js";

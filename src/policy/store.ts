@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { access, readFile, rm } from "node:fs/promises";
-import { getDefaultPolicyFilePath } from "../config/paths.js";
-import { safeErrorMessage } from "../shared/errors.js";
-import { isMissingFile, writePrivateFile } from "../shared/private-file.js";
+import { getDefaultPolicyFilePath } from "@/config/paths.js";
+import { safeErrorMessage } from "@/shared/errors.js";
+import { isMissingFile, writePrivateFile } from "@/shared/private-file.js";
 import { type ReadPolicy, ReadPolicySchema } from "./schema.js";
 
 export const getPolicyFilePath = getDefaultPolicyFilePath;

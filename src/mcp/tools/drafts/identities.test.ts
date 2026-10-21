@@ -6,26 +6,26 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { type TestContext, test } from "node:test";
 import { z } from "zod";
-import { createImapService } from "../../../bridge/imap/service.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../../bridge/testing/fixtures.js";
+} from "@/bridge/testing/fixtures.js";
 import {
 	EditDraftRequestSchema,
 	GetDraftSchema,
-} from "../../../mail/drafts/requests.js";
-import { SendDraftRequestSchema } from "../../../mail/sending/requests.js";
-import { createSendService } from "../../../mail/sending/service.js";
-import { createDraftStore } from "../../../operations/sqlite/drafts.js";
-import { createSendStore } from "../../../operations/sqlite/sending.js";
-import { createReadPolicy } from "../../../policy/schema.js";
-import { saveReadPolicy } from "../../../policy/store.js";
-import { ToolNameSchema } from "../../../policy/tools.js";
-import { createTestClient } from "../../integration/test-client.js";
-import { createServer } from "../../server.js";
-import { SendOutputSchema } from "../sending/schemas.js";
+} from "@/mail/drafts/requests.js";
+import { SendDraftRequestSchema } from "@/mail/sending/requests.js";
+import { createSendService } from "@/mail/sending/service.js";
+import { createTestClient } from "@/mcp/integration/test-client.js";
+import { createServer } from "@/mcp/server.js";
+import { SendOutputSchema } from "@/mcp/tools/sending/schemas.js";
+import { createDraftStore } from "@/operations/sqlite/drafts.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
+import { createReadPolicy } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { ToolNameSchema } from "@/policy/tools.js";
 import { DraftOperationOutputSchema, GetDraftOutputSchema } from "./schemas.js";
 
 async function fixture(t: TestContext, fake = new FakeImap()) {
@@ -345,7 +345,7 @@ test("rejected edits preserve the original logical binding and pending cleanup b
 			},
 		},
 	);
-	const { createMailAccess } = await import("../../../mail/access.js");
+	const { createMailAccess } = await import("@/mail/access.js");
 	const reads = await createMailAccess(imap, testConfig.user, f.policyFile);
 	const rejected = await reads.editDraft({
 		operationId: randomUUID(),

@@ -1,4 +1,4 @@
-import { MailError } from "../shared/mail-error.js";
+import { MailError } from "@/shared/mail-error.js";
 import { readPolicyStatus } from "./enforcement.js";
 import type { ReadPolicy } from "./schema.js";
 import { loadReadPolicy, loadReadPolicySync } from "./store.js";

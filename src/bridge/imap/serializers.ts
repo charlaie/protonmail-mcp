@@ -4,7 +4,7 @@ import type {
 	MessageAddressObject,
 } from "imapflow";
 import type { AddressObject, EmailAddress } from "mailparser";
-import type { MessageSummary } from "../../mail/message.js";
+import type { MessageSummary } from "@/mail/message.js";
 
 export function validDate(value: unknown): Date | undefined {
 	const date =

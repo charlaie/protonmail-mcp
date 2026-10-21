@@ -5,18 +5,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isSpecType } from "@modelcontextprotocol/server";
-import { createImapService } from "../../bridge/imap/service.js";
-import { FakeImap, testConfig } from "../../bridge/testing/fixtures.js";
-import { createSendService } from "../../mail/sending/service.js";
-import { createSendStore } from "../../operations/sqlite/sending.js";
-import { createReadPolicy, ReadPolicySchema } from "../../policy/schema.js";
-import { saveReadPolicy } from "../../policy/store.js";
+import { createImapService } from "@/bridge/imap/service.js";
+import { FakeImap, testConfig } from "@/bridge/testing/fixtures.js";
+import { createSendService } from "@/mail/sending/service.js";
+import { createServer } from "@/mcp/server.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
+import { createReadPolicy, ReadPolicySchema } from "@/policy/schema.js";
+import { saveReadPolicy } from "@/policy/store.js";
 import {
 	isPolicyIndependentTool,
 	TOOL_DEFINITIONS,
 	ToolNameSchema,
-} from "../../policy/tools.js";
-import { createServer } from "../server.js";
+} from "@/policy/tools.js";
 import { createTestClient } from "./test-client.js";
 
 test("read-only tool visibility rejects direct calls to every mail mutation", async (t) => {

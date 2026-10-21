@@ -5,18 +5,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { allowAllMessages } from "../../bridge/imap/reading/messages.js";
+import { allowAllMessages } from "@/bridge/imap/reading/messages.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../bridge/testing/fixtures.js";
-import { createInboxStore } from "../../operations/sqlite/inbox.js";
-import { createSendStore } from "../../operations/sqlite/sending.js";
-import { MailError } from "../../shared/mail-error.js";
-import { newEmailMessage } from "../sending/model.js";
-import { SendEmailSchema } from "../sending/requests.js";
-import { createSendService } from "../sending/service.js";
+} from "@/bridge/testing/fixtures.js";
+import { newEmailMessage } from "@/mail/sending/model.js";
+import { SendEmailSchema } from "@/mail/sending/requests.js";
+import { createSendService } from "@/mail/sending/service.js";
+import { createInboxStore } from "@/operations/sqlite/inbox.js";
+import { createSendStore } from "@/operations/sqlite/sending.js";
+import { MailError } from "@/shared/mail-error.js";
 import { inboxPlan } from "./mailboxes.js";
 import {
 	InboxActionNameSchema,

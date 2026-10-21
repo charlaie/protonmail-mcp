@@ -1,12 +1,9 @@
 import * as prompts from "@clack/prompts";
-import { type BridgeConfig, ConfigSchema } from "../../bridge/config.js";
-import {
-	createImapService,
-	type ImapService,
-} from "../../bridge/imap/service.js";
-import { verifySmtpConnection } from "../../bridge/smtp/submission.js";
-import { parseSenderEmails } from "../../policy/selection.js";
-import { connectionFailureMessage } from "../diagnostics/service.js";
+import { type BridgeConfig, ConfigSchema } from "@/bridge/config.js";
+import { createImapService, type ImapService } from "@/bridge/imap/service.js";
+import { verifySmtpConnection } from "@/bridge/smtp/submission.js";
+import { connectionFailureMessage } from "@/cli/diagnostics/service.js";
+import { parseSenderEmails } from "@/policy/selection.js";
 import { answer, validatedText } from "./prompts.js";
 
 export async function configureConnection(

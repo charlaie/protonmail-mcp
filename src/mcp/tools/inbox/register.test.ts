@@ -4,20 +4,20 @@ import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type TestContext, test } from "node:test";
-import { createImapService } from "../../../bridge/imap/service.js";
+import { createImapService } from "@/bridge/imap/service.js";
 import {
 	FakeImap,
 	fixtureMessage,
 	testConfig,
-} from "../../../bridge/testing/fixtures.js";
-import { createMailAccess } from "../../../mail/access.js";
-import { createInboxStore } from "../../../operations/sqlite/inbox.js";
-import { createReadPolicy, ReadPolicySchema } from "../../../policy/schema.js";
-import { parseInboxActions } from "../../../policy/selection.js";
-import { saveReadPolicy } from "../../../policy/store.js";
-import { ToolNameSchema } from "../../../policy/tools.js";
-import { createTestClient } from "../../integration/test-client.js";
-import { createServer } from "../../server.js";
+} from "@/bridge/testing/fixtures.js";
+import { createMailAccess } from "@/mail/access.js";
+import { createTestClient } from "@/mcp/integration/test-client.js";
+import { createServer } from "@/mcp/server.js";
+import { createInboxStore } from "@/operations/sqlite/inbox.js";
+import { createReadPolicy, ReadPolicySchema } from "@/policy/schema.js";
+import { parseInboxActions } from "@/policy/selection.js";
+import { saveReadPolicy } from "@/policy/store.js";
+import { ToolNameSchema } from "@/policy/tools.js";
 import {
 	InboxCapabilitiesOutputSchema,
 	InboxOperationOutputSchema,
