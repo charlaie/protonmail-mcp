@@ -27,9 +27,7 @@ import {
 } from "./prompts.js";
 
 export type SetupSection = "all" | "credentials" | "permissions" | "client";
-
 type Storage = ServerConfig["storage"];
-
 type ConfiguredPolicy = Awaited<ReturnType<typeof configurePermissions>>;
 
 /** `declined` means the user kept an invalid file, which ends setup without saving. */

@@ -8,15 +8,10 @@ import type { MessageSummary } from "../../mail/message.js";
 
 type ParsedAddresses = AddressObject | AddressObject[] | undefined;
 
-function toDate(value: unknown) {
-	if (value instanceof Date) return value;
-	if (typeof value === "string") return new Date(value);
-	return undefined;
-}
-
 export function validDate(value: unknown): Date | undefined {
-	const date = toDate(value);
-	return date && Number.isFinite(date.getTime()) ? date : undefined;
+	const date = typeof value === "string" ? new Date(value) : value;
+	if (!(date instanceof Date) || Number.isNaN(date.getTime())) return undefined;
+	return date;
 }
 
 export function messageReceivedTime(message: FetchMessageObject) {

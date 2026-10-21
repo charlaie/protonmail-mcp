@@ -17,6 +17,7 @@ import { MailError } from "../../shared/mail-error.js";
 import { newEmailMessage } from "../sending/model.js";
 import { SendEmailSchema } from "../sending/requests.js";
 import { createSendService } from "../sending/service.js";
+import { permissiveChecks } from "../sending/test-fixtures.js";
 import { inboxPlan } from "./mailboxes.js";
 import {
 	InboxActionNameSchema,
@@ -469,7 +470,7 @@ test("attempted draft Message-ID cannot evade send claims via a non-draft folder
 			draftMessageId: f.message.envelope?.messageId,
 		},
 	});
-	await sends.send(record, message);
+	await sends.send(record, message, permissiveChecks);
 	await assert.rejects(
 		f.service.manage(f.request({ action: "star" }), f.authorize),
 		/reserved/,

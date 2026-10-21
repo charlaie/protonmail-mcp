@@ -18,7 +18,6 @@ import type { InboxStore } from "../../operations/sqlite/inbox.js";
 import type { BridgeConfig } from "../config.js";
 import { findMessageCopies } from "./message-copies.js";
 import {
-	allowAllMessages,
 	type MessageFilter,
 	readMessage,
 	searchMessages,
@@ -58,15 +57,11 @@ export function createImapService(
 
 		listMailboxes: () => run(listMailboxes),
 
-		searchMessages: (
-			input: SearchMessagesInput,
-			accepts: MessageFilter = allowAllMessages,
-		) => run((client) => searchMessages(client, input, accepts)),
+		searchMessages: (input: SearchMessagesInput, accepts: MessageFilter) =>
+			run((client) => searchMessages(client, input, accepts)),
 
-		getMessage: (
-			input: GetMessageInput,
-			accepts: MessageFilter = allowAllMessages,
-		) => run((client) => readMessage(client, input, accepts)),
+		getMessage: (input: GetMessageInput, accepts: MessageFilter) =>
+			run((client) => readMessage(client, input, accepts)),
 
 		listAttachments: (
 			input: GetMessageInput,
@@ -96,10 +91,8 @@ export function createImapService(
 		) =>
 			run((client) => findMessageCopies(client, mailbox, messageId, accepts)),
 
-		getThread: (
-			input: ThreadLookupInput,
-			accepts: MessageFilter = allowAllMessages,
-		) => run((client) => getThread(client, input, accepts)),
+		getThread: (input: ThreadLookupInput, accepts: MessageFilter) =>
+			run((client) => getThread(client, input, accepts)),
 	};
 }
 

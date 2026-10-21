@@ -21,7 +21,6 @@ import { MailError } from "../../shared/mail-error.js";
 import { errorResponse } from "./responses.js";
 
 const APPROVAL_TTL_SECONDS = 10 * 60;
-
 const MAX_PENDING_APPROVALS = 1000;
 
 const ApproveSendSchema = z.object({
@@ -193,11 +192,6 @@ function stateMatchesRequest(
 	);
 }
 
-function receivedApprovalState(ctx: ServerContext) {
-	const parsed = ApprovalStateSchema.safeParse(ctx.mcpReq.requestState());
-	return parsed.success ? parsed.data : undefined;
-}
-
 /** Single-use approval state shared by 2025 and 2026-era clients. */
 export function createApprovalController(): ApprovalController {
 	const codec = createRequestStateCodec<ApprovalState>({
@@ -257,7 +251,7 @@ export function createApprovalController(): ApprovalController {
 		ctx: ServerContext,
 	): Promise<ApprovalDecision> {
 		const prompt = approvalPrompt(request);
-		const state = receivedApprovalState(ctx);
+		const state = ApprovalStateSchema.safeParse(ctx.mcpReq.requestState()).data;
 		const wasPending = consumeNonce(state);
 		const response = inputResponse(ctx.mcpReq.inputResponses, prompt.key);
 

@@ -21,7 +21,9 @@ export function requirePolicyAccount(
 
 // The wizard reviews snapshots, then commits under exclusive locks. Both files
 // are validated and staged first; a failed config replacement restores policy.
-// This handles write failures, not a process crash between the two renames.
+// A crash between the two renames is not rolled back. It leaves the reviewed
+// policy beside the previous config, and the runtime refuses a policy bound to
+// another account, so no combination grants access that was never reviewed.
 export async function commitSettings(
 	input: {
 		configPath: string;

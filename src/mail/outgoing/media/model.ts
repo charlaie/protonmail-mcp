@@ -7,9 +7,7 @@ import {
 import { validInlineImage } from "./images.js";
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
-
 export const MAX_MEDIA_BYTES = 6 * 1024 * 1024;
-
 export const MAX_MEDIA_PARTS = 20;
 
 function isCanonicalBase64WithinFileLimit(value: string) {
@@ -81,7 +79,6 @@ export const MediaInputFields = {
 };
 
 export type AttachmentPayload = z.infer<typeof AttachmentPayloadSchema>;
-
 export type InlineImagePayload = z.infer<typeof InlineImagePayloadSchema>;
 
 export type MediaInput = {
@@ -132,10 +129,6 @@ export function fileDigest(file: AttachmentPayload) {
 	return createHash("sha256").update(decodedBytes(file)).digest("hex");
 }
 
-function inlineContentId(file: InlineImagePayload, index: number) {
-	return `inline-${fileDigest(file)}-${index}@protonmail-mcp.local`;
-}
-
 export function outgoingMedia(input: MediaInput): OutgoingPart[] {
 	const attachmentParts = (input.attachments ?? []).map((file) => ({
 		kind: "attachment",
@@ -144,7 +137,7 @@ export function outgoingMedia(input: MediaInput): OutgoingPart[] {
 	const inlineParts = (input.inlineImages ?? []).map((file, index) => ({
 		kind: "inline",
 		file,
-		cid: inlineContentId(file, index),
+		cid: `inline-${fileDigest(file)}-${index}@protonmail-mcp.local`,
 	}));
 	return OutgoingMediaSchema.parse([...attachmentParts, ...inlineParts]);
 }

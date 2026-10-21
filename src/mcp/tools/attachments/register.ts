@@ -53,7 +53,6 @@ type AttachmentMailAccess = Pick<
 >;
 
 type BinarySupport = "declared" | "unverified";
-
 type RequestCapabilities = ReturnType<typeof requestClientCapabilities>;
 
 /** Per-request capabilities (2026-era clients) take precedence over the initialize handshake. */

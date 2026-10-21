@@ -26,9 +26,7 @@ import {
 } from "./requests.js";
 
 const MAX_MIME_NODES = 1000;
-
 const MAX_LISTED_FILENAME_LENGTH = 255;
-
 const DOWNLOAD_CHUNK_BYTES = 64 * 1024;
 
 // ImapFlow may normalize flowed text and replace charset metadata for these
@@ -139,10 +137,6 @@ function attachmentAt(
 	};
 }
 
-function isMultipart(node: MessageStructureObject) {
-	return node.type.toLowerCase().startsWith("multipart/");
-}
-
 function requireUniqueAttachmentIds(attachments: Attachment[]) {
 	const attachmentIds = new Set(
 		attachments.map((attachment) => attachment.attachmentId),
@@ -170,7 +164,7 @@ function collectAttachments(structure: MessageStructureObject): Attachment[] {
 			continue;
 		}
 
-		if (isMultipart(node)) {
+		if (node.type.toLowerCase().startsWith("multipart/")) {
 			const children = node.childNodes ?? [];
 			if (visited + pending.length + children.length > MAX_MIME_NODES)
 				throw mimeStructureLimitError();
@@ -188,10 +182,6 @@ function isExtensionAllowed(
 ) {
 	if (allowed.includes("*")) return true;
 	return extension !== null && allowed.includes(extension);
-}
-
-function isValidPartSize(size: number | undefined): size is number {
-	return size !== undefined && Number.isSafeInteger(size) && size >= 0;
 }
 
 function eligibility(
@@ -219,7 +209,7 @@ function eligibility(
 			reason: "Attachment MIME type is invalid or is a multipart container.",
 		};
 
-	if (!isValidPartSize(size))
+	if (size === undefined || !Number.isSafeInteger(size) || size < 0)
 		return {
 			kind: "blocked",
 			reason: "Attachment size is unavailable or invalid.",

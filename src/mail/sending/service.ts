@@ -20,6 +20,17 @@ import {
 
 type DraftSource = Extract<SendSource, { kind: "draft" }>;
 
+export type DraftCleanupHandler = (
+	source: DraftSource,
+) => Promise<DraftCleanup>;
+
+export type SubmissionChecks = {
+	/** Rechecks current grants after the durable claim, immediately before SMTP. */
+	authorize: () => Promise<void>;
+	/** Deletes a submitted draft once acceptance is persisted. */
+	cleanupDraft: DraftCleanupHandler;
+};
+
 function errorReason(error: unknown, fallback: string) {
 	return error instanceof MailError ? error.message : fallback;
 }
@@ -99,7 +110,7 @@ export function createSendService(
 
 	async function retryCleanup(
 		operationId: string,
-		cleanup: (source: DraftSource) => Promise<DraftCleanup>,
+		cleanup: DraftCleanupHandler,
 	) {
 		const record = await get(operationId);
 		if (record.outcome.status !== "accepted" || record.source.kind !== "draft")
@@ -175,10 +186,7 @@ export function createSendService(
 	async function send(
 		record: SendOperation,
 		message: OutgoingMessage,
-		options: {
-			cleanup?: () => Promise<DraftCleanup>;
-			authorize?: () => Promise<void>;
-		} = {},
+		checks: SubmissionChecks,
 	) {
 		if (sendContentHash(message, record.source) !== record.contentHash)
 			throw new MailError(
@@ -190,7 +198,7 @@ export function createSendService(
 			return get(record.operationId);
 
 		try {
-			await options.authorize?.();
+			await checks.authorize();
 		} catch (error) {
 			// The claim stays durable. Record a definite non-submission rather
 			// than treating an authorization failure as uncertain SMTP.
@@ -206,11 +214,9 @@ export function createSendService(
 		const outcome = await submitOnce(message, record.messageId);
 		// Persist acceptance before attempting the separately reported draft cleanup.
 		const saved = await persistOutcome(record, outcome);
-		if (saved.outcome.status === "accepted" && saved.source.kind === "draft")
-			return cleanDraft(
-				saved,
-				options.cleanup ?? (async () => ({ status: "not_applicable" })),
-			);
+		const { source } = saved;
+		if (saved.outcome.status === "accepted" && source.kind === "draft")
+			return cleanDraft(saved, () => checks.cleanupDraft(source));
 		return saved;
 	}
 

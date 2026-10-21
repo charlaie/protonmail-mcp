@@ -22,7 +22,6 @@ import { type BridgeMailboxes, inboxDestinations } from "./mailboxes.js";
 import { answer, confirm, validatedText } from "./prompts.js";
 
 type InboxActionName = (typeof InboxActionNameSchema.options)[number];
-
 type MailboxCreationKind = (typeof MailboxCreationKindSchema.options)[number];
 
 type EnabledInboxWrites = Extract<InboxWritePolicy, { mode: "enabled" }>;
@@ -30,9 +29,7 @@ type EnabledInboxWrites = Extract<InboxWritePolicy, { mode: "enabled" }>;
 type ExistingPolicy = Exclude<ReadPolicy, { version: 1 }> | null;
 
 type GranularPolicy = ReturnType<typeof createReadPolicy>;
-
 type AccessMode = "custom" | "readOnly";
-
 type AttachmentMode = "disabled" | "selected" | "all";
 
 const INBOX_ACTION_LABELS = {

@@ -1,7 +1,6 @@
 import { type ParsedMail, simpleParser } from "mailparser";
 import type { BridgeConfig } from "../../bridge/config.js";
 import {
-	allowAllMessages,
 	checkUidValidity,
 	type MessageFilter,
 	parseMessageIds,
@@ -120,7 +119,7 @@ function draftMedia(original: ParsedMail) {
 export async function inspectDraft(
 	client: ImapClient,
 	input: GetMessageInput,
-	accepts: MessageFilter = allowAllMessages,
+	accepts: MessageFilter,
 ) {
 	const summary = await fetchDraftSummary(client, input, accepts);
 	const source = await fetchDraftSource(client, input.uid);

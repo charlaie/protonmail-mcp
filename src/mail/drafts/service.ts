@@ -36,9 +36,7 @@ import {
 } from "./snapshots.js";
 
 type DraftLookupInput = CreateDraftLookupInput | EditDraftLookupInput;
-
 type DraftRecord = Omit<DraftOperation, "draftId">;
-
 type ComposedDraft = Awaited<ReturnType<typeof composeDraft>>;
 
 type EditSource = Extract<DraftOperation["source"], { kind: "edit" }>;
@@ -178,7 +176,7 @@ async function deleteReplacedOriginal(
 	source: EditSource,
 	replacement: SavedRevision,
 	accepts: MessageFilter,
-	authorize?: MailWriteAuthorization,
+	authorize: MailWriteAuthorization,
 ) {
 	const target = await inspectDraft(client, replacement.identity, accepts);
 	if (target.fingerprint !== replacement.revision)
@@ -206,7 +204,7 @@ async function deleteReplacedOriginal(
 			"reconcile",
 		);
 
-	await authorize?.(source.mailbox, [target.summary, current.summary]);
+	await authorize(source.mailbox, [target.summary, current.summary]);
 	if (!(await client.messageDelete(source.uid, { uid: true })))
 		throw new MailError(
 			"OPERATION_FAILED",
@@ -220,7 +218,7 @@ async function deleteSnapshotIfUnchanged(
 	input: GetMessageInput,
 	fingerprint: string,
 	accepts: MessageFilter,
-	authorize?: MailWriteAuthorization,
+	authorize: MailWriteAuthorization,
 ): Promise<SnapshotDeletion> {
 	const current = await inspectDraftIfPresent(client, input, accepts);
 	if (!current) return { status: "deleted" };
@@ -237,7 +235,7 @@ async function deleteSnapshotIfUnchanged(
 				"UIDPLUS is unavailable. Delete the sent draft in Proton Mail; do not resend.",
 		};
 
-	await authorize?.(input.mailbox, [current.summary]);
+	await authorize(input.mailbox, [current.summary]);
 	if (!(await client.messageDelete(input.uid, { uid: true })))
 		throw new MailError(
 			"OPERATION_FAILED",
@@ -302,7 +300,7 @@ export function createDraftService(
 	async function cleanup(
 		record: DraftOperation,
 		accepts: MessageFilter,
-		authorize?: MailWriteAuthorization,
+		authorize: MailWriteAuthorization,
 	) {
 		if (
 			record.source.kind !== "edit" ||
@@ -332,7 +330,7 @@ export function createDraftService(
 		input: DraftLookupInput,
 		request: object,
 		accepts: MessageFilter,
-		authorize?: MailWriteAuthorization,
+		authorize: MailWriteAuthorization,
 	) {
 		const selected = await client.mailboxOpen(input.mailbox);
 		const { composition, inspected } = await prepareComposition(
@@ -347,7 +345,7 @@ export function createDraftService(
 			return get(input.operationId);
 		// The journal claim precedes the external write. A crash or lost acknowledgment never authorizes another APPEND.
 		try {
-			await authorize?.(input.mailbox, inspected ? [inspected.summary] : []);
+			await authorize(input.mailbox, inspected ? [inspected.summary] : []);
 		} catch (error) {
 			// This owner has not invoked APPEND. Keep the UUID terminal while
 			// releasing the original message for a newly reviewed operation.
@@ -377,7 +375,7 @@ export function createDraftService(
 		input: DraftLookupInput,
 		request: object,
 		accepts: MessageFilter,
-		authorize?: MailWriteAuthorization,
+		authorize: MailWriteAuthorization,
 	) {
 		const previous = await existing(input.operationId, request);
 		if (previous) return previous;
@@ -414,10 +412,7 @@ export function createDraftService(
 		return identity;
 	}
 
-	function read(
-		input: GetMessageInput,
-		accepts: MessageFilter = allowAllMessages,
-	) {
+	function read(input: GetMessageInput, accepts: MessageFilter) {
 		return run(async (client) => {
 			const { original, fingerprint, media } = await inspectDraft(
 				client,
@@ -446,10 +441,10 @@ export function createDraftService(
 	async function edit(input: {
 		request: EditDraftRequest;
 		mailbox: string;
-		accepts?: MessageFilter;
-		authorize?: MailWriteAuthorization;
+		accepts: MessageFilter;
+		authorize: MailWriteAuthorization;
 	}) {
-		const { request, mailbox, accepts = allowAllMessages, authorize } = input;
+		const { request, mailbox, accepts, authorize } = input;
 		// Replay the original public request before resolving an ID that may now be pending or replaced.
 		const durableRequest = { ...request, mailbox };
 		const previous = await existing(request.operationId, durableRequest);
@@ -496,7 +491,7 @@ export function createDraftService(
 			input: GetMessageInput,
 			fingerprint: string,
 			accepts: MessageFilter,
-			authorize?: MailWriteAuthorization,
+			authorize: MailWriteAuthorization,
 		): Promise<SnapshotDeletion> =>
 			run((client) =>
 				deleteSnapshotIfUnchanged(
@@ -512,7 +507,7 @@ export function createDraftService(
 		list: store.list,
 		create: (
 			input: CreateDraftLookupInput,
-			options: { request?: object; authorize?: MailWriteAuthorization } = {},
+			options: { request?: object; authorize: MailWriteAuthorization },
 		) =>
 			write(
 				input,
@@ -525,7 +520,7 @@ export function createDraftService(
 		retryCleanup: async (
 			operationId: string,
 			accepts: MessageFilter,
-			authorize?: MailWriteAuthorization,
+			authorize: MailWriteAuthorization,
 		) => cleanup(await get(operationId), accepts, authorize),
 	};
 }

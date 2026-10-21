@@ -3,32 +3,25 @@
 type Dimensions = { width: number; height: number };
 
 const MAX_IMAGE_SIDE = 4096;
-
 const MAX_IMAGE_PIXELS = 16_777_216;
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-
 const GIF_SIGNATURES = ["GIF87a", "GIF89a"];
 
 const JPEG_START_OF_SCAN = 0xda;
-
 const JPEG_END_OF_IMAGE = 0xd9;
-
 // Baseline, extended sequential, and progressive frames carry the image size.
 const JPEG_START_OF_FRAME_MARKERS = [0xc0, 0xc1, 0xc2];
 
-function hasPngStructure(content: Buffer) {
-	return (
+function pngDimensions(content: Buffer): Dimensions | undefined {
+	const hasPngStructure =
 		content.length >= 45 &&
 		content.subarray(0, 8).equals(PNG_SIGNATURE) &&
 		content.readUInt32BE(8) === 13 &&
 		content.toString("ascii", 12, 16) === "IHDR" &&
-		content.toString("ascii", content.length - 8, content.length - 4) === "IEND"
-	);
-}
-
-function pngDimensions(content: Buffer): Dimensions | undefined {
-	if (!hasPngStructure(content)) return undefined;
+		content.toString("ascii", content.length - 8, content.length - 4) ===
+			"IEND";
+	if (!hasPngStructure) return undefined;
 	return { width: content.readUInt32BE(16), height: content.readUInt32BE(20) };
 }
 
@@ -41,23 +34,19 @@ function gifDimensions(content: Buffer): Dimensions | undefined {
 	return { width: content.readUInt16LE(6), height: content.readUInt16LE(8) };
 }
 
-function hasJpegBoundaryMarkers(content: Buffer) {
-	return (
-		content.length >= 12 &&
-		content[0] === 0xff &&
-		content[1] === 0xd8 &&
-		content[content.length - 2] === 0xff &&
-		content[content.length - 1] === 0xd9
-	);
-}
-
 // TEM and RSTn markers have no length field.
 function isStandaloneJpegMarker(marker: number) {
 	return marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7);
 }
 
 function jpegDimensions(content: Buffer): Dimensions | undefined {
-	if (!hasJpegBoundaryMarkers(content)) return undefined;
+	const hasBoundaryMarkers =
+		content.length >= 12 &&
+		content[0] === 0xff &&
+		content[1] === 0xd8 &&
+		content[content.length - 2] === 0xff &&
+		content[content.length - 1] === JPEG_END_OF_IMAGE;
+	if (!hasBoundaryMarkers) return undefined;
 
 	let offset = 2;
 	while (offset + 4 <= content.length) {

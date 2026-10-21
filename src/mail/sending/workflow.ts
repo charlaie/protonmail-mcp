@@ -7,7 +7,6 @@ import type { OutgoingMessage } from "../outgoing/message.js";
 import { resolveSender } from "../outgoing/senders.js";
 import { forwardFingerprint, forwardMessage } from "./forward.js";
 import {
-	type DraftCleanup,
 	newEmailMessage,
 	type SendOperation,
 	type SendSource,
@@ -17,7 +16,7 @@ import type {
 	SendDraftRequestSchema,
 	SendEmailInput,
 } from "./requests.js";
-import type { SendService } from "./service.js";
+import type { DraftCleanupHandler, SendService } from "./service.js";
 
 export type SendApprovalInput = {
 	operationId: string;
@@ -38,13 +37,8 @@ type SendPlan = {
 } & (
 	| { source: Extract<SendSource, { kind: "email" }> }
 	| {
-			source: Extract<SendSource, { kind: "forward" }>;
+			source: Exclude<SendSource, { kind: "email" }>;
 			recheck: () => Promise<void>;
-	  }
-	| {
-			source: Extract<SendSource, { kind: "draft" }>;
-			recheck: () => Promise<void>;
-			cleanup: () => Promise<DraftCleanup>;
 	  }
 );
 
@@ -55,6 +49,17 @@ export function createSendWorkflow(input: {
 	mailAccess: () => Promise<MailAccess>;
 }) {
 	const { config, sends, access, mailAccess } = input;
+
+	function deleteSentDraft(
+		tool: "send_draft" | "retry_send_cleanup",
+	): DraftCleanupHandler {
+		return async (source) =>
+			(await mailAccess()).deleteDraftSnapshot(
+				source,
+				source.fingerprint,
+				tool,
+			);
+	}
 
 	// Replay precedes source reads: an accepted send must remain inspectable after
 	// its draft is deleted. Approval precedes rechecks and the durable send claim.
@@ -85,8 +90,8 @@ export function createSendWorkflow(input: {
 		return {
 			kind: "operation",
 			operation: await sends.send(record, plan.message, {
-				cleanup: "cleanup" in plan ? plan.cleanup : undefined,
 				authorize: plan.authorize,
+				cleanupDraft: deleteSentDraft("send_draft"),
 			}),
 		};
 	}
@@ -159,11 +164,6 @@ export function createSendWorkflow(input: {
 				mail.authorizeMailWrite("send_draft")(identity.mailbox, [
 					snapshot.summary,
 				]),
-			cleanup: async () =>
-				(await mailAccess()).deleteDraftSnapshot(
-					identity,
-					snapshot.fingerprint,
-				),
 		};
 	}
 
@@ -207,12 +207,9 @@ export function createSendWorkflow(input: {
 	}
 
 	function retryCleanup(operationId: string) {
-		return sends.retryCleanup(operationId, async (source) =>
-			(await mailAccess()).deleteDraftSnapshot(
-				source,
-				source.fingerprint,
-				"retry_send_cleanup",
-			),
+		return sends.retryCleanup(
+			operationId,
+			deleteSentDraft("retry_send_cleanup"),
 		);
 	}
 

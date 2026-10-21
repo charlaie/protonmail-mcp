@@ -16,9 +16,11 @@ import { createSendStore } from "../../operations/sqlite/sending.js";
 import { hashContent } from "../../shared/content-hash.js";
 import type { SmtpOutcome } from "../sending/model.js";
 import { createSendService } from "../sending/service.js";
+import { permissiveChecks } from "../sending/test-fixtures.js";
 import { composeDraft } from "./composition/compose.js";
 import { CreateDraftSchema, EditDraftSchema } from "./requests.js";
 import { createDraftService } from "./service.js";
+import { allowAllWrites, permissiveDraftChecks } from "./test-fixtures.js";
 
 const identity = { mailbox: "Drafts", uidValidity: "7", uid: 1 };
 async function fixture(t: TestContext, client = new FakeImap()) {
@@ -65,6 +67,7 @@ test("patch edit preserves omitted fields, exposes replacement revision, and rej
 		drafts.edit({
 			request: { ...request, expectedRevision: "0".repeat(64) },
 			mailbox: "Drafts",
+			...permissiveDraftChecks,
 		}),
 		/revision changed/,
 	);
@@ -72,6 +75,7 @@ test("patch edit preserves omitted fields, exposes replacement revision, and rej
 	const result = await drafts.edit({
 		request: request,
 		mailbox: "Drafts",
+		...permissiveDraftChecks,
 	});
 	assert.equal(result.outcome.status, "completed");
 	assert.ok("identity" in result.outcome);
@@ -97,6 +101,7 @@ test("patch edit preserves omitted fields, exposes replacement revision, and rej
 			text: "",
 		}),
 		mailbox: "Drafts",
+		...permissiveDraftChecks,
 	});
 	assert.equal(cleared.outcome.status, "completed");
 	assert.ok("identity" in cleared.outcome);
@@ -140,19 +145,29 @@ test("uncertain create APPEND survives restart and replays the same ID without a
 		}),
 		mailbox: "Drafts",
 	};
-	const uncertain = await drafts.create(input);
+	const uncertain = await drafts.create(input, { authorize: allowAllWrites });
 	assert.equal(uncertain.outcome.status, "appending");
-	assert.equal((await service().create(input)).outcome.status, "appending");
+	assert.equal(
+		(await service().create(input, { authorize: allowAllWrites })).outcome
+			.status,
+		"appending",
+	);
 	assert.equal(client.appends.length, 1);
 	await assert.rejects(
-		service().create({ ...input, text: "Different" }),
+		service().create(
+			{ ...input, text: "Different" },
+			{ authorize: allowAllWrites },
+		),
 		/another request/,
 	);
 	const saved = await service().reconcile(input.operationId, allowAllMessages);
 	assert.equal(saved.outcome.status, "completed");
 	assert.equal(client.appends.length, 1);
 	assert.equal(client.deletions, 0);
-	assert.deepEqual(await service().create(input), saved);
+	assert.deepEqual(
+		await service().create(input, { authorize: allowAllWrites }),
+		saved,
+	);
 });
 
 test("recovery accepts a harmless Received header but refuses changed content and duplicate exact copies", async (t) => {
@@ -170,7 +185,7 @@ test("recovery accepts a harmless Received header but refuses changed content an
 				}),
 				mailbox: "Drafts",
 			};
-			await drafts.create(input);
+			await drafts.create(input, { authorize: allowAllWrites });
 			const saved = client.mailboxes
 				.get("Drafts")
 				?.find((message) => message.uid === 99);
@@ -217,14 +232,14 @@ test("no exact recovery match preserves uncertainty and never re-appends", async
 		...CreateDraftSchema.parse({ operationId: randomUUID() }),
 		mailbox: "Drafts",
 	};
-	await drafts.create(input);
+	await drafts.create(input, { authorize: allowAllWrites });
 	client.mailboxes.set("Drafts", []);
 	assert.equal(
 		(await drafts.reconcile(input.operationId, allowAllMessages)).outcome
 			.status,
 		"appending",
 	);
-	await drafts.create(input);
+	await drafts.create(input, { authorize: allowAllWrites });
 	assert.equal(client.appends.length, 1);
 });
 
@@ -234,11 +249,16 @@ test("uncertain edit retires original and blocks replacement mutations until rec
 		new LostAppendAcknowledgment(),
 	);
 	const input = { ...(await edit({ text: "Replacement" })), mailbox: "Drafts" };
-	await drafts.edit({ request: input, mailbox: "Drafts" });
+	await drafts.edit({
+		request: input,
+		mailbox: "Drafts",
+		...permissiveDraftChecks,
+	});
 	await assert.rejects(
 		service().edit({
 			request: { ...input, operationId: randomUUID() },
 			mailbox: "Drafts",
+			...permissiveDraftChecks,
 		}),
 		/reserved by operation/,
 	);
@@ -253,6 +273,7 @@ test("uncertain edit retires original and blocks replacement mutations until rec
 				expectedRevision: replacement.revision,
 			},
 			mailbox: "Drafts",
+			...permissiveDraftChecks,
 		}),
 		/reserved by operation/,
 	);
@@ -265,6 +286,7 @@ test("uncertain edit retires original and blocks replacement mutations until rec
 	const completed = await service().retryCleanup(
 		input.operationId,
 		allowAllMessages,
+		allowAllWrites,
 	);
 	assert.equal(completed.outcome.status, "completed");
 	assert.equal(client.deletions, 1);
@@ -307,7 +329,8 @@ test("submitting, uncertain, partial, and accepted sends with retained drafts ca
 				source,
 			});
 			await sends.send(record, snapshot.message, {
-				cleanup: async () => ({
+				...permissiveChecks,
+				cleanupDraft: async () => ({
 					status: "failed",
 					reason: "Deletion interrupted",
 				}),
@@ -316,6 +339,7 @@ test("submitting, uncertain, partial, and accepted sends with retained drafts ca
 				drafts.edit({
 					request: await edit(),
 					mailbox: "Drafts",
+					...permissiveDraftChecks,
 				}),
 				/reserved by operation/,
 			);
@@ -328,7 +352,7 @@ test("submitting, uncertain, partial, and accepted sends with retained drafts ca
 				source,
 			});
 			await assert.rejects(
-				sends.send(second, snapshot.message),
+				sends.send(second, snapshot.message, permissiveChecks),
 				/reserved by operation/,
 			);
 			assert.equal(submissions, 1);
@@ -339,7 +363,11 @@ test("edit and send claims exclude each other atomically across stores and a sep
 	const { drafts, client, directory, edit } = await fixture(t);
 	const input = { ...(await edit()), mailbox: "Drafts" };
 	client.deleteFailure = "throw";
-	const mutation = await drafts.edit({ request: input, mailbox: "Drafts" });
+	const mutation = await drafts.edit({
+		request: input,
+		mailbox: "Drafts",
+		...permissiveDraftChecks,
+	});
 	assert.equal(mutation.outcome.status, "cleanup_failed");
 	const snapshot = await drafts.snapshot(identity, allowAllMessages);
 	let attempts = 0;
@@ -358,7 +386,7 @@ test("edit and send claims exclude each other atomically across stores and a sep
 		source: { kind: "draft", ...identity, fingerprint: snapshot.fingerprint },
 	});
 	await assert.rejects(
-		sends.send(record, snapshot.message),
+		sends.send(record, snapshot.message, permissiveChecks),
 		/reserved by operation/,
 	);
 	assert.equal(attempts, 0);
@@ -381,6 +409,7 @@ test("content unavailable on an existing UID cannot complete either cleanup path
 	const record = await drafts.edit({
 		request: await edit(),
 		mailbox: "Drafts",
+		...permissiveDraftChecks,
 	});
 	assert.equal(record.outcome.status, "cleanup_failed");
 	assert.ok("identity" in record.outcome);
@@ -389,11 +418,17 @@ test("content unavailable on an existing UID cannot complete either cleanup path
 	const result = await drafts.retryCleanup(
 		record.operationId,
 		allowAllMessages,
+		allowAllWrites,
 	);
 	assert.equal(result.outcome.status, "cleanup_failed");
 	assert.equal(client.deletions, 1);
 	await assert.rejects(
-		drafts.deleteSnapshot(identity, "old fingerprint", allowAllMessages),
+		drafts.deleteSnapshot(
+			identity,
+			"old fingerprint",
+			allowAllMessages,
+			allowAllWrites,
+		),
 		/exists but its content is unavailable/,
 	);
 	const replacement = await drafts.read(
@@ -409,6 +444,7 @@ test("content unavailable on an existing UID cannot complete either cleanup path
 				text: "Changed",
 			}),
 			mailbox: "Drafts",
+			...permissiveDraftChecks,
 		}),
 		/reserved by operation/,
 	);
@@ -422,6 +458,7 @@ test("cleanup retries preserve source and replacement revision checks and detect
 			const record = await drafts.edit({
 				request: await edit(),
 				mailbox: "Drafts",
+				...permissiveDraftChecks,
 			});
 			assert.equal(record.outcome.status, "cleanup_failed");
 			client.deleteFailure = "none";
@@ -440,8 +477,13 @@ test("cleanup retries preserve source and replacement revision checks and detect
 			}
 			if (mode === "uidvalidity") client.uidValidity = 8n;
 			assert.equal(
-				(await drafts.retryCleanup(record.operationId, allowAllMessages))
-					.outcome.status,
+				(
+					await drafts.retryCleanup(
+						record.operationId,
+						allowAllMessages,
+						allowAllWrites,
+					)
+				).outcome.status,
 				"cleanup_failed",
 			);
 			assert.equal(client.deletions, 1);
@@ -507,12 +549,13 @@ test("an in-flight SMTP claim blocks editing before the transport outcome exists
 		message: snapshot.message,
 		source: { kind: "draft", ...identity, fingerprint: snapshot.fingerprint },
 	});
-	const sending = sends.send(record, snapshot.message);
+	const sending = sends.send(record, snapshot.message, permissiveChecks);
 	await started;
 	await assert.rejects(
 		drafts.edit({
 			request: await edit(),
 			mailbox: "Drafts",
+			...permissiveDraftChecks,
 		}),
 		/reserved by operation/,
 	);
@@ -542,7 +585,11 @@ test("reconciliation can complete edit cleanup before a delayed APPEND acknowled
 		new DelayedAppend(),
 	);
 	const input = { ...(await edit({ text: "Replacement" })), mailbox: "Drafts" };
-	const editing = drafts.edit({ request: input, mailbox: "Drafts" });
+	const editing = drafts.edit({
+		request: input,
+		mailbox: "Drafts",
+		...permissiveDraftChecks,
+	});
 	await appended;
 	const other = service();
 	assert.equal(
@@ -550,8 +597,13 @@ test("reconciliation can complete edit cleanup before a delayed APPEND acknowled
 		"saved",
 	);
 	assert.equal(
-		(await other.retryCleanup(input.operationId, allowAllMessages)).outcome
-			.status,
+		(
+			await other.retryCleanup(
+				input.operationId,
+				allowAllMessages,
+				allowAllWrites,
+			)
+		).outcome.status,
 		"completed",
 	);
 	release();
@@ -577,7 +629,11 @@ test("replacement send stays blocked when APPEND succeeded but saving its identi
 		},
 	);
 	const input = { ...(await edit({ text: "Replacement" })), mailbox: "Drafts" };
-	const uncertain = await drafts.edit({ request: input, mailbox: "Drafts" });
+	const uncertain = await drafts.edit({
+		request: input,
+		mailbox: "Drafts",
+		...permissiveDraftChecks,
+	});
 	assert.equal(uncertain.outcome.status, "appending");
 	let submissions = 0;
 	const sends = createSendService(testConfig, {
@@ -604,7 +660,7 @@ test("replacement send stays blocked when APPEND succeeded but saving its identi
 		},
 	});
 	await assert.rejects(
-		sends.send(record, snapshot.message),
+		sends.send(record, snapshot.message, permissiveChecks),
 		/reserved by operation/,
 	);
 	assert.equal(submissions, 0);
@@ -632,7 +688,7 @@ test("replacement send stays blocked when APPEND succeeded but saving its identi
 		},
 	});
 	await assert.rejects(
-		sends.send(legacy, snapshot.message),
+		sends.send(legacy, snapshot.message, permissiveChecks),
 		/reserved by operation/,
 	);
 	assert.equal(submissions, 0);
@@ -666,9 +722,17 @@ test("same-ID edit replays a completed operation when another process removes th
 		createDraftStore(testConfig.user, directory),
 	);
 	const input = { ...(await edit({ text: "Replacement" })), mailbox: "Drafts" };
-	const delayed = other.edit({ request: input, mailbox: "Drafts" });
+	const delayed = other.edit({
+		request: input,
+		mailbox: "Drafts",
+		...permissiveDraftChecks,
+	});
 	await paused;
-	const completed = await drafts.edit({ request: input, mailbox: "Drafts" });
+	const completed = await drafts.edit({
+		request: input,
+		mailbox: "Drafts",
+		...permissiveDraftChecks,
+	});
 	assert.equal(completed.outcome.status, "completed");
 	release();
 	assert.deepEqual(await delayed, completed);

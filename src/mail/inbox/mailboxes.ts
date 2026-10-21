@@ -4,7 +4,6 @@ import { findSpecialMailbox } from "../mailboxes.js";
 import type { InboxPlan, ManageMessageInput } from "./model.js";
 
 type MailboxKind = "drafts" | "view" | "label" | "folder";
-
 type InboxChange = ManageMessageInput["change"];
 
 const FLAG_CHANGES = {

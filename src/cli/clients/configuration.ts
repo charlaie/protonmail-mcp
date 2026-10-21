@@ -18,7 +18,6 @@ import { resolveLaunchEntryPath } from "./launch-path.js";
 
 export const ClientNameSchema = z.enum(["claude", "codex", "vscode", "cursor"]);
 export type ClientName = z.infer<typeof ClientNameSchema>;
-
 type JsonClientName = Exclude<ClientName, "codex">;
 
 export const CLIENTS = {
