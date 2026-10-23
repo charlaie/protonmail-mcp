@@ -251,7 +251,7 @@ test("attachment/inline MIME roundtrip preserves exact bytes, filename, MIME and
 	}
 });
 
-test("media changes bind send hashes while no-media message shape remains compatible", () => {
+test("media changes bind send hashes and plain messages carry an empty manifest", () => {
 	const input = SendEmailSchema.parse({
 		operationId: randomUUID(),
 		to: "recipient@example.com",
@@ -276,7 +276,7 @@ test("media changes bind send hashes while no-media message shape remains compat
 		attachments: [],
 		inlineImages: [],
 	});
-	assert.equal("media" in plain, false);
+	assert.deepEqual(plain.media, []);
 	const patch = EditDraftSchema.parse({
 		operationId: randomUUID(),
 		uid: 1,

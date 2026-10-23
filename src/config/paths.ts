@@ -19,9 +19,8 @@ export function getConfigFilePath() {
 	return join(getConfigDirectory(), "config.json");
 }
 
-// Preserve the previous default policy and replay journal locations on every OS.
 export function getDefaultPolicyFilePath() {
-	return join(homedir(), ".config", "protonmail-mcp", "read-policy.json");
+	return join(getConfigDirectory(), "read-policy.json");
 }
 
 export function getDefaultStorage(configPath: string) {
@@ -29,10 +28,7 @@ export function getDefaultStorage(configPath: string) {
 		policyFile: defaultPolicyFileFor(configPath),
 		// Journals are keyed by account. Sharing the directory retains replay
 		// protection when multiple profiles use the same Bridge account.
-		operationsDirectory: join(
-			dirname(getDefaultPolicyFilePath()),
-			"send-operations",
-		),
+		operationsDirectory: join(getConfigDirectory(), "send-operations"),
 	};
 }
 

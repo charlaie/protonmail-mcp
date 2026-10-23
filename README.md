@@ -34,7 +34,7 @@ For a persistently installed package, run `protonmail-mcp setup` instead. Setup 
 
 ## Configuration and permissions
 
-The server reads its settings from a versioned JSON config file. It no longer loads `.env` files or `PROTONMAIL_*` environment variables. Setup saves your Bridge credentials in this file. Client entries contain the paths needed to launch the server and load its config.
+The server reads its settings from a versioned JSON config file. Bridge credentials come from this file. Setup saves your Bridge credentials in this file. Client entries contain the paths needed to launch the server and load its config.
 
 Default server config locations:
 
@@ -44,7 +44,7 @@ Default server config locations:
 | macOS | `~/Library/Application Support/protonmail-mcp/config.json` |
 | Windows | `%APPDATA%/protonmail-mcp/config.json` |
 
-Use `--config /absolute/path/config.json` on any command to choose another account configuration. Relative storage paths inside the config resolve beside that file, regardless of the client's working directory. See [the config example](config.example.json) and [configuration and migration](docs/configuration.md).
+Use `--config /absolute/path/config.json` on any command to choose another account configuration. Relative storage paths inside the config resolve beside that file, regardless of the client's working directory. See [the config example](config.example.json) and [configuration](docs/configuration.md).
 
 The version 3 access policy grants individual tools through `allowedTools`. At startup, the server hides and disables tools missing from this list. It checks grants on every call and again immediately before changing mail, including after send approval. Restart running servers after editing permissions to refresh the tool list. Revoked grants take effect even if a client still shows the old list.
 
@@ -102,7 +102,8 @@ If a required check fails, doctor exits with code 1 and suggests a fix. Approval
 | Bridge refuses the connection | Open Bridge, sign in, and verify the configured host and ports. |
 | Authentication fails | Copy the credentials from Bridge's account settings. |
 | A tool is missing or denied | Run setup's permissions section, grant the tool and its required mailbox and action permissions, then restart the MCP server. |
-| A policy predates version 3 | Run setup to review explicit tool grants. |
+| A policy has an unsupported format or missing fields | Run setup to replace it and review permissions. |
+| A journal has an unsupported format | Preserve it, inspect prior writes, then configure fresh development storage. See [development storage](docs/configuration.md#development-storage). |
 | Sending has no usable approval form | Check that your client supports the server's approval flow. The server requires approval before sending. |
 | Attachments are not exposed as files | Use a client that handles embedded binary resources, or download them in Proton Mail. |
 
@@ -110,7 +111,7 @@ If a required check fails, doctor exits with code 1 and suggests a fix. Approval
 
 ## Reference and development
 
-See [configuration and migration](docs/configuration.md), [tool contracts and recovery](docs/tool-reference.md), and the [Bridge and client testing checklist](docs/draft-send-release-checklist.md).
+See [configuration](docs/configuration.md), [tool contracts and recovery](docs/tool-reference.md), and the [Bridge and client testing checklist](docs/draft-send-release-checklist.md).
 
 ```sh
 pnpm check

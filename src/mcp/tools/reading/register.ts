@@ -54,7 +54,7 @@ export function registerReadTools(input: {
 		{
 			title: "List mailboxes",
 			description:
-				"List Proton Bridge mailboxes and exact paths. selectable indicates whether the path holds messages. allowedByReadPolicy indicates mailbox access for this account; sender restrictions may still apply. policyStatus explains missing, legacy, or mismatched policy and requires setup when it is not ok.",
+				"List Proton Bridge mailboxes and exact paths. selectable indicates whether the path holds messages. allowedByReadPolicy indicates mailbox access for this account; sender restrictions may still apply. policyStatus explains missing or mismatched policy and requires setup when it is not ok.",
 			inputSchema: z.object({}),
 			outputSchema: MailboxesOutputSchema,
 			annotations: READ_ONLY_TOOL,

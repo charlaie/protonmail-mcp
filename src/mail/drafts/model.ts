@@ -7,14 +7,14 @@ export const DraftSourceSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("create") }),
 	GetMessageSchema.extend({ kind: z.literal("edit"), revision: z.string() }),
 ]);
-export const StoredDraftOperationSchema = z.object({
-	draftId: z.uuid().optional(),
+export const DraftOperationSchema = z.object({
+	draftId: z.uuid(),
 	operationId: OperationIdSchema,
 	requestHash: z.string(),
 	messageId: z.string(),
 	mailbox: z.string(),
 	contentHash: z.string(),
-	media: z.array(MediaMetadataSchema).optional(),
+	media: z.array(MediaMetadataSchema),
 	source: DraftSourceSchema,
 	createdAt: z.iso.datetime(),
 	updatedAt: z.iso.datetime(),
@@ -38,8 +38,5 @@ export const StoredDraftOperationSchema = z.object({
 			reason: z.string(),
 		}),
 	]),
-});
-export const DraftOperationSchema = StoredDraftOperationSchema.required({
-	draftId: true,
 });
 export type DraftOperation = z.infer<typeof DraftOperationSchema>;

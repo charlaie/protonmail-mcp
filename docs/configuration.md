@@ -1,6 +1,6 @@
-# Configuration and migration
+# Configuration
 
-The version 1 server config contains `bridge` settings and optional `storage` paths. Unknown fields are rejected. Environment credentials and `.env` loading have been removed.
+The version 1 server config contains `bridge` settings and optional `storage` paths. Unknown fields are rejected. Credentials are read only from this file.
 
 ```json
 {
@@ -25,7 +25,7 @@ The version 1 server config contains `bridge` settings and optional `storage` pa
 
 Additional sender addresses must be entered manually during setup. Bridge does not expose an address list over IMAP/SMTP. Its internal GUI gRPC API has an address list, but the GUI normally deletes the connection file after reading it, so it cannot support reliable discovery during a running GUI session. This limitation was confirmed with Bridge 3.27.1. Setup retains saved aliases when editing the same account and starts with an empty alias field when changing the Bridge username.
 
-Relative storage paths resolve beside the config file. If `storage` is omitted for the default profile, the previous policy default remains `~/.config/protonmail-mcp/read-policy.json`. Additional profiles use `<config filename>.policy.json` beside their config: `accounts/work.json` uses `accounts/work.json.policy.json`. All profiles default to the original `~/.config/protonmail-mcp/send-operations` journal directory, where databases are keyed by account. Processes for the same account must share that directory to retain replay protection. Full setup writes explicit absolute paths and refuses to overwrite another account's policy.
+Relative storage paths resolve beside the config file. Default storage uses the platform's configuration directory: `$XDG_CONFIG_HOME/protonmail-mcp` (or `~/.config/protonmail-mcp`) on Linux, `~/Library/Application Support/protonmail-mcp` on macOS, and `%APPDATA%/protonmail-mcp` on Windows. The default profile uses `read-policy.json` in that directory. Additional profiles use `<config filename>.policy.json` beside their config: `accounts/work.json` uses `accounts/work.json.policy.json`. All profiles default to the `send-operations` directory under the platform configuration directory, where databases are keyed by account. Processes for the same account must share that directory to retain replay protection. Full setup writes explicit absolute paths and refuses to overwrite another account's policy.
 
 The config and policy files use atomic replacement and owner-only file permissions on POSIX systems. They contain the Bridge password and permission grants respectively. On Windows, access follows the user's profile and filesystem ACLs. Client configurations contain no Bridge password.
 
@@ -33,17 +33,13 @@ Setup validates and stages both files before saving, locks their paths against o
 
 Client configuration installation uses the same path locks while checking the reviewed file, backing it up, and saving the merge. Concurrent installations cannot overwrite each other's reviewed changes. Each backup has a unique `.bak` filename so successive installations retain their separate originals. Other applications that edit the file do not participate in these locks.
 
-## Migrate an existing installation
+## Development storage
 
-1. Stop the running MCP servers.
-2. Run `pnpm run setup` in the checkout, or `protonmail-mcp setup` from an installed package.
-3. Enter the Bridge credentials previously held in `.env` or client environment variables.
-4. If you previously set custom policy/journal locations, choose existing custom storage and enter those paths. Setup cannot recover removed environment settings automatically.
-5. Review the permissions and save the version 3 policy. Existing mailbox and sender selections are retained only for the matching account. Version 1 and 2 policies do not authorize mail access until reviewed; mail-changing tools need explicit grants.
-6. Generate or merge the new client entries, then restart those clients' MCP servers.
-7. Run `doctor` with the same config file.
+Only the current formats are supported: config version 1, policy version 3, and journal schema version 1. There are no policy conversions or journal backfills. Run setup to replace an unsupported policy and review all permissions again. Every policy field in the [example](../policy.example.json) is required; unknown fields are rejected.
 
-Default setup preserves the old default policy and journal locations, including on macOS and Windows. Custom config files use separate storage when created through setup. Keep existing journals and their account databases during upgrades and recovery. A fresh, deleted, or stale-restored journal loses replay protection.
+Unversioned and unsupported journals are refused without rewriting their records. Preserve them for manual inspection of prior writes. After resolving pending operations, configure a separate `storage.operationsDirectory` for a fresh development state. A fresh, deleted, or stale-restored journal loses replay protection for earlier operations. Do not retry prior writes under new operation IDs just because a new journal has no record of them.
+
+Saved absolute storage paths remain in effect, and setup reuses them. To change locations, edit `storage.policyFile` and `storage.operationsDirectory` directly in the config. Preserve prior journals for recovery; no files are moved automatically.
 
 ## Access policy
 
@@ -55,7 +51,7 @@ The [policy example](../policy.example.json) shows version 3. `allowedTools` is 
 
 `inboxWrites` is disabled by default. An enabled policy grants individual actions and exact writable mailbox paths, each of which must already be readable. Inbox changes also require `manage_message` in `allowedTools`. These actions have no per-action human approval. Sending always has a separate mandatory approval.
 
-Folder and label creation requires `create_mailbox` in `allowedTools` and the corresponding kind in `mailboxCreation`, such as `["folder", "label"]`. The default is `[]`, including for existing policies. Setup offers these grants separately from message actions. Creation applies to custom mailboxes under Bridge's advertised `Folders` and `Labels` namespaces. It does not grant read or message-write access to the resulting path. Add those exact paths through setup before reading or organizing mail in them. Creation has no per-action approval once granted.
+Folder and label creation requires `create_mailbox` in `allowedTools` and the corresponding kind in `mailboxCreation`, such as `["folder", "label"]`. The policy constructor defaults this field to `[]`. Setup offers these grants separately from message actions. Creation applies to custom mailboxes under Bridge's advertised `Folders` and `Labels` namespaces. It does not grant read or message-write access to the resulting path. Add those exact paths through setup before reading or organizing mail in them. Creation has no per-action approval once granted.
 
 Draft creation and editing require their individual tool grants and readable Drafts access. Sending a draft includes deletion of its unchanged snapshot after full acceptance; editing a draft includes deletion of its unchanged original. Cleanup retry tools have separate grants. Read-only mode excludes all of these mail-changing tools.
 

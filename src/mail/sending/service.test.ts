@@ -16,6 +16,7 @@ import { permissiveChecks } from "./test-fixtures.js";
 
 const message: OutgoingMessage = {
 	from: testConfig.user,
+	media: [],
 	to: ["recipient@example.com"],
 	cc: [],
 	bcc: ["hidden@example.com"],

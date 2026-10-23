@@ -128,7 +128,7 @@ function draftRecord(
 		requestHash: hashContent(request),
 		messageId: composed.messageId,
 		contentHash: composed.contentHash,
-		...(composed.media.length ? { media: composed.media } : {}),
+		media: composed.media,
 		mailbox: input.mailbox,
 		source: draftSource(input),
 		createdAt: now,

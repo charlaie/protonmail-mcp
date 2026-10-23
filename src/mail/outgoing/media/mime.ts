@@ -91,7 +91,7 @@ function mailAttachment(part: OutgoingPart): MailAttachment {
 	};
 }
 
-export function mediaMailOptions(text: string, parts: OutgoingPart[] = []) {
+export function mediaMailOptions(text: string, parts: OutgoingPart[]) {
 	const hasInlineImages = parts.some((part) => part.kind === "inline");
 	return {
 		text: hasInlineImages ? Buffer.from(text, "utf8") : text,

@@ -209,12 +209,8 @@ async function choosePolicy(
 	if (loadedPolicy.status === "declined") return null;
 	const previous = loadedPolicy.value;
 
-	if (previous && previous.version !== 3)
-		prompts.log.warn(
-			"This policy predates explicit tool grants. Mailbox and sender selections will be retained for this account; changes to mail require new grants.",
-		);
 	requirePolicyAccount(previous, account);
-	if (section === "credentials" && previous?.version === 3) return previous;
+	if (section === "credentials" && previous) return previous;
 	return configurePermissions(account, mailboxes, previous);
 }
 

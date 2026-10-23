@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -10,7 +10,7 @@ import { FakeImap, testConfig } from "@/bridge/testing/fixtures.js";
 import { createSendService } from "@/mail/sending/service.js";
 import { createServer } from "@/mcp/server.js";
 import { createSendStore } from "@/operations/sqlite/sending.js";
-import { createReadPolicy, ReadPolicySchema } from "@/policy/schema.js";
+import { createReadPolicy } from "@/policy/schema.js";
 import { saveReadPolicy } from "@/policy/store.js";
 import {
 	isPolicyIndependentTool,
@@ -99,15 +99,17 @@ test("legacy policy cannot grant tools implicitly and only exposes local recover
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-legacy-grants-"));
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	const policyFile = join(directory, "policy.json");
-	const legacy = ReadPolicySchema.parse({
-		...createReadPolicy({
-			bridgeUser: testConfig.user,
-			allowedMailboxes: ["INBOX", "Drafts"],
-			allowedTools: ToolNameSchema.options,
+	await writeFile(
+		policyFile,
+		JSON.stringify({
+			...createReadPolicy({
+				bridgeUser: testConfig.user,
+				allowedMailboxes: ["INBOX", "Drafts"],
+				allowedTools: ToolNameSchema.options,
+			}),
+			version: 2,
 		}),
-		version: 2,
-	});
-	await saveReadPolicy(legacy, policyFile);
+	);
 	const fake = new FakeImap();
 	const client = await createTestClient(t, () =>
 		createServer({

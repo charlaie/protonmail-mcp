@@ -184,6 +184,6 @@ function partMetadata(part: OutgoingPart): MediaMetadata {
 	};
 }
 
-export function mediaManifest(parts: OutgoingPart[] = []): MediaMetadata[] {
+export function mediaManifest(parts: OutgoingPart[]): MediaMetadata[] {
 	return parts.map(partMetadata);
 }

@@ -506,6 +506,7 @@ test("late append completion and failed cleanup cannot regress an already comple
 		requestHash: hashContent({ operationId }),
 		messageId: composed.messageId,
 		contentHash: composed.contentHash,
+		media: composed.media,
 		mailbox: "Drafts",
 		source: { kind: "edit", ...identity, revision: "original" },
 		createdAt: now,

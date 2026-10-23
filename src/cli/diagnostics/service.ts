@@ -144,7 +144,7 @@ async function checkPolicy(
 ) {
 	const policy = await loadReadPolicy(config.storage.policyFile);
 	const status = readPolicyStatus(policy, config.bridge.user);
-	if (status !== "ok" || policy?.version !== 3)
+	if (!policy || status !== "ok")
 		throw new Error(`Access policy status: ${status}.`);
 
 	const grants = `${policy.allowedTools.length} tool grants; policy matches this Bridge account.`;

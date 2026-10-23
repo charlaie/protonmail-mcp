@@ -31,12 +31,7 @@ const MailboxSchema = z.object({
 		.optional(),
 	selectable: z.boolean(),
 	allowedByReadPolicy: z.boolean(),
-	policyStatus: z.enum([
-		"ok",
-		"not_configured",
-		"legacy_policy",
-		"account_mismatch",
-	]),
+	policyStatus: z.enum(["ok", "not_configured", "account_mismatch"]),
 });
 export const MailboxesOutputSchema = z.union([
 	z.object({ mailboxes: z.array(MailboxSchema) }),

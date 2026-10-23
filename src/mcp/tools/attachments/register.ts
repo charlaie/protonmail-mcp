@@ -32,10 +32,7 @@ const BinaryOutputSchema = z
 	})
 	.strict();
 
-const ElicitationCapabilitySchema = z.object({
-	form: z.object({}).optional(),
-	url: z.object({}).optional(),
-});
+const FormElicitationSchema = z.object({ form: z.object({}) });
 
 const RETRY_GUIDANCE =
 	"Use a client that can save or process MCP embedded binary resources, or download the original attachment in Proton Mail.";
@@ -52,7 +49,7 @@ type AttachmentMailAccess = Pick<
 type BinarySupport = "declared" | "unverified";
 type RequestCapabilities = ReturnType<typeof requestClientCapabilities>;
 
-/** Per-request capabilities (2026-era clients) take precedence over the initialize handshake. */
+/** Request capabilities take precedence over the stdio session handshake. */
 function requestClientCapabilities(server: ToolRegistry, ctx: ServerContext) {
 	const envelope = ctx.mcpReq.envelope;
 	if (!envelope || !(CLIENT_CAPABILITIES_META_KEY in envelope)) {
@@ -74,9 +71,7 @@ function requireBinarySupport(
 	capabilities: RequestCapabilities,
 	mimeType: string,
 ): BinarySupport {
-	const declaration =
-		capabilities?.extensions?.[BINARY_OUTPUT_CAPABILITY] ??
-		capabilities?.experimental?.[BINARY_OUTPUT_CAPABILITY];
+	const declaration = capabilities?.extensions?.[BINARY_OUTPUT_CAPABILITY];
 	if (declaration === undefined) return "unverified";
 
 	const parsed = BinaryOutputSchema.safeParse(declaration);
@@ -97,15 +92,9 @@ function requireBinarySupport(
 	return "declared";
 }
 
-// An elicitation capability without modes predates URL elicitation and means form support.
 function requireFormElicitation(capabilities: RequestCapabilities) {
-	const parsed = ElicitationCapabilitySchema.safeParse(
-		capabilities?.elicitation,
-	);
-	const supportsForm =
-		parsed.success &&
-		(parsed.data.form !== undefined || parsed.data.url === undefined);
-	if (supportsForm) return;
+	if (FormElicitationSchema.safeParse(capabilities?.elicitation).success)
+		return;
 
 	throw new MailError(
 		"APPROVAL_DENIED",
@@ -156,7 +145,7 @@ export function registerAttachmentTools(input: {
 }) {
 	const { server, mailAccess, approval } = input;
 
-	// Reloads policy and rechecks metadata after both modern and legacy approval rounds.
+	// Reloads policy and rechecks metadata after approval.
 	async function readAttachment(
 		request: GetAttachmentInput,
 		authorization: AttachmentReadAuthorization,

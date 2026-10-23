@@ -19,25 +19,6 @@ export const DomainSchema = z
 	)
 	.transform((value) => value.toLowerCase());
 
-const PolicyFields = {
-	allowedMailboxes: z.array(z.string().min(1)).min(1),
-	allowedSenderEmails: z.array(
-		z.email().transform((value) => value.toLowerCase()),
-	),
-	allowedSenderDomains: z.array(DomainSchema),
-	createdAt: z.iso.datetime(),
-	updatedAt: z.iso.datetime(),
-};
-
-const AccountReadPolicyFields = {
-	...PolicyFields,
-	bridgeUser: z.string().min(1),
-	allowedAttachmentExtensions: z.array(AttachmentPermissionSchema).default([]),
-	requireAttachmentApproval: z.boolean().default(false),
-	inboxWrites: InboxWritePolicySchema.default({ mode: "disabled" }),
-	mailboxCreation: z.array(MailboxCreationKindSchema).default([]),
-};
-
 function inboxWritesAreReadable(policy: {
 	allowedMailboxes: string[];
 	inboxWrites: InboxWritePolicy;
@@ -53,23 +34,24 @@ const InboxWritesReadableIssue = {
 	message: "Inbox writable mailboxes must also be allowed for reading.",
 };
 
-const AccountReadPolicySchema = z
-	.object({ ...AccountReadPolicyFields, version: z.literal(2) })
-	.refine(inboxWritesAreReadable, InboxWritesReadableIssue);
-
-export const GranularPolicySchema = z
+export const ReadPolicySchema = z
 	.strictObject({
-		...AccountReadPolicyFields,
 		version: z.literal(3),
+		bridgeUser: z.string().min(1),
 		allowedTools: z.array(ToolNameSchema),
+		allowedMailboxes: z.array(z.string().min(1)).min(1),
+		allowedSenderEmails: z.array(
+			z.email().transform((value) => value.toLowerCase()),
+		),
+		allowedSenderDomains: z.array(DomainSchema),
+		allowedAttachmentExtensions: z.array(AttachmentPermissionSchema),
+		requireAttachmentApproval: z.boolean(),
+		inboxWrites: InboxWritePolicySchema,
+		mailboxCreation: z.array(MailboxCreationKindSchema),
+		createdAt: z.iso.datetime(),
+		updatedAt: z.iso.datetime(),
 	})
 	.refine(inboxWritesAreReadable, InboxWritesReadableIssue);
-
-export const ReadPolicySchema = z.discriminatedUnion("version", [
-	z.object({ ...PolicyFields, version: z.literal(1) }),
-	AccountReadPolicySchema,
-	GranularPolicySchema,
-]);
 
 export type ReadPolicy = z.infer<typeof ReadPolicySchema>;
 
@@ -97,13 +79,13 @@ function normalizedAddresses(values: readonly string[] = []) {
 export function createReadPolicy(input: ReadPolicyInput) {
 	const now = new Date().toISOString();
 
-	return GranularPolicySchema.parse({
+	return ReadPolicySchema.parse({
 		version: 3,
 		allowedTools: unique(input.allowedTools ?? READ_ONLY_TOOLS),
 		bridgeUser: input.bridgeUser,
-		inboxWrites: input.inboxWrites,
-		mailboxCreation: input.mailboxCreation,
-		requireAttachmentApproval: input.requireAttachmentApproval,
+		inboxWrites: input.inboxWrites ?? { mode: "disabled" },
+		mailboxCreation: input.mailboxCreation ?? [],
+		requireAttachmentApproval: input.requireAttachmentApproval ?? false,
 		allowedAttachmentExtensions: unique(
 			input.allowedAttachmentExtensions ?? [],
 		),

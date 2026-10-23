@@ -26,9 +26,8 @@ type MailboxCreationKind = (typeof MailboxCreationKindSchema.options)[number];
 
 type EnabledInboxWrites = Extract<InboxWritePolicy, { mode: "enabled" }>;
 
-type ExistingPolicy = Exclude<ReadPolicy, { version: 1 }> | null;
+type ExistingPolicy = ReadPolicy | null;
 
-type GranularPolicy = ReturnType<typeof createReadPolicy>;
 type AccessMode = "custom" | "readOnly";
 type AttachmentMode = "disabled" | "selected" | "all";
 
@@ -69,11 +68,8 @@ export async function configurePermissions(
 	account: string,
 	mailboxes: BridgeMailboxes,
 	previous: ReadPolicy | null,
-): Promise<GranularPolicy> {
-	const existing =
-		previous?.version !== 1 && previous?.bridgeUser === account
-			? previous
-			: null;
+): Promise<ReadPolicy> {
+	const existing = previous?.bridgeUser === account ? previous : null;
 	const selectedTools = await chooseTools(existing);
 	const draftsPath = findSpecialMailbox(mailboxes, "drafts")?.path;
 	const draftPaths = requiredDraftPaths(selectedTools, draftsPath);
@@ -196,9 +192,9 @@ async function chooseTools(existing: ExistingPolicy): Promise<ToolName[]> {
 
 function initialAccessMode(existing: ExistingPolicy): AccessMode {
 	if (!existing) return "custom";
-	const grantsMailChanges =
-		existing.version === 3 &&
-		existing.allowedTools.some((name) => TOOL_DEFINITIONS[name].changesMail);
+	const grantsMailChanges = existing.allowedTools.some(
+		(name) => TOOL_DEFINITIONS[name].changesMail,
+	);
 	return grantsMailChanges ? "custom" : "readOnly";
 }
 
@@ -207,7 +203,7 @@ function defaultToolSelection(
 	mode: AccessMode,
 	choices: readonly ToolName[],
 ): readonly ToolName[] {
-	if (existing?.version === 3) return existing.allowedTools;
+	if (existing) return existing.allowedTools;
 	return mode === "readOnly" ? READ_ONLY_TOOLS : choices;
 }
 
@@ -448,7 +444,7 @@ async function addDestinationReads(
 	return [...readableMailboxes, ...missingReads];
 }
 
-export function permissionReview(policy: GranularPolicy) {
+export function permissionReview(policy: ReadPolicy) {
 	return [
 		`Account: ${policy.bridgeUser}`,
 		`Readable mailboxes: ${policy.allowedMailboxes.join(", ")}`,
@@ -465,7 +461,7 @@ export function permissionReview(policy: GranularPolicy) {
 	].join("\n");
 }
 
-function describeSenders(policy: GranularPolicy) {
+function describeSenders(policy: ReadPolicy) {
 	const senders = [
 		...policy.allowedSenderEmails,
 		...policy.allowedSenderDomains,
@@ -475,7 +471,7 @@ function describeSenders(policy: GranularPolicy) {
 		: "All senders in selected mailboxes";
 }
 
-function describeAttachmentApproval(policy: GranularPolicy) {
+function describeAttachmentApproval(policy: ReadPolicy) {
 	if (!policy.allowedAttachmentExtensions.length) return "Not applicable";
 	return policy.requireAttachmentApproval ? "Every download" : "Not required";
 }

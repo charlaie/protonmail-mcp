@@ -59,7 +59,7 @@ async function requireReadPolicy(bridgeUser: string, policyFile?: string) {
 			READ_POLICY_NOT_CONFIGURED,
 			"configure",
 		);
-	if (policy.version !== 3 || policy.bridgeUser !== bridgeUser)
+	if (policy.bridgeUser !== bridgeUser)
 		throw new MailError(
 			"ACCOUNT_MISMATCH",
 			"Read policy is not bound to this Bridge account. Run protonmail-mcp setup for this account to configure its access.",

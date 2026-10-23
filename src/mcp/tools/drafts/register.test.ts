@@ -216,7 +216,7 @@ test("reply draft tools accept explicitly supplied files and images and expose m
 	);
 	assert.ok("outcome" in result && "identity" in result.outcome);
 	assert.equal(result.outcome.status, "completed");
-	assert.equal(result.media?.length, 2);
+	assert.equal(result.media.length, 2);
 	const draft = GetDraftOutputSchema.parse(
 		await callTool("get_draft", result.outcome.identity),
 	);

@@ -6,55 +6,6 @@ import type { ReadPolicy } from "./schema.js";
 export const READ_POLICY_NOT_CONFIGURED =
 	"Read policy is not configured. Ask the user to run `protonmail-mcp setup` in a terminal so they can choose which mailboxes and senders this MCP server may read.";
 
-type AccountReadPolicy = Exclude<ReadPolicy, { version: 1 }>;
-
-type AccountGrants = Pick<
-	AccountReadPolicy,
-	| "allowedAttachmentExtensions"
-	| "requireAttachmentApproval"
-	| "inboxWrites"
-	| "mailboxCreation"
-> & { bridgeUser: string | undefined };
-
-function accountGrants(policy: ReadPolicy): AccountGrants {
-	if (policy.version === 1)
-		return {
-			bridgeUser: undefined,
-			allowedAttachmentExtensions: [],
-			requireAttachmentApproval: false,
-			inboxWrites: { mode: "disabled" },
-			mailboxCreation: [],
-		};
-
-	return {
-		bridgeUser: policy.bridgeUser,
-		allowedAttachmentExtensions: policy.allowedAttachmentExtensions,
-		requireAttachmentApproval: policy.requireAttachmentApproval,
-		inboxWrites: policy.inboxWrites,
-		mailboxCreation: policy.mailboxCreation,
-	};
-}
-
-export function summarizeReadPolicy(policy: ReadPolicy) {
-	const grants = accountGrants(policy);
-	return {
-		policyFileConfigured: true,
-		requiresSetup: policy.version !== 3,
-		version: policy.version,
-		bridgeUser: grants.bridgeUser,
-		allowedTools: policy.version === 3 ? policy.allowedTools : [],
-		allowedMailboxes: policy.allowedMailboxes,
-		allowedSenderEmails: policy.allowedSenderEmails,
-		allowedSenderDomains: policy.allowedSenderDomains,
-		allowedAttachmentExtensions: grants.allowedAttachmentExtensions,
-		requireAttachmentApproval: grants.requireAttachmentApproval,
-		inboxWrites: grants.inboxWrites,
-		mailboxCreation: grants.mailboxCreation,
-		createdAt: policy.createdAt,
-		updatedAt: policy.updatedAt,
-	};
-}
-
 export function canReadMailbox(policy: ReadPolicy, mailbox: string) {
 	return policy.allowedMailboxes.includes(mailbox);
 }
@@ -65,7 +16,6 @@ export function requireInboxWrite(
 	destination?: string,
 ) {
 	if (
-		policy.version === 1 ||
 		policy.inboxWrites.mode !== "enabled" ||
 		!policy.inboxWrites.actions.includes(input.change.action)
 	)
@@ -96,7 +46,6 @@ export function readPolicyStatus(
 	bridgeUser: string,
 ) {
 	if (!policy) return "not_configured";
-	if (policy.version !== 3) return "legacy_policy";
 	return policy.bridgeUser === bridgeUser ? "ok" : "account_mismatch";
 }
 

@@ -56,7 +56,7 @@ src/
 ├── operations/
 │   ├── journal.ts                   Compose the account journal and integrity check
 │   ├── identity.ts                  Operation UUID and lookup contracts
-│   └── sqlite/                      Persistence, record access, migrations, and shared claims
+│   └── sqlite/                      Persistence, record access, and shared claims
 ├── policy/                          Access grants, evaluation, and persistence
 ├── config/                          Account profiles, paths, and settings commits
 ├── shared/                          Errors, content hashing, and private files
@@ -96,7 +96,7 @@ Message and draft reads share the 10 MiB size rule for advertised sizes and actu
 - Put a workflow rule in its mail feature. Put protocol registration and result schemas in the corresponding MCP tool directory.
 - Put reusable outgoing message/media rules under `mail/outgoing/`, rather than under one sending or draft workflow.
 - Put connection and protocol details under `bridge/imap/` or `bridge/smtp/`.
-- Keep shared reservation and migration rules under `operations/sqlite/`; do not create separate journals per feature.
+- Keep shared reservation and schema initialization rules under `operations/sqlite/`; do not create separate journals per feature.
 - Add a subdirectory when a set of modules has a specific owner. Keep small cohesive groups flat.
 - Import the implementing file directly. Do not add barrel exports or forwarding modules to hide the directory structure.
 

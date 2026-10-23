@@ -140,9 +140,7 @@ export function createSendService(
 			updatedAt: now,
 			outcome: { status: "prepared" },
 			sentCopies: [],
-			...(input.message.media?.length
-				? { media: mediaManifest(input.message.media) }
-				: {}),
+			media: mediaManifest(input.message.media),
 			draftCleanup:
 				input.source.kind === "draft"
 					? { status: "pending" }

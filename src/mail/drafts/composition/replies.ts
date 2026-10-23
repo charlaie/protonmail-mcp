@@ -5,6 +5,7 @@ import {
 	type readMessage,
 } from "@/bridge/imap/reading/messages.js";
 import type { CreateReplyDraftSchema } from "@/mail/drafts/requests.js";
+import { outgoingMedia } from "@/mail/outgoing/media/model.js";
 import { OutgoingMessageSchema } from "@/mail/outgoing/message.js";
 import { resolveSender } from "@/mail/outgoing/senders.js";
 import { MailError } from "@/shared/mail-error.js";
@@ -91,6 +92,7 @@ export function composeReplyDraft(
 		bcc: [],
 		subject: replySubject(original.subject),
 		text: input.text,
+		media: outgoingMedia(input),
 		inReplyTo: parent,
 		references: [...new Set([...inheritedReferences(original), ...parent])],
 	});

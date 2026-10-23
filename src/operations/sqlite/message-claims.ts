@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { StoredDraftOperationSchema } from "@/mail/drafts/model.js";
+import { DraftOperationSchema } from "@/mail/drafts/model.js";
 import type { GetMessageInput } from "@/mail/identity.js";
 import { SendOperationSchema } from "@/mail/sending/model.js";
 import { hashContent } from "@/shared/content-hash.js";
@@ -63,7 +63,7 @@ function assertIdentityUnclaimed(
 
 	const unfinishedDraft = selectRecord(
 		db,
-		StoredDraftOperationSchema,
+		DraftOperationSchema,
 		"SELECT record FROM drafts WHERE json_extract(record, '$.outcome.status') != 'completed' AND json_extract(record, '$.outcome.identity.mailbox') = ? AND json_extract(record, '$.outcome.identity.uidValidity') = ? AND json_extract(record, '$.outcome.identity.uid') = ?",
 		identity.mailbox,
 		identity.uidValidity,
@@ -89,7 +89,7 @@ function assertMessageIdUnclaimed(db: DatabaseSync, messageId: string) {
 
 	const draft = selectRecord(
 		db,
-		StoredDraftOperationSchema,
+		DraftOperationSchema,
 		"SELECT record FROM drafts WHERE message_id = ?",
 		messageId,
 	);

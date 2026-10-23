@@ -4,28 +4,18 @@ import { z } from "zod";
 import {
 	type DraftOperation,
 	DraftOperationSchema,
-	StoredDraftOperationSchema,
 } from "@/mail/drafts/model.js";
 import { type GetMessageInput, GetMessageSchema } from "@/mail/identity.js";
 import { MailError } from "@/shared/mail-error.js";
 import { messageIdentityKey } from "./message-claims.js";
-import { selectRecord, selectRecords } from "./records.js";
+import { selectRecord } from "./records.js";
 
 export type DraftSnapshotEvidence = {
 	messageId?: string;
 	contentHash: DraftOperation["contentHash"];
 };
 
-type StoredDraftOperation = z.infer<typeof StoredDraftOperationSchema>;
-
 const BindingSchema = z.object({ draft_id: z.uuid() });
-
-const DRAFT_IDENTITY_SCHEMA = [
-	"CREATE TABLE IF NOT EXISTS draft_identities (identity TEXT PRIMARY KEY, draft_id TEXT NOT NULL, record TEXT NOT NULL);",
-	"CREATE INDEX IF NOT EXISTS draft_identities_by_id ON draft_identities (draft_id);",
-	"CREATE INDEX IF NOT EXISTS drafts_by_logical_id ON drafts (json_extract(record, '$.draftId'));",
-	"CREATE TABLE IF NOT EXISTS draft_identity_migrations (version INTEGER PRIMARY KEY);",
-].join(" ");
 
 function boundDraftId(db: DatabaseSync, identityKey: string) {
 	const binding = db
@@ -102,50 +92,6 @@ export function identifyDraftSnapshot(
 	)
 		return bindDraftIdentity(db, identity, appended.draftId);
 	return identifyDraft(db, identity);
-}
-
-export function draftIdentitiesReady(db: DatabaseSync) {
-	const migrationTable = db
-		.prepare(
-			"SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'draft_identity_migrations'",
-		)
-		.get();
-	if (!migrationTable) return false;
-	return Boolean(
-		db
-			.prepare("SELECT 1 FROM draft_identity_migrations WHERE version = 1")
-			.get(),
-	);
-}
-
-function migrateDraftRecord(db: DatabaseSync, record: StoredDraftOperation) {
-	const draftId =
-		record.source.kind === "edit"
-			? identifyDraft(db, record.source, record.operationId)
-			: record.operationId;
-	const migrated = DraftOperationSchema.parse({ ...record, draftId });
-	if ("identity" in migrated.outcome)
-		bindDraftIdentity(db, migrated.outcome.identity, draftId);
-	db.prepare("UPDATE drafts SET record = ? WHERE id = ?").run(
-		JSON.stringify(migrated),
-		record.operationId,
-	);
-}
-
-// Run once inside a transaction. Existing outcomes and replay hashes stay intact.
-export function migrateDraftIdentities(db: DatabaseSync) {
-	if (draftIdentitiesReady(db)) return;
-
-	db.exec(DRAFT_IDENTITY_SCHEMA);
-	const unmigrated = selectRecords(
-		db,
-		StoredDraftOperationSchema,
-		"SELECT record FROM drafts WHERE json_extract(record, '$.draftId') IS NULL ORDER BY rowid",
-	);
-	for (const record of unmigrated) migrateDraftRecord(db, record);
-	db.prepare(
-		"INSERT INTO draft_identity_migrations (version) VALUES (1)",
-	).run();
 }
 
 export function resolveDraftIdentity(db: DatabaseSync, draftId: string) {

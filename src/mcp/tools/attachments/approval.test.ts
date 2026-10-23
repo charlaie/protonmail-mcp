@@ -1,6 +1,9 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { isSpecType } from "@modelcontextprotocol/server";
+import {
+	type ClientCapabilities,
+	isSpecType,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { saveReadPolicy } from "@/policy/store.js";
 import { ToolErrorSchema } from "@/shared/mail-error.js";
@@ -237,9 +240,15 @@ test("approval is bound to the attachment ID and current sender policy", async (
 });
 
 test("required approval refuses clients without forms, while metadata listing remains available", async (t) => {
-	for (const capabilities of [{}, { elicitation: { url: {} } }]) {
+	const unsupported: ClientCapabilities[] = [
+		{},
+		{ elicitation: {} },
+		{ elicitation: { url: {} } },
+	];
+	for (const capabilities of unsupported) {
 		await t.test(JSON.stringify(capabilities), async (t) => {
 			const client = await attachmentFixture(t, {
+				protocolVersion: "2026-07-28",
 				requireApproval: true,
 				capabilities,
 			});

@@ -23,7 +23,7 @@ import { MailError } from "@/shared/mail-error.js";
 export function draftContentHash(original: ParsedMail) {
 	const media = parsedMedia(original);
 	return hashContent({
-		...(media.length ? { media: mediaManifest(media) } : {}),
+		media: mediaManifest(media),
 		messageId: original.messageId,
 		from: parsedAddressText(original.from),
 		to: parsedAddressText(original.to),
@@ -187,7 +187,7 @@ export async function readDraftSnapshot(
 		bcc: parsedAddressEmails(original.bcc),
 		subject: original.subject ?? "",
 		text: original.text ?? "",
-		...(media.length ? { media } : {}),
+		media,
 		inReplyTo: parseMessageIds(original.inReplyTo),
 		references: parseMessageIds(original.references),
 		replyTo: original.replyTo?.text,

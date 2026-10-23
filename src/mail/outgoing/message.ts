@@ -23,7 +23,7 @@ export const OutgoingMessageSchema = z
 		inReplyTo: z.array(MessageIdSchema),
 		references: z.array(MessageIdSchema),
 		replyTo: HeaderSchema.optional(),
-		media: OutgoingMediaSchema.optional(),
+		media: OutgoingMediaSchema,
 	})
 	.refine(
 		(message) => message.to.length + message.cc.length + message.bcc.length > 0,

@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { testConfig } from "@/bridge/testing/fixtures.js";
-import { getConfigFilePath, getDefaultPolicyFilePath } from "./paths.js";
+import {
+	getConfigDirectory,
+	getConfigFilePath,
+	getDefaultPolicyFilePath,
+} from "./paths.js";
 import {
 	readServerConfig,
 	requireServerConfig,
@@ -29,6 +33,14 @@ test("additional profiles get distinct policies and share account-keyed replay j
 		join(tmpdir(), "accounts", "personal.json.policy.json"),
 	);
 	assert.equal(standard.storage.policyFile, getDefaultPolicyFilePath());
+	assert.equal(
+		standard.storage.policyFile,
+		join(getConfigDirectory(), "read-policy.json"),
+	);
+	assert.equal(
+		standard.storage.operationsDirectory,
+		join(getConfigDirectory(), "send-operations"),
+	);
 	assert.equal(
 		personal.storage.operationsDirectory,
 		standard.storage.operationsDirectory,

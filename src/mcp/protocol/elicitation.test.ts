@@ -32,6 +32,7 @@ const original: SendApprovalInput = {
 	operationId: randomUUID(),
 	message: {
 		from: "sender@example.com",
+		media: [],
 		cc: [],
 		bcc: [],
 		inReplyTo: [],

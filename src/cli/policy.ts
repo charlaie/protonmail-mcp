@@ -1,5 +1,4 @@
 import { confirm, requireTerminal } from "@/cli/setup/prompts.js";
-import { summarizeReadPolicy } from "@/policy/enforcement.js";
 import {
 	hasReadPolicyFile,
 	loadReadPolicy,
@@ -14,7 +13,7 @@ export async function runPolicyCommand(path: string) {
 		);
 		return;
 	}
-	console.log(JSON.stringify(summarizeReadPolicy(policy), null, 2));
+	console.log(JSON.stringify(policy, null, 2));
 }
 
 export async function runResetPolicyCommand(path: string) {

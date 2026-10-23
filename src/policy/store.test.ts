@@ -17,6 +17,7 @@ import {
 	fixtureMessage,
 	testConfig,
 } from "@/bridge/testing/fixtures.js";
+import { getDefaultPolicyFilePath } from "@/config/paths.js";
 import { createMailAccess } from "@/mail/access.js";
 import { GetAttachmentSchema } from "@/mail/attachments/requests.js";
 import { createReadPolicy, ReadPolicySchema } from "./schema.js";
@@ -28,9 +29,9 @@ import {
 	parseSenderEmails,
 } from "./selection.js";
 import {
-	getPolicyFilePath,
 	hasReadPolicyFile,
 	loadReadPolicy,
+	loadReadPolicySync,
 	resetReadPolicy,
 	saveReadPolicy,
 } from "./store.js";
@@ -72,15 +73,16 @@ test("policy persistence stays complete and private; legacy/account mismatch is 
 		/not bound/,
 	);
 	assert.ok(await createMailAccess(imap, testConfig.user, policyFile));
-	const { bridgeUser: _, ...legacy } = {
-		...policy,
-		bridgeUser: testConfig.user,
-	};
-	await writeFile(path, JSON.stringify({ ...legacy, version: 1 }));
-	await assert.rejects(
-		createMailAccess(imap, testConfig.user, policyFile),
-		/not bound/,
-	);
+	for (const version of [1, 2, 4]) {
+		await writeFile(path, JSON.stringify({ ...policy, version }));
+		assert.throws(() => loadReadPolicySync(policyFile), /Unable to load/);
+		await assert.rejects(loadReadPolicy(policyFile), /Unable to load/);
+		await assert.rejects(
+			createMailAccess(imap, testConfig.user, policyFile),
+			/Unable to load/,
+		);
+	}
+
 	assert.equal(client.searches.length, 0);
 	await writeFile(path, "{corrupt");
 	await assert.rejects(loadReadPolicy(policyFile), /reset-policy/);
@@ -88,7 +90,9 @@ test("policy persistence stays complete and private; legacy/account mismatch is 
 	await resetReadPolicy(policyFile);
 	assert.equal(await hasReadPolicyFile(policyFile), false);
 	assert.ok(
-		getPolicyFilePath().endsWith(join("protonmail-mcp", "read-policy.json")),
+		getDefaultPolicyFilePath().endsWith(
+			join("protonmail-mcp", "read-policy.json"),
+		),
 	);
 });
 
@@ -142,15 +146,14 @@ test("attachment access defaults closed and remains behind account, mailbox, and
 		allowedMailboxes: ["INBOX"],
 		allowedSenderEmails: ["trusted@example.com"],
 	});
-	const {
-		allowedAttachmentExtensions: _,
-		requireAttachmentApproval: _approval,
-		...oldPolicy
-	} = policy;
-	const parsed = ReadPolicySchema.parse(oldPolicy);
-	assert.ok(parsed.version === 3);
-	assert.deepEqual(parsed.allowedAttachmentExtensions, []);
-	assert.equal(parsed.requireAttachmentApproval, false);
+	assert.deepEqual(policy.allowedAttachmentExtensions, []);
+	assert.equal(policy.requireAttachmentApproval, false);
+	for (const field of Object.keys(policy)) {
+		const incomplete = { ...policy };
+		Reflect.deleteProperty(incomplete, field);
+		assert.equal(ReadPolicySchema.safeParse(incomplete).success, false, field);
+	}
+
 	assert.equal(
 		ReadPolicySchema.safeParse({
 			...policy,

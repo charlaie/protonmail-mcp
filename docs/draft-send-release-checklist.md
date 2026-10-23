@@ -8,7 +8,7 @@ Automated regressions simulate IMAP boundaries and use a local SMTP server. They
 - Use read-only mode and verify that draft creation/editing, sends, inbox changes, and cleanup deletion cannot run through direct tool calls. Revoke a send grant while approval is open and verify no submission occurs.
 - Test generated and merged configurations in Claude Desktop, Codex, VS Code, and Cursor. Record each client version. Verify full-message approval presentation and original-byte attachment handling; do not infer these from a successful handshake.
 - Re-run setup, cancel before saving, and verify saved credentials and grants remain unchanged. Add a second client without re-entering credentials.
-- Migrate an existing policy and shared journal. Verify recorded operation IDs retain replay protection and inspect pending operations after restart.
+- Restart with a current policy and shared journal. Verify recorded operation IDs retain replay protection and inspect pending operations after restart. Verify unsupported policy and journal formats are refused without modifying stored records.
 
 ## Draft synchronization
 

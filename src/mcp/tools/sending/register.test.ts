@@ -314,10 +314,10 @@ test("send approval shows byte-free attachment/image manifests and binds exact p
 	);
 	assert.ok("outcome" in sent);
 	assert.equal(sent.outcome.status, "accepted");
-	assert.equal(sent.media?.length, 2);
+	assert.equal(sent.media.length, 2);
 	assert.equal(JSON.stringify(sent).includes("contentBase64"), false);
 	assert.equal(
-		client.submissions[0]?.message.media?.find(
+		client.submissions[0]?.message.media.find(
 			(part) => part.kind === "attachment",
 		)?.file.contentBase64,
 		testFile.contentBase64,
@@ -351,7 +351,7 @@ test("forward approval quotes the authorized source, omits original Bcc/attachme
 	assert.match(outgoing.text, /Original source body/);
 	assert.equal(outgoing.text.includes("original-hidden"), false);
 	assert.deepEqual(outgoing.bcc, []);
-	assert.equal(outgoing.media?.length, 1);
+	assert.equal(outgoing.media.length, 1);
 	assert.equal(outgoing.media[0]?.file.filename, testFile.filename);
 	assert.equal(client.client.downloads.length, 0);
 	assert.equal(client.client.mailboxes.get("INBOX")?.length, 1);

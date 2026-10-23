@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { GetMessageSchema } from "@/mail/identity.js";
 import {
-	type MediaInput,
 	MediaMetadataSchema,
 	outgoingMedia,
 } from "@/mail/outgoing/media/model.js";
@@ -66,8 +65,8 @@ export const SendOperationSchema = z.object({
 	updatedAt: z.iso.datetime(),
 	outcome: SendOutcomeSchema,
 	draftCleanup: DraftCleanupSchema,
-	sentCopies: z.array(GetMessageSchema).default([]),
-	media: z.array(MediaMetadataSchema).optional(),
+	sentCopies: z.array(GetMessageSchema),
+	media: z.array(MediaMetadataSchema),
 });
 export type SendOperation = z.infer<typeof SendOperationSchema>;
 
@@ -82,12 +81,6 @@ export function sendMessageId(operationId: string) {
 	return `<${OperationIdSchema.parse(operationId)}@protonmail-mcp.local>`;
 }
 
-/** Spreads a `media` field only when the request includes attachments or inline images. */
-export function requestedMedia(input: MediaInput) {
-	if (!input.attachments?.length && !input.inlineImages?.length) return {};
-	return { media: outgoingMedia(input) };
-}
-
 export function newEmailMessage(
 	sender: string,
 	input: SendEmailInput,
@@ -99,7 +92,7 @@ export function newEmailMessage(
 		bcc: input.bcc ?? [],
 		subject: input.subject,
 		text: input.text,
-		...requestedMedia(input),
+		media: outgoingMedia(input),
 		inReplyTo: [],
 		references: [],
 	});

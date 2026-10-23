@@ -49,10 +49,7 @@ for (const protocolVersion of ["2025-11-25", "2026-07-28"] satisfies (
 				const declaration = { [BINARY_OUTPUT_CAPABILITY]: { mimeTypes } };
 				const client = await fixture(t, {
 					protocolVersion,
-					capabilities:
-						protocolVersion === "2025-11-25"
-							? { experimental: declaration }
-							: { extensions: declaration },
+					capabilities: { extensions: declaration },
 				});
 				const result = await client.call();
 				if (mimeTypes.includes("application/pdf")) {
@@ -88,7 +85,7 @@ test("malformed binary declarations are rejected before content download", async
 	const client = await fixture(t, {
 		text: true,
 		capabilities: {
-			experimental: { [BINARY_OUTPUT_CAPABILITY]: { mimeTypes: [42] } },
+			extensions: { [BINARY_OUTPUT_CAPABILITY]: { mimeTypes: [42] } },
 		},
 	});
 	const result = await client.call();
@@ -143,10 +140,10 @@ test("binary capability declarations cannot bypass local attachment policy", asy
 	assert.equal(client.imap.downloads.length, 0);
 });
 
-test("legacy log metadata retains initialized binary capabilities", async (t) => {
+test("session log metadata retains initialized binary capabilities", async (t) => {
 	const client = await fixture(t, {
 		capabilities: {
-			experimental: {
+			extensions: {
 				[BINARY_OUTPUT_CAPABILITY]: { mimeTypes: ["application/pdf"] },
 			},
 		},

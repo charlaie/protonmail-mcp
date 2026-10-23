@@ -1,8 +1,8 @@
 import type { z } from "zod";
 import type { MessageContent } from "@/mail/message.js";
+import { outgoingMedia } from "@/mail/outgoing/media/model.js";
 import { OutgoingMessageSchema } from "@/mail/outgoing/message.js";
 import { hashContent } from "@/shared/content-hash.js";
-import { requestedMedia } from "./model.js";
 import type { ForwardEmailSchema } from "./requests.js";
 
 type QuotedSource = ReturnType<typeof quotedSource>;
@@ -58,6 +58,6 @@ export function forwardMessage(
 		text: [request.text, quoted].filter(Boolean).join("\n\n"),
 		inReplyTo: [],
 		references: [],
-		...requestedMedia(request),
+		media: outgoingMedia(request),
 	});
 }

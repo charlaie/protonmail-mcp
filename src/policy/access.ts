@@ -11,7 +11,7 @@ export function canUseTool(
 	account: string,
 	name: ToolName,
 ) {
-	if (!policy || policy.version !== 3 || policy.bridgeUser !== account)
+	if (!policy || policy.bridgeUser !== account)
 		return isPolicyIndependentTool(name);
 	return policy.allowedTools.includes(name);
 }

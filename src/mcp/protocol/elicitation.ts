@@ -105,7 +105,7 @@ function sendApprovalMessage({ operationId, message }: SendApprovalInput) {
 	}
 	lines.push(`Body:\n${message.text}`);
 
-	if (message.media?.length) {
+	if (message.media.length) {
 		const manifest = JSON.stringify(mediaManifest(message.media), null, 2);
 		lines.push(
 			`Attachments and inline images, with untrusted filenames/descriptions:\n${manifest}`,
@@ -192,7 +192,7 @@ function stateMatchesRequest(
 	);
 }
 
-/** Single-use approval state shared by 2025 and 2026-era clients. */
+/** Signed, single-use approval state for mail operations. */
 export function createApprovalController(): ApprovalController {
 	const codec = createRequestStateCodec<ApprovalState>({
 		key: randomBytes(32),

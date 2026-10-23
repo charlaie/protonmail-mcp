@@ -64,13 +64,13 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 		edited.outcome.identity,
 		allowAllMessages,
 	);
-	assert.equal(preserved.message.media?.length, 2);
+	assert.equal(preserved.message.media.length, 2);
 	assert.deepEqual(
-		preserved.message.media?.find((part) => part.kind === "attachment")?.file,
+		preserved.message.media.find((part) => part.kind === "attachment")?.file,
 		testFile,
 	);
 	assert.deepEqual(
-		preserved.message.media?.find((part) => part.kind === "inline")?.file,
+		preserved.message.media.find((part) => part.kind === "inline")?.file,
 		testImage,
 	);
 	const clearedFiles = await drafts.edit({
@@ -88,7 +88,7 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 		clearedFiles.outcome.identity,
 		allowAllMessages,
 	);
-	assert.equal(inlineOnly.message.media?.length, 1);
+	assert.equal(inlineOnly.message.media.length, 1);
 	assert.equal(inlineOnly.message.media[0]?.kind, "inline");
 	const clearedImages = await drafts.edit({
 		request: EditDraftSchema.parse({
@@ -105,7 +105,7 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 		clearedImages.outcome.identity,
 		allowAllMessages,
 	);
-	assert.equal(plain.message.media, undefined);
+	assert.deepEqual(plain.message.media, []);
 });
 
 test("sending a supported rich draft binds exact files and returns only byte-free manifests in the journal", async (t) => {
@@ -120,12 +120,12 @@ test("sending a supported rich draft binds exact files and returns only byte-fre
 		submit: async (message) => {
 			submits++;
 			assert.equal(
-				message.media?.find((part) => part.kind === "attachment")?.file
+				message.media.find((part) => part.kind === "attachment")?.file
 					.contentBase64,
 				testFile.contentBase64,
 			);
 			assert.equal(
-				message.media?.find((part) => part.kind === "inline")?.file
+				message.media.find((part) => part.kind === "inline")?.file
 					.contentBase64,
 				testImage.contentBase64,
 			);
@@ -155,7 +155,7 @@ test("sending a supported rich draft binds exact files and returns only byte-fre
 	});
 	assert.equal(sent.outcome.status, "accepted");
 	assert.equal(sent.draftCleanup.status, "deleted");
-	assert.equal(sent.media?.length, 2);
+	assert.equal(sent.media.length, 2);
 	assert.equal(JSON.stringify(sent).includes("contentBase64"), false);
 	assert.equal(
 		JSON.stringify(created).includes(testImage.contentBase64),

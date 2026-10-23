@@ -82,13 +82,11 @@ async function fixture(t: TestContext, enabled = true) {
 	return { directory, policyFile, policy, client, imap, mcp, input };
 }
 
-test("existing policies deny inbox writes; invalid write grants cannot expand readable paths", async (t) => {
+test("inbox grants must be explicit and cannot expand readable paths", async (t) => {
 	const f = await fixture(t, false);
 	const { inboxWrites: _, ...oldPolicy } = f.policy;
-	const parsed = ReadPolicySchema.parse(oldPolicy);
-	assert.equal(parsed.version, 3);
-	if (parsed.version !== 3) throw new Error("Expected v3");
-	assert.deepEqual(parsed.inboxWrites, { mode: "disabled" });
+	assert.equal(ReadPolicySchema.safeParse(oldPolicy).success, false);
+	assert.deepEqual(f.policy.inboxWrites, { mode: "disabled" });
 	assert.throws(
 		() =>
 			createReadPolicy({

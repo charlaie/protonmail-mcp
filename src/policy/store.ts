@@ -5,8 +5,6 @@ import { safeErrorMessage } from "@/shared/errors.js";
 import { isMissingFile, writePrivateFile } from "@/shared/private-file.js";
 import { type ReadPolicy, ReadPolicySchema } from "./schema.js";
 
-export const getPolicyFilePath = getDefaultPolicyFilePath;
-
 function parseReadPolicy(contents: string): ReadPolicy {
 	return ReadPolicySchema.parse(JSON.parse(contents));
 }
@@ -21,7 +19,7 @@ function missingPolicyOrThrow(error: unknown, path: string): null {
 }
 
 export function loadReadPolicySync(
-	path = getPolicyFilePath(),
+	path = getDefaultPolicyFilePath(),
 ): ReadPolicy | null {
 	try {
 		return parseReadPolicy(readFileSync(path, "utf8"));
@@ -31,7 +29,7 @@ export function loadReadPolicySync(
 }
 
 export async function loadReadPolicy(
-	path = getPolicyFilePath(),
+	path = getDefaultPolicyFilePath(),
 ): Promise<ReadPolicy | null> {
 	try {
 		return parseReadPolicy(await readFile(path, "utf8"));
@@ -42,13 +40,13 @@ export async function loadReadPolicy(
 
 export async function saveReadPolicy(
 	policy: ReadPolicy,
-	path = getPolicyFilePath(),
+	path = getDefaultPolicyFilePath(),
 ) {
 	const validated = ReadPolicySchema.parse(policy);
 	await writePrivateFile(path, `${JSON.stringify(validated, null, 2)}\n`);
 }
 
-export async function hasReadPolicyFile(path = getPolicyFilePath()) {
+export async function hasReadPolicyFile(path = getDefaultPolicyFilePath()) {
 	try {
 		await access(path);
 		return true;
@@ -58,6 +56,6 @@ export async function hasReadPolicyFile(path = getPolicyFilePath()) {
 	}
 }
 
-export async function resetReadPolicy(path = getPolicyFilePath()) {
+export async function resetReadPolicy(path = getDefaultPolicyFilePath()) {
 	await rm(path, { force: true });
 }

@@ -277,39 +277,6 @@ test("logical draft IDs preserve account, sender, mailbox, UIDVALIDITY and send 
 	);
 });
 
-test("legacy journal migration preserves edit lineage and immutable replay hashes", async (t) => {
-	const f = await fixture(t);
-	const created = await f.create();
-	const original = await f.read(created.draftId);
-	const request = {
-		operationId: randomUUID(),
-		uid: original.uid,
-		uidValidity: original.uidValidity,
-		expectedRevision: original.revision,
-		text: "Migrated",
-	};
-	await f.api.callTool("edit_draft", request);
-	const before = await f.store.get(request.operationId);
-	assert.ok(before);
-	const db = new DatabaseSync(f.store.path);
-	try {
-		db.exec(
-			"UPDATE drafts SET record = json_remove(record, '$.draftId'); DROP TABLE draft_identities; DROP TABLE draft_identity_migrations; DROP INDEX drafts_by_logical_id;",
-		);
-	} finally {
-		db.close();
-	}
-	const migrated = await createDraftStore(testConfig.user, f.directory).get(
-		request.operationId,
-	);
-	assert.ok(migrated);
-	assert.equal(migrated.draftId, created.draftId);
-	assert.equal(migrated.requestHash, before.requestHash);
-	assert.deepEqual(migrated.outcome, before.outcome);
-	assert.equal((await f.read(created.draftId)).text.trim(), "Migrated");
-	assert.equal(f.fake.appends.length, 2);
-});
-
 test("rejected edits preserve the original logical binding and pending cleanup blocks another edit", async (t) => {
 	const f = await fixture(t);
 	const created = await f.create();
@@ -488,7 +455,7 @@ test("a creation operation cannot reuse an adopted logical ID", async (t) => {
 	assert.equal((await f.read(adopted.draftId)).uid, 1);
 });
 
-test("journal reads use indexed logical lookup and do not require a writer transaction after migration", async (t) => {
+test("journal reads use indexed logical lookup and do not require a writer transaction after initialization", async (t) => {
 	const f = await fixture(t);
 	const created = await f.create();
 	const db = new DatabaseSync(f.store.path);

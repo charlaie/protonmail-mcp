@@ -13,7 +13,7 @@ export function requirePolicyAccount(
 	policy: ReadPolicy | null,
 	account: string,
 ) {
-	if (policy && policy.version !== 1 && policy.bridgeUser !== account)
+	if (policy && policy.bridgeUser !== account)
 		throw new Error(
 			"This policy belongs to another Bridge account. Use a separate --config file and policy location; keep existing journals for replay protection.",
 		);
