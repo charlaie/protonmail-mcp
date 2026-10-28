@@ -1,9 +1,10 @@
 import type { BridgeConfig } from "@/bridge/config.js";
+import { createSearchCursorCodec } from "@/bridge/imap/reading/cursor.js";
 import {
 	type MessageFilter,
 	readMessage,
-	searchMessages,
 } from "@/bridge/imap/reading/messages.js";
+import { searchMessagePage } from "@/bridge/imap/reading/pagination.js";
 import type { SearchMessagesInput } from "@/bridge/imap/reading/requests.js";
 import {
 	getThread,
@@ -50,6 +51,7 @@ export function createImapService(
 	} = {},
 ) {
 	const run = dependencies.run ?? createImapSession(config);
+	const cursors = createSearchCursorCodec();
 	return {
 		createMailbox: (
 			input: CreateMailboxInput,
@@ -60,8 +62,21 @@ export function createImapService(
 
 		listMailboxes: () => run(listMailboxes),
 
-		searchMessages: (input: SearchMessagesInput, accepts: MessageFilter) =>
-			run((client) => searchMessages(client, input, accepts)),
+		searchMessages: (
+			request: SearchMessagesInput,
+			accepts: MessageFilter,
+			policyFingerprint: string,
+		) =>
+			run((client) =>
+				searchMessagePage({
+					client,
+					request,
+					accepts,
+					account: config.user,
+					policyFingerprint,
+					cursors,
+				}),
+			),
 
 		getMessage: (input: GetMessageInput, accepts: MessageFilter) =>
 			run((client) => readMessage(client, input, accepts)),

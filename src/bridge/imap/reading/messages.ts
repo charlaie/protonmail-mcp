@@ -2,7 +2,6 @@ import { htmlToText } from "html-to-text";
 import type { FetchMessageObject } from "imapflow";
 import { type ParsedMail, simpleParser } from "mailparser";
 import {
-	messageReceivedTime,
 	messageSummary,
 	parsedAddressEmails,
 	parsedAddressText,
@@ -16,8 +15,6 @@ import {
 	withinMessageReadLimit,
 } from "@/mail/message.js";
 import { MailError } from "@/shared/mail-error.js";
-import type { SearchMessagesInput } from "./requests.js";
-import { buildSearchQuery } from "./search.js";
 
 export type MessageFilter = (
 	mailbox: string,
@@ -71,37 +68,6 @@ function headerValues(value: string | string[] | undefined) {
 
 export function parseMessageIds(value: string | string[] | undefined) {
 	return [...new Set(headerValues(value).flatMap(messageIdsInHeader))];
-}
-
-function newestFirst(left: FetchMessageObject, right: FetchMessageObject) {
-	return (
-		messageReceivedTime(right) - messageReceivedTime(left) ||
-		right.uid - left.uid
-	);
-}
-
-export async function searchMessages(
-	client: ImapClient,
-	input: SearchMessagesInput,
-	accepts: MessageFilter,
-) {
-	const mailbox = await client.mailboxOpen(input.mailbox, { readOnly: true });
-	const uidValidity = mailbox.uidValidity.toString();
-	const uids = await client.search(buildSearchQuery(input), { uid: true });
-	if (uids === false)
-		throw new Error(
-			"Proton Bridge could not complete the message search. Try again.",
-		);
-
-	let newest: FetchMessageObject[] = [];
-	for (const batch of uidBatches(uids)) {
-		const fetched = await client.fetchAll(batch, SUMMARY_FIELDS, { uid: true });
-		const accepted = fetched.filter((message) =>
-			accepts(input.mailbox, messageSummary(message, uidValidity)),
-		);
-		newest = [...newest, ...accepted].sort(newestFirst).slice(0, input.limit);
-	}
-	return newest.map((message) => messageSummary(message, uidValidity));
 }
 
 function unavailable(reason: string): ReadResult<never> {

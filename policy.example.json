@@ -5,6 +5,7 @@
 		"list_mailboxes",
 		"search_messages",
 		"get_message",
+		"batch_get_messages",
 		"get_thread",
 		"list_attachments"
 	],

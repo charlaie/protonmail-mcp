@@ -154,7 +154,10 @@ export class FakeImap extends EventEmitter implements ImapClient {
 			flags: new Set<string>(),
 			uidValidity: this.uidValidity,
 			permanentFlags: this.permanentFlags,
-			uidNext: 100,
+			uidNext: this.currentMessages().reduce(
+				(next, message) => Math.max(next, message.uid + 1),
+				100,
+			),
 			exists: this.currentMessages().length,
 		};
 	}

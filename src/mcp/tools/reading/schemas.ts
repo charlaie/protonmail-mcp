@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { SearchPageSchema } from "@/bridge/imap/reading/pagination.js";
 import { MessageBodySchema, MessageSummarySchema } from "@/mail/message.js";
+import { BatchReadSchema } from "@/mail/reading/batch.js";
 import { ToolErrorSchema } from "@/shared/mail-error.js";
 
 export const GetMessageOutputSchema = z.union([
@@ -7,10 +9,11 @@ export const GetMessageOutputSchema = z.union([
 	ToolErrorSchema,
 ]);
 export const SearchOutputSchema = z.union([
-	z.object({
-		status: z.literal("ok"),
-		messages: z.array(MessageSummarySchema),
-	}),
+	SearchPageSchema.and(z.object({ status: z.literal("ok") })),
+	ToolErrorSchema,
+]);
+export const BatchGetMessagesOutputSchema = z.union([
+	BatchReadSchema,
 	ToolErrorSchema,
 ]);
 const MailboxSchema = z.object({

@@ -24,6 +24,7 @@ src/
 │   ├── access.ts                    Compose policy-authorized mail access
 │   ├── identity.ts                  Physical mailbox identity
 │   ├── message.ts                   Shared received-message contracts
+│   ├── reading/                     Ordered batch reads and aggregate output budgets
 │   ├── mailboxes.ts                 Selectable special-mailbox resolution
 │   ├── drafts/
 │   │   ├── workflow.ts              Authorized creation, reply composition, and replay
@@ -88,6 +89,8 @@ Inbox changes track the current attempt separately from the durable journal outc
 Setup and runtime use `mail/mailboxes.ts` to resolve Drafts, Sent, Archive, and Trash. Server-declared roles take precedence over conventional folder names, and non-selectable namespaces are excluded.
 
 Draft composition distinguishes creation from editing; an edit requires its parsed original. Composition produces MIME bytes without writing to IMAP. The draft service owns the journal claim and APPEND. `drafts/workflow.ts` coordinates mailbox authorization, reply-source reads, composition, and replay; MCP registrations only translate requests and responses.
+
+Search pagination lives in `bridge/imap/reading/`: an ephemeral authenticated cursor binds the received-date/UID position and initial UID ceiling to the query, account and policy. Mail access supplies the current policy fingerprint; MCP handlers only translate the page. No result snapshots are persisted. `mail/reading/batch.ts` owns ordered batch outcomes and output budgets and calls the canonical authorized single-message read path sequentially.
 
 Message and draft reads share the 10 MiB size rule for advertised sizes and actual fetched bytes. Both authorize parsed sender addresses before returning message content, in addition to checking the IMAP envelope before fetching it.
 

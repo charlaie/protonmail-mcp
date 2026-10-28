@@ -31,6 +31,10 @@ import { MailError } from "@/shared/mail-error.js";
 import type { GetMessageInput } from "./identity.js";
 import { findSpecialMailbox } from "./mailboxes.js";
 import type { MessageSummary } from "./message.js";
+import {
+	type BatchGetMessagesInput,
+	batchGetMessages,
+} from "./reading/batch.js";
 
 export type AttachmentApprovalInput = {
 	bridgeUser: string;
@@ -275,7 +279,7 @@ export async function createMailAccess(
 
 	async function searchMessages(input: SearchMessagesInput) {
 		requireMailbox(input.mailbox);
-		return imap.searchMessages(input, accepts);
+		return imap.searchMessages(input, accepts, hashContent(policy));
 	}
 
 	async function getMessage(input: GetMessageInput) {
@@ -374,6 +378,8 @@ export async function createMailAccess(
 		findSentCopies,
 		searchMessages,
 		getMessage,
+		batchGetMessages: (request: BatchGetMessagesInput) =>
+			batchGetMessages({ request, read: getMessage }),
 		getThread,
 		listAttachments,
 		prepareAttachmentRead,

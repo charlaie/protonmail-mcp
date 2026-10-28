@@ -6,12 +6,14 @@ import {
 import type { ImapService } from "@/bridge/imap/service.js";
 import type { MailAccess } from "@/mail/access.js";
 import { GetMessageSchema } from "@/mail/identity.js";
+import { BatchGetMessagesSchema } from "@/mail/reading/batch.js";
 import { READ_ONLY_TOOL } from "@/mcp/protocol/annotations.js";
 import { jsonResponse } from "@/mcp/protocol/responses.js";
 import type { ToolRegistry } from "@/mcp/protocol/tool-registry.js";
 import { canReadMailbox, readPolicyStatus } from "@/policy/enforcement.js";
 import { loadReadPolicy } from "@/policy/store.js";
 import {
+	BatchGetMessagesOutputSchema,
 	GetMessageOutputSchema,
 	MailboxesOutputSchema,
 	SearchOutputSchema,
@@ -70,7 +72,7 @@ export function registerReadTools(input: {
 		{
 			title: "Search messages",
 			description:
-				"Search allowed Proton Bridge mailboxes. Returns newest allowed summaries by received date, up to limit, after applying sender policy. Bodies and attachments are omitted. Keep UIDVALIDITY with each UID for later reads or edits. Run protonmail-mcp setup to configure access.",
+				"Search allowed Proton Bridge mailboxes. Returns newest allowed messages by received date with descending UID ties. projection=ids returns complete mailbox/UID/UIDVALIDITY references only. Sender policy applies to both projections. Follow nextCursor with identical arguments to continue; null ends the search. Cursors expire after 15 minutes and reset on restart or policy change; omit cursor to restart. New arrivals after the first page are excluded, deletions disappear. Bodies and attachments are omitted. Run protonmail-mcp setup to configure access.",
 			inputSchema: SearchMessagesSchema,
 			outputSchema: SearchOutputSchema,
 			annotations: READ_ONLY_TOOL,
@@ -79,7 +81,7 @@ export function registerReadTools(input: {
 			const mail = await mailAccess();
 			return jsonResponse({
 				status: "ok",
-				messages: await mail.searchMessages(query),
+				...(await mail.searchMessages(query)),
 			});
 		},
 	);
@@ -97,6 +99,22 @@ export function registerReadTools(input: {
 		async (identity) => {
 			const mail = await mailAccess();
 			return jsonResponse(await mail.getMessage(identity));
+		},
+	);
+
+	server.registerTool(
+		"batch_get_messages",
+		{
+			title: "Read a batch of messages",
+			description:
+				"Read 1–20 complete mailbox/UID/UIDVALIDITY references sequentially, preserving request order. Uses get_message policy and plain-text behavior; no attachments or writes. Per-item kinds distinguish found, denied, not_found, stale_identity, unavailable, failed and budget_exhausted. Stops before returning more than 500,000 text characters or 1 MiB of JSON; bodies are never truncated. Retry budget-exhausted items in a smaller batch or use get_message. A completed batch has isError=false even with item failures; outer authorization/validation failures have isError=true.",
+			inputSchema: BatchGetMessagesSchema,
+			outputSchema: BatchGetMessagesOutputSchema,
+			annotations: READ_ONLY_TOOL,
+		},
+		async (request) => {
+			const mail = await mailAccess();
+			return jsonResponse(await mail.batchGetMessages(request));
 		},
 	);
 

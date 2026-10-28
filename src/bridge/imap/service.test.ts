@@ -86,12 +86,13 @@ test("search filters before limiting and fetches metadata in bounded batches", a
 	const messages = await service(client).searchMessages(
 		SearchMessagesSchema.parse({ mailbox: "INBOX", limit: 2 }),
 		accepts,
+		hashContent(policy),
 	);
 	assert.deepEqual(
-		messages.map((message) => message.uid),
+		messages.messages.map((message) => message.uid),
 		[5, 4],
 	);
-	assert.equal(messages[0]?.uidValidity, "7");
+	assert.equal(messages.messages[0]?.uidValidity, "7");
 	assert.ok(client.fetchBatchSizes.every((size) => size <= 200));
 	assert.equal(client.sourceFetches, 0);
 });
@@ -103,6 +104,7 @@ test("failed SEARCH is an error, not an empty result", async () => {
 		service(client).searchMessages(
 			SearchMessagesSchema.parse({ mailbox: "INBOX" }),
 			allowAllMessages,
+			"test-policy",
 		),
 		/could not complete/,
 	);

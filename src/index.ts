@@ -304,7 +304,7 @@ async function runBridgeCommand(
 			query: queryWords.length ? queryWords.join(" ") : undefined,
 			limit: 10,
 		});
-		printJson(await mail.searchMessages(request));
+		printJson((await mail.searchMessages(request)).messages);
 		return;
 	}
 

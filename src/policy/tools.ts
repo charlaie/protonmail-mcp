@@ -4,6 +4,7 @@ export const ToolNameSchema = z.enum([
 	"list_mailboxes",
 	"search_messages",
 	"get_message",
+	"batch_get_messages",
 	"get_thread",
 	"list_attachments",
 	"get_attachment",
@@ -66,6 +67,7 @@ function policyIndependentTool(
 export const TOOL_DEFINITIONS = {
 	list_mailboxes: policyIndependentTool("List mailboxes", "Reading"),
 	search_messages: readTool("Search messages", "Reading"),
+	batch_get_messages: readTool("Read a batch of messages", "Reading"),
 	get_message: readTool("Read messages", "Reading"),
 	get_thread: readTool("Read threads", "Reading"),
 	list_attachments: readTool("List attachment metadata", "Attachments"),

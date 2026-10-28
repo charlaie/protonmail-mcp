@@ -124,6 +124,7 @@ test("stdio loads an explicit JSON config, advertises grants, and checks policy 
 	assert.deepEqual(
 		listed.result.tools.map((tool) => tool.name).sort(),
 		[
+			"batch_get_messages",
 			"create_draft",
 			"create_mailbox",
 			"create_reply_draft",

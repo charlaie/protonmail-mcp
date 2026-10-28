@@ -39,13 +39,27 @@ export const SearchMessagesSchema = z
 		before: DateStringSchema.optional().describe(
 			"Only include messages received before this date.",
 		),
+		projection: z
+			.enum(["summary", "ids"])
+			.default("summary")
+			.describe(
+				"Return summaries (default) or complete physical message identities only.",
+			),
+		cursor: z
+			.string()
+			.min(1)
+			.max(2048)
+			.optional()
+			.describe(
+				"Opaque nextCursor from a previous page. Repeat the same filters, projection and limit. Omit to restart.",
+			),
 		limit: z
 			.number()
 			.int()
 			.min(1)
 			.max(100)
 			.default(20)
-			.describe("Maximum number of newest matching messages to return."),
+			.describe("Maximum number of newest matching messages per page."),
 	})
 	.refine(
 		(input) => !input.since || !input.before || input.since < input.before,
