@@ -1,8 +1,9 @@
-import { rename, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type ReadPolicy, ReadPolicySchema } from "@/policy/schema.js";
 import {
 	readOptionalTextFile,
+	replacePrivateFile,
 	stagePrivateFile,
 	writePrivateFile,
 } from "@/shared/private-file.js";
@@ -32,7 +33,7 @@ export async function commitSettings(
 		expectedConfig: string | null;
 		expectedPolicy: string | null;
 	},
-	replace: typeof rename = rename,
+	replace: typeof replacePrivateFile = replacePrivateFile,
 ) {
 	const configPath = resolve(input.configPath);
 	const config = resolveServerConfig(input.config, configPath);

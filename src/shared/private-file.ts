@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 export async function readOptionalTextFile(
 	path: string,
@@ -34,10 +35,36 @@ export async function stagePrivateFile(path: string, contents: string) {
 export async function writePrivateFile(path: string, contents: string) {
 	const temporaryPath = await stagePrivateFile(path, contents);
 	try {
-		await rename(temporaryPath, path);
+		await replacePrivateFile(temporaryPath, path);
 	} finally {
 		await rm(temporaryPath, { force: true });
 	}
+}
+
+export async function replacePrivateFile(source: string, destination: string) {
+	// Windows readers and virus scanners can briefly prevent replacement. Keep
+	// retrying the rename itself so readers always see a complete, private file.
+	for (let attempt = 0; ; attempt++) {
+		try {
+			await rename(source, destination);
+			return;
+		} catch (error) {
+			if (attempt >= 6 || !isWindowsReplacementError(error)) throw error;
+			await delay(25 * 2 ** attempt);
+		}
+	}
+}
+
+function isWindowsReplacementError(error: unknown) {
+	return (
+		process.platform === "win32" &&
+		error !== null &&
+		typeof error === "object" &&
+		"code" in error &&
+		(error.code === "EPERM" ||
+			error.code === "EACCES" ||
+			error.code === "EBUSY")
+	);
 }
 
 export function isMissingFile(error: unknown) {
