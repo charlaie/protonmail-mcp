@@ -3,6 +3,7 @@ import { DraftOperationSchema } from "@/mail/drafts/model.js";
 import { DraftIdSchema } from "@/mail/drafts/requests.js";
 import { GetMessageSchema } from "@/mail/identity.js";
 import { MediaMetadataSchema } from "@/mail/outgoing/media/model.js";
+import { TextPageSchema } from "@/mail/reading/view.js";
 import { RetrySchema, ToolErrorSchema } from "@/shared/mail-error.js";
 
 export const DraftRecordOutputSchema = DraftOperationSchema.omit({
@@ -29,6 +30,7 @@ export const GetDraftOutputSchema = z.union([
 		bcc: z.array(z.string()),
 		subject: z.string(),
 		text: z.string(),
+		textPage: TextPageSchema,
 		media: z.array(MediaMetadataSchema),
 	}),
 	ToolErrorSchema,

@@ -12,6 +12,7 @@
 	},
 	"scripts": {
 		"check": "biome check --write",
+		"measure:tools": "pnpm build && node --test build/mcp/integration/tool-footprint.test.js",
 		"test": "pnpm build && node --test \"build/**/*.test.js\" && node build/policy/test.js",
 		"prepack": "pnpm build",
 		"build": "node scripts/build.mjs",

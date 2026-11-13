@@ -24,14 +24,23 @@ const NameSchema = z
 		"Use a single folder or label name without separators, control characters, or surrounding whitespace.",
 	);
 
-export const CreateMailboxSchema = z.discriminatedUnion("kind", [
-	z.strictObject({
-		kind: z.literal("folder"),
+// One object rather than a union: some hosts rewrite top-level input unions.
+export const CreateMailboxSchema = z
+	.strictObject({
+		kind: MailboxCreationKindSchema,
 		name: NameSchema,
-		parent: z.string().min(1).optional(),
-	}),
-	z.strictObject({ kind: z.literal("label"), name: NameSchema }),
-]);
+		parent: z
+			.string()
+			.min(1)
+			.optional()
+			.describe(
+				"Existing custom folder path such as Folders/Projects. Folders only; labels cannot have a parent.",
+			),
+	})
+	.refine((input) => input.kind === "folder" || input.parent === undefined, {
+		path: ["parent"],
+		message: "Labels cannot have a parent. Omit parent for kind label.",
+	});
 export type CreateMailboxInput = z.infer<typeof CreateMailboxSchema>;
 
 type MailboxAvailable = {

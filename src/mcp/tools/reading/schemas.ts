@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { SearchPageSchema } from "@/bridge/imap/reading/pagination.js";
-import { MessageBodySchema, MessageSummarySchema } from "@/mail/message.js";
+import { MessageSummarySchema } from "@/mail/message.js";
 import { BatchReadSchema } from "@/mail/reading/batch.js";
+import { NextOffsetSchema } from "@/mail/reading/list-page.js";
+import { MessageViewSchema } from "@/mail/reading/view.js";
 import { ToolErrorSchema } from "@/shared/mail-error.js";
 
 export const GetMessageOutputSchema = z.union([
-	MessageBodySchema,
+	MessageViewSchema,
 	ToolErrorSchema,
 ]);
 export const SearchOutputSchema = z.union([
@@ -37,7 +39,7 @@ const MailboxSchema = z.object({
 	policyStatus: z.enum(["ok", "not_configured", "account_mismatch"]),
 });
 export const MailboxesOutputSchema = z.union([
-	z.object({ mailboxes: z.array(MailboxSchema) }),
+	z.object({ mailboxes: z.array(MailboxSchema), nextOffset: NextOffsetSchema }),
 	ToolErrorSchema,
 ]);
 
@@ -56,6 +58,7 @@ export const ThreadOutputSchema = z.union([
 		reconstruction: z.literal("best_effort_message_headers"),
 		threadKey: z.string().optional(),
 		limitReached: z.boolean(),
+		discoveryComplete: z.boolean(),
 		messages: z.array(
 			z.union([
 				ThreadSummarySchema.extend({ bodyStatus: z.literal("not_requested") }),
@@ -63,7 +66,8 @@ export const ThreadOutputSchema = z.union([
 					bodyStatus: z.literal("unavailable"),
 					reason: z.string(),
 				}),
-				ThreadSummarySchema.extend(MessageBodySchema.shape).extend({
+				ThreadSummarySchema.extend({
+					text: z.string(),
 					bodyStatus: z.literal("included"),
 				}),
 			]),

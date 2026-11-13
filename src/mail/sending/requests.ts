@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { DraftIdSchema } from "@/mail/drafts/requests.js";
+import {
+	DraftIdSchema,
+	requireOneDraftLocator,
+} from "@/mail/drafts/requests.js";
 import {
 	GetMessageSchema,
 	UidSchema,
@@ -49,17 +52,30 @@ export const ForwardEmailSchema = z
 	})
 	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
 
-export const SendDraftSchema = z.object({
-	operationId: OperationIdSchema,
-	uidValidity: UidValiditySchema,
-	uid: UidSchema,
-});
-export const SendDraftRequestSchema = z.union([
-	SendDraftSchema.strict(),
-	z.strictObject({
+export const SendDraftRequestSchema = z
+	.strictObject({
 		operationId: OperationIdSchema,
-		draftId: DraftIdSchema,
-	}),
-]);
+		draftId: DraftIdSchema.optional(),
+		uidValidity: UidValiditySchema.optional().describe(
+			"Use with uid when draftId is omitted.",
+		),
+		uid: UidSchema.optional().describe(
+			"Use with uidValidity when draftId is omitted.",
+		),
+	})
+	.superRefine(requireOneDraftLocator(["uid", "uidValidity"]))
+	.transform(
+		({ operationId, draftId, uid, uidValidity }): SendDraftRequest =>
+			draftId === undefined
+				? {
+						operationId,
+						uid: UidSchema.parse(uid),
+						uidValidity: UidValiditySchema.parse(uidValidity),
+					}
+				: { operationId, draftId },
+	);
+export type SendDraftRequest =
+	| { operationId: string; draftId: string }
+	| { operationId: string; uid: number; uidValidity: string };
 
 export type SendEmailInput = z.infer<typeof SendEmailSchema>;

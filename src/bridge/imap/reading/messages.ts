@@ -15,6 +15,7 @@ import {
 	withinMessageReadLimit,
 } from "@/mail/message.js";
 import { MailError } from "@/shared/mail-error.js";
+import type { MessageCache } from "./cache.js";
 
 export type MessageFilter = (
 	mailbox: string,
@@ -106,6 +107,7 @@ function messageContent(
 			from: parsedAddressEmails(parsed.from),
 			to: parsedAddressEmails(parsed.to),
 			cc: parsedAddressEmails(parsed.cc),
+			bcc: parsedAddressEmails(parsed.bcc),
 			replyTo: parsedAddressEmails(parsed.replyTo),
 		},
 		text: plainText(parsed),
@@ -118,6 +120,7 @@ export async function readMessage(
 	client: ImapClient,
 	input: GetMessageInput,
 	accepts: MessageFilter,
+	cache?: MessageCache,
 ): Promise<ReadResult<MessageContent>> {
 	const mailbox = await client.mailboxOpen(input.mailbox, { readOnly: true });
 	checkUidValidity(input.uidValidity, mailbox.uidValidity);
@@ -134,6 +137,15 @@ export async function readMessage(
 		return unavailable(
 			"Message content exceeds the 10 MiB read limit or its size is unavailable. Read it in Proton Mail instead.",
 		);
+
+	const cached = cache?.get(input, summary.size);
+	if (cached) {
+		if (!accepts(input.mailbox, cached)) return { kind: "denied" };
+		return {
+			kind: "found",
+			value: { ...cached, flags: [...(summary.flags ?? [])] },
+		};
+	}
 
 	const fetched = await client.fetchOne(
 		String(input.uid),
@@ -163,8 +175,7 @@ export async function readMessage(
 	};
 	if (!accepts(input.mailbox, parsedSummary)) return { kind: "denied" };
 
-	return {
-		kind: "found",
-		value: messageContent(parsedSummary, parsed, fetched),
-	};
+	const value = messageContent(parsedSummary, parsed, fetched);
+	cache?.set(input, value);
+	return { kind: "found", value };
 }

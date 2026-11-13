@@ -4,7 +4,10 @@ import { test } from "node:test";
 import { simpleParser } from "mailparser";
 import { testConfig } from "@/bridge/testing/fixtures.js";
 import { composeDraft } from "@/mail/drafts/composition/compose.js";
-import { CreateDraftSchema, EditDraftSchema } from "@/mail/drafts/requests.js";
+import {
+	CreateDraftSchema,
+	EditDraftRequestSchema,
+} from "@/mail/drafts/requests.js";
 import { draftContentHash } from "@/mail/drafts/snapshots.js";
 import { newEmailMessage, sendContentHash } from "@/mail/sending/model.js";
 import { SendEmailSchema } from "@/mail/sending/requests.js";
@@ -277,7 +280,7 @@ test("media changes bind send hashes and plain messages carry an empty manifest"
 		inlineImages: [],
 	});
 	assert.deepEqual(plain.media, []);
-	const patch = EditDraftSchema.parse({
+	const patch = EditDraftRequestSchema.parse({
 		operationId: randomUUID(),
 		uid: 1,
 		uidValidity: "7",

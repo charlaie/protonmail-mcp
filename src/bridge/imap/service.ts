@@ -1,4 +1,5 @@
 import type { BridgeConfig } from "@/bridge/config.js";
+import { createMessageCache } from "@/bridge/imap/reading/cache.js";
 import { createSearchCursorCodec } from "@/bridge/imap/reading/cursor.js";
 import {
 	type MessageFilter,
@@ -52,6 +53,7 @@ export function createImapService(
 ) {
 	const run = dependencies.run ?? createImapSession(config);
 	const cursors = createSearchCursorCodec();
+	const cache = createMessageCache();
 	return {
 		createMailbox: (
 			input: CreateMailboxInput,
@@ -78,8 +80,19 @@ export function createImapService(
 				}),
 			),
 
-		getMessage: (input: GetMessageInput, accepts: MessageFilter) =>
-			run((client) => readMessage(client, input, accepts)),
+		getMessage: (
+			input: GetMessageInput,
+			accepts: MessageFilter,
+			options: { reuseContent?: boolean } = {},
+		) =>
+			run((client) =>
+				readMessage(
+					client,
+					input,
+					accepts,
+					options.reuseContent ? cache : undefined,
+				),
+			),
 
 		listAttachments: (
 			input: GetMessageInput,
@@ -110,7 +123,7 @@ export function createImapService(
 			run((client) => findMessageCopies(client, mailbox, messageId, accepts)),
 
 		getThread: (input: ThreadLookupInput, accepts: MessageFilter) =>
-			run((client) => getThread(client, input, accepts)),
+			run((client) => getThread(client, input, accepts, cache)),
 	};
 }
 

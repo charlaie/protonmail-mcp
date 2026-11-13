@@ -229,3 +229,56 @@ test("reply draft tools accept explicitly supplied files and images and expose m
 	assert.equal(JSON.stringify(draft).includes("contentBase64"), false);
 	assert.equal(imapClient.appends.length, 1);
 });
+
+test("draft pages reconstruct a long body and reject a changed revision", async (t) => {
+	const { callTool, request } = await fixture(t);
+	const text = `${"a".repeat(3999)}😀${"b".repeat(6000)}`;
+	const created = DraftOperationOutputSchema.parse(
+		await callTool("create_draft", { operationId: randomUUID(), text }),
+	);
+	assert.ok("outcome" in created && "identity" in created.outcome);
+	const first = GetDraftOutputSchema.parse(
+		await callTool("get_draft", created.outcome.identity),
+	);
+	assert.ok("revision" in first);
+	assert.equal(first.text.length, 3999);
+	assert.equal(first.textPage.nextOffset, 3999);
+	const next = GetDraftOutputSchema.parse(
+		await callTool("get_draft", {
+			draftId: first.draftId,
+			textOffset: first.textPage.nextOffset,
+			expectedRevision: first.revision,
+			textLimit: 16_000,
+		}),
+	);
+	assert.ok("revision" in next);
+	assert.equal((first.text + next.text).trimEnd(), text);
+	assert.equal(first.text.length + next.text.length, first.textPage.totalChars);
+	assert.equal(next.textPage.nextOffset, null);
+	const missingRevision = (
+		await request("tools/call", {
+			name: "get_draft",
+			arguments: { draftId: first.draftId, textOffset: 3999 },
+		})
+	).result;
+	assert.ok(isSpecType.CallToolResult(missingRevision));
+	assert.equal(missingRevision.isError, true);
+	const edited = DraftOperationOutputSchema.parse(
+		await callTool("edit_draft", {
+			draftId: first.draftId,
+			expectedRevision: first.revision,
+			operationId: randomUUID(),
+			text: "changed",
+		}),
+	);
+	assert.ok("outcome" in edited && edited.outcome.status === "completed");
+	const stale = GetDraftOutputSchema.parse(
+		await callTool("get_draft", {
+			draftId: first.draftId,
+			textOffset: 3999,
+			expectedRevision: first.revision,
+		}),
+	);
+	assert.ok("error" in stale);
+	assert.equal(stale.error.code, "STALE_IDENTITY");
+});

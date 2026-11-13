@@ -11,9 +11,13 @@ import { createSendService } from "@/mail/sending/service.js";
 import { permissiveChecks } from "@/mail/sending/test-fixtures.js";
 import { createDraftStore } from "@/operations/sqlite/drafts.js";
 import { createSendStore } from "@/operations/sqlite/sending.js";
-import { CreateDraftSchema, EditDraftSchema } from "./requests.js";
+import { CreateDraftSchema } from "./requests.js";
 import { createDraftService } from "./service.js";
-import { allowAllWrites, permissiveDraftChecks } from "./test-fixtures.js";
+import {
+	allowAllWrites,
+	permissiveDraftChecks,
+	physicalEdit,
+} from "./test-fixtures.js";
 
 async function fixture(t: TestContext, client = new FakeImap()) {
 	const directory = await mkdtemp(join(tmpdir(), "protonmail-draft-media-"));
@@ -46,7 +50,7 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 	assert.equal(before.media.length, 2);
 	assert.equal(JSON.stringify(before).includes("contentBase64"), false);
 	const patch = {
-		...EditDraftSchema.parse({
+		...physicalEdit({
 			operationId: randomUUID(),
 			...created.outcome.identity,
 			expectedRevision: before.revision,
@@ -74,7 +78,7 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 		testImage,
 	);
 	const clearedFiles = await drafts.edit({
-		request: EditDraftSchema.parse({
+		request: physicalEdit({
 			operationId: randomUUID(),
 			...edited.outcome.identity,
 			expectedRevision: preserved.fingerprint,
@@ -91,7 +95,7 @@ test("draft attachment and inline-image bytes survive patch omission and explici
 	assert.equal(inlineOnly.message.media.length, 1);
 	assert.equal(inlineOnly.message.media[0]?.kind, "inline");
 	const clearedImages = await drafts.edit({
-		request: EditDraftSchema.parse({
+		request: physicalEdit({
 			operationId: randomUUID(),
 			...clearedFiles.outcome.identity,
 			expectedRevision: inlineOnly.fingerprint,
@@ -191,7 +195,7 @@ test("arbitrary HTML on a supported image draft is refused intact before read, e
 	);
 	await assert.rejects(
 		drafts.edit({
-			request: EditDraftSchema.parse({
+			request: physicalEdit({
 				operationId: randomUUID(),
 				...identity,
 				expectedRevision: before.revision,

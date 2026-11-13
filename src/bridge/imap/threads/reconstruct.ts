@@ -1,5 +1,6 @@
 import type { FetchMessageObject } from "imapflow";
 import { simpleParser } from "mailparser";
+import type { MessageCache } from "@/bridge/imap/reading/cache.js";
 import {
 	checkUidValidity,
 	type MessageFilter,
@@ -28,10 +29,16 @@ export type ThreadLookupInput = Omit<GetThreadInput, "mailboxes"> & {
 type ThreadMessage = Awaited<ReturnType<typeof toThreadMessage>>;
 
 type ThreadMessageContent =
-	| (ThreadMessage & MessageContent & { bodyStatus: "included" })
+	| (ThreadMessage & { text: string; bodyStatus: "included" })
 	| (ThreadMessage & { bodyStatus: "unavailable"; reason: string });
 
-const THREAD_BODY_LIMIT = 500_000;
+const THREAD_BODY_LIMIT = 32_000;
+export const THREAD_DISCOVERY_LIMITS = {
+	candidates: 1_000,
+	searches: 100,
+	idsPerSearch: 100,
+};
+type DiscoveryBudget = { candidates: number; searches: number };
 
 function messageLocation(mailbox: string, uid: number) {
 	return JSON.stringify([mailbox, uid]);
@@ -113,10 +120,8 @@ class ThreadAssembly {
 	private readonly searchedIds = new Set<string>();
 	private readonly pendingIds = new Set<string>();
 
-	constructor(private readonly limit: number) {}
-
-	get isFull() {
-		return this.members.size >= this.limit;
+	get size() {
+		return this.members.size;
 	}
 
 	get hasPendingIds() {
@@ -124,8 +129,11 @@ class ThreadAssembly {
 	}
 
 	takePendingIds() {
-		const ids = [...this.pendingIds];
-		this.pendingIds.clear();
+		const ids = [...this.pendingIds].slice(
+			0,
+			THREAD_DISCOVERY_LIMITS.idsPerSearch,
+		);
+		for (const id of ids) this.pendingIds.delete(id);
 		for (const id of ids) this.searchedIds.add(id);
 		return ids;
 	}
@@ -161,12 +169,32 @@ class ThreadAssembly {
 	addRelated(messages: Iterable<ThreadMessage>) {
 		for (const message of messages) {
 			if (this.isRelated(message)) this.add(message);
-			if (this.isFull) return;
 		}
 	}
 
 	chronological() {
 		return [...this.members.values()].sort(compareChronologically);
+	}
+
+	/** Keeps the anchor and the newest other members, in chronological order. */
+	newest(anchor: ThreadMessage, limit: number) {
+		const members = this.chronological();
+		if (members.length <= limit) return members;
+		const anchorMember = this.memberOf(anchor);
+		const others = members.filter((member) => member !== anchorMember);
+		const kept = new Set(others.slice(others.length - (limit - 1)));
+		return members.filter(
+			(member) => member === anchorMember || kept.has(member),
+		);
+	}
+
+	private memberOf(message: ThreadMessage) {
+		const key =
+			threadIdentityIds(message)
+				.map((id) => this.memberKeyById.get(id))
+				.find((value) => value !== undefined) ??
+			messageLocation(message.mailbox, message.uid);
+		return this.members.get(key);
 	}
 
 	private mergeInto(duplicateKey: string, memberKey: string) {
@@ -223,19 +251,24 @@ async function collectFromMailbox(
 	thread: ThreadAssembly,
 	candidates: ThreadCandidates,
 	accepts: MessageFilter,
+	budget: DiscoveryBudget,
 ) {
+	if (budget.searches <= 0) return false;
+	budget.searches--;
 	const selected = await client.mailboxOpen(mailbox, { readOnly: true });
 	const uidValidity = selected.uidValidity.toString();
 	const uids = await searchThreadHeaders(client, mailbox, frontier);
 	const unseen = uids.filter((uid) => !candidates.isKnown(mailbox, uid));
 
 	for (const batch of uidBatches(unseen)) {
-		if (thread.isFull) break;
+		if (budget.candidates <= 0) return false;
+		const selectedBatch = batch.slice(0, budget.candidates);
+		budget.candidates -= selectedBatch.length;
 		const messages = await fetchThreadMessages(
 			client,
 			mailbox,
 			uidValidity,
-			batch,
+			selectedBatch,
 		);
 		for (const message of messages) {
 			if (!accepts(mailbox, message)) {
@@ -245,9 +278,10 @@ async function collectFromMailbox(
 			candidates.accept(message);
 			// HEADER search matches substrings. Traverse only exact parsed IDs.
 			thread.addRelated([message]);
-			if (thread.isFull) break;
 		}
+		if (selectedBatch.length < batch.length) return false;
 	}
+	return true;
 }
 
 async function expandThread(
@@ -257,7 +291,11 @@ async function expandThread(
 	candidates: ThreadCandidates,
 	accepts: MessageFilter,
 ) {
-	while (thread.hasPendingIds && !thread.isFull) {
+	const budget = {
+		candidates: THREAD_DISCOVERY_LIMITS.candidates - 1,
+		searches: THREAD_DISCOVERY_LIMITS.searches,
+	};
+	while (thread.hasPendingIds) {
 		const frontier = thread.takePendingIds();
 
 		// A substring miss can become related when another message reveals its ID.
@@ -265,17 +303,21 @@ async function expandThread(
 
 		// One search per mailbox and frontier. Commands share the selected mailbox.
 		for (const mailbox of mailboxes) {
-			if (thread.isFull) break;
-			await collectFromMailbox(
-				client,
-				mailbox,
-				frontier,
-				thread,
-				candidates,
-				accepts,
-			);
+			if (
+				!(await collectFromMailbox(
+					client,
+					mailbox,
+					frontier,
+					thread,
+					candidates,
+					accepts,
+					budget,
+				))
+			)
+				return false;
 		}
 	}
+	return true;
 }
 
 function bodyUnavailableReason(result: ReadResult<MessageContent>) {
@@ -283,38 +325,44 @@ function bodyUnavailableReason(result: ReadResult<MessageContent>) {
 		case "unavailable":
 			return result.reason;
 		case "found":
-			return "Body exceeds the remaining thread limit of 500,000 characters. Use get_message for this body.";
+			return "Body exceeds the remaining thread limit of 32,000 characters; newer bodies are included first. Use get_message for this body.";
 		default:
 			return result.kind;
 	}
 }
 
+/** Spends the text budget on the newest bodies first; output stays chronological. */
 async function readThreadBodies(
 	client: ImapClient,
 	summaries: ThreadMessage[],
 	accepts: MessageFilter,
+	cache?: MessageCache,
 ) {
 	const messages: ThreadMessageContent[] = [];
 	let remainingCharacters = THREAD_BODY_LIMIT;
 
-	for (const message of summaries) {
+	for (const message of [...summaries].reverse()) {
 		if (remainingCharacters <= 0) {
 			messages.push({
 				...message,
 				bodyStatus: "unavailable",
 				reason:
-					"Thread body limit of 500,000 characters reached. Use get_message for this body.",
+					"Thread body limit of 32,000 characters reached; newer bodies are included first. Use get_message for this body.",
 			});
 			continue;
 		}
 
-		const result = await readMessage(client, message, accepts);
+		const result = await readMessage(client, message, accepts, cache);
 		if (
 			result.kind === "found" &&
 			result.value.text.length <= remainingCharacters
 		) {
 			remainingCharacters -= result.value.text.length;
-			messages.push({ ...message, ...result.value, bodyStatus: "included" });
+			messages.push({
+				...message,
+				text: result.value.text,
+				bodyStatus: "included",
+			});
 			continue;
 		}
 
@@ -322,7 +370,7 @@ async function readThreadBodies(
 		messages.push({ ...message, bodyStatus: "unavailable", reason });
 	}
 
-	return { messages };
+	return { messages: messages.reverse() };
 }
 
 function withoutBodies(summaries: ThreadMessage[]) {
@@ -334,11 +382,22 @@ function withoutBodies(summaries: ThreadMessage[]) {
 	};
 }
 
+type ThreadResult = {
+	threadKey: string | undefined;
+	limitReached: boolean;
+	discoveryComplete: boolean;
+	messages: (
+		| ThreadMessageContent
+		| (ThreadMessage & { bodyStatus: "not_requested" })
+	)[];
+};
+
 export async function getThread(
 	client: ImapClient,
 	input: ThreadLookupInput,
 	accepts: MessageFilter,
-) {
+	cache?: MessageCache,
+): Promise<ReadResult<ThreadResult>> {
 	const opened = await client.mailboxOpen(input.mailbox, { readOnly: true });
 	checkUidValidity(input.uidValidity, opened.uidValidity);
 	const [anchor] = await fetchThreadMessages(
@@ -350,23 +409,31 @@ export async function getThread(
 	if (!anchor) return { kind: "not_found" } as const;
 	if (!accepts(input.mailbox, anchor)) return { kind: "denied" } as const;
 
-	const thread = new ThreadAssembly(input.limit);
+	// Discover independently of the response limit before selecting recent members.
+	const thread = new ThreadAssembly();
 	const candidates = new ThreadCandidates();
 	thread.add(anchor);
 	candidates.accept(anchor);
 
 	const mailboxes = [...new Set([input.mailbox, ...input.mailboxes])];
-	await expandThread(client, mailboxes, thread, candidates, accepts);
+	const discoveryComplete = await expandThread(
+		client,
+		mailboxes,
+		thread,
+		candidates,
+		accepts,
+	);
 
-	const summaries = thread.chronological();
+	const summaries = thread.newest(anchor, input.limit);
 	const contents = input.includeText
-		? await readThreadBodies(client, summaries, accepts)
+		? await readThreadBodies(client, summaries, accepts, cache)
 		: withoutBodies(summaries);
 	return {
 		kind: "found",
 		value: {
 			threadKey: anchor.threadKey,
-			limitReached: thread.isFull,
+			limitReached: thread.size > input.limit,
+			discoveryComplete,
 			...contents,
 		},
 	} as const;

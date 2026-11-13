@@ -135,6 +135,16 @@ test("creation refuses invalid names, missing namespaces, and parents outside cu
 			CreateMailboxSchema.safeParse({ kind: "folder", name }).success,
 			false,
 		);
+	const labelWithParent = {
+		kind: "label",
+		name: "Nested",
+		parent: "Folders/Projects",
+	};
+	assert.equal(CreateMailboxSchema.safeParse(labelWithParent).success, false);
+	assert.equal(
+		(await f.client.callTool("create_mailbox", labelWithParent)).isError,
+		true,
+	);
 	for (const parent of [
 		"INBOX",
 		"Labels",

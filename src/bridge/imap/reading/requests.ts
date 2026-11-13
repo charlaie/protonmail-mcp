@@ -58,7 +58,7 @@ export const SearchMessagesSchema = z
 			.int()
 			.min(1)
 			.max(100)
-			.default(20)
+			.default(10)
 			.describe("Maximum number of newest matching messages per page."),
 	})
 	.refine(
@@ -87,11 +87,11 @@ export const GetThreadSchema = z.object({
 		.int()
 		.min(1)
 		.max(100)
-		.default(50)
+		.default(10)
 		.describe("Maximum number of related messages to return."),
 	includeText: z
 		.boolean()
-		.default(true)
+		.default(false)
 		.describe(
 			"Whether to include parsed plain-text bodies for returned messages.",
 		),

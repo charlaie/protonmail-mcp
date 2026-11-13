@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { BridgeConfig } from "@/bridge/config.js";
 import type { ImapService } from "@/bridge/imap/service.js";
 import type { MailAccess } from "@/mail/access.js";
@@ -5,11 +6,13 @@ import type { DraftOperation } from "@/mail/drafts/model.js";
 import {
 	CreateDraftSchema,
 	CreateReplyDraftSchema,
+	DraftLocatorSchema,
 	EditDraftRequestSchema,
 	GetDraftSchema,
 } from "@/mail/drafts/requests.js";
 import type { DraftWorkflow } from "@/mail/drafts/workflow.js";
 import { configuredSenderSchema } from "@/mail/outgoing/senders.js";
+import { pageText, TextPageFields } from "@/mail/reading/view.js";
 import {
 	ADDITIVE_WRITE_TOOL,
 	DESTRUCTIVE_WRITE_TOOL,
@@ -24,6 +27,7 @@ import {
 	GetOperationSchema,
 	ListOperationsSchema,
 } from "@/operations/identity.js";
+import { MailError } from "@/shared/mail-error.js";
 import {
 	DraftOperationOutputSchema,
 	GetDraftOutputSchema,
@@ -84,15 +88,43 @@ export function registerDraftTools(input: {
 		"get_draft",
 		{
 			title: "Read editable draft",
-			inputSchema: GetDraftSchema,
+			inputSchema: DraftLocatorSchema.safeExtend({
+				...TextPageFields,
+				expectedRevision: z
+					.string()
+					.regex(/^[a-f0-9]{64}$/)
+					.optional()
+					.describe(
+						"Revision from the first page; required when textOffset is nonzero.",
+					),
+			}).refine(
+				(request) =>
+					request.textOffset === 0 || request.expectedRevision !== undefined,
+				"Continuation requires expectedRevision from the first page.",
+			),
 			outputSchema: GetDraftOutputSchema,
 			annotations: READ_ONLY_TOOL,
 			description:
-				"Read a policy-authorized draft by stable draftId or by mailbox, UID and UIDVALIDITY. Returns draftId, current physical identity, Bcc, byte-free file/image manifests and its revision token. Keep revision for edit_draft expectedRevision. Logical IDs survive server-managed edits and restarts with the same account journal; unresolved APPEND blocks ID resolution. Empty unfinished drafts are supported. Arbitrary HTML, unsupported media, oversized drafts, and disallowed senders are refused.",
+				"Read a policy-authorized draft by stable draftId or by mailbox, UID and UIDVALIDITY. Returns a body page (4000 characters by default, at most 16000 via textLimit). Continue with textOffset=textPage.nextOffset and expectedRevision=revision until null. Returns draftId, current physical identity, Bcc, byte-free file/image manifests and its revision token. Keep revision for edit_draft expectedRevision. Logical IDs survive server-managed edits and restarts with the same account journal; unresolved APPEND blocks ID resolution. Empty unfinished drafts are supported. Arbitrary HTML, unsupported media, oversized drafts, and disallowed senders are refused.",
 		},
 		async (request) => {
 			const mail = await mailAccess();
-			return jsonResponse(await mail.getDraft(request));
+			const { textOffset, textLimit, expectedRevision, ...locator } = request;
+			const draft = await mail.getDraft(GetDraftSchema.parse(locator));
+			if (
+				expectedRevision !== undefined &&
+				expectedRevision !== draft.revision
+			) {
+				throw new MailError(
+					"STALE_IDENTITY",
+					"Draft changed between pages. Restart get_draft at textOffset 0.",
+					"refresh_identity",
+				);
+			}
+			return jsonResponse({
+				...draft,
+				...pageText(draft.text, { textOffset, textLimit }),
+			});
 		},
 	);
 

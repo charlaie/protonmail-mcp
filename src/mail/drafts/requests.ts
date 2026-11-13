@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
+	type GetMessageInput,
 	GetMessageSchema,
+	MailboxSchema,
 	UidSchema,
 	UidValiditySchema,
 } from "@/mail/identity.js";
@@ -54,28 +56,75 @@ const DraftPatchSchema = z.object({
 	subject: SubjectSchema.optional(),
 	text: TextSchema.optional(),
 });
-export const EditDraftSchema = DraftPatchSchema.extend({
-	uidValidity: UidValiditySchema,
-	uid: UidSchema,
-}).refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
 export const DraftIdSchema = z
 	.uuid()
 	.describe(
 		"Stable logical draft ID returned by get_draft or a draft operation. Scoped to this account's journal and preserved across server-managed edits.",
 	);
-export const EditDraftRequestSchema = z.union([
-	EditDraftSchema.strict(),
-	DraftPatchSchema.extend({ draftId: DraftIdSchema })
-		.strict()
-		.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts."),
-]);
 
-export const GetDraftSchema = z.union([
-	GetMessageSchema.strict(),
-	z.strictObject({ draftId: DraftIdSchema }),
-]);
-export type GetDraftInput = z.infer<typeof GetDraftSchema>;
-export type EditDraftRequest = z.infer<typeof EditDraftRequestSchema>;
+type DraftPatch = z.output<typeof DraftPatchSchema>;
+export type GetDraftInput = { draftId: string } | GetMessageInput;
+export type EditDraftRequest =
+	| (DraftPatch & { draftId: string })
+	| (DraftPatch & { uid: number; uidValidity: string });
+
+/**
+ * Some hosts rewrite top-level input unions into free text, so each draft
+ * request is one object that accepts exactly one locator form.
+ */
+export function requireOneDraftLocator(physicalFields: readonly string[]) {
+	const physical = physicalFields.join(", ");
+	return (value: Record<string, unknown>, context: z.RefinementCtx) => {
+		const given = physicalFields.filter((field) => value[field] !== undefined);
+		const valid =
+			value.draftId === undefined
+				? given.length === physicalFields.length
+				: given.length === 0;
+		if (!valid)
+			context.addIssue({
+				code: "custom",
+				message: `Provide either draftId or all of ${physical}, not both.`,
+			});
+	};
+}
+
+const locatorDescription = (fields: string) =>
+	`Use with ${fields} when draftId is omitted.`;
+
+export const EditDraftRequestSchema = DraftPatchSchema.extend({
+	draftId: DraftIdSchema.optional(),
+	uidValidity: UidValiditySchema.optional().describe(locatorDescription("uid")),
+	uid: UidSchema.optional().describe(locatorDescription("uidValidity")),
+})
+	.strict()
+	.refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.")
+	.superRefine(requireOneDraftLocator(["uid", "uidValidity"]))
+	.transform(
+		({ draftId, uid, uidValidity, ...patch }): EditDraftRequest =>
+			draftId === undefined
+				? {
+						...patch,
+						uid: UidSchema.parse(uid),
+						uidValidity: UidValiditySchema.parse(uidValidity),
+					}
+				: { ...patch, draftId },
+	);
+
+export const DraftLocatorSchema = z
+	.strictObject({
+		draftId: DraftIdSchema.optional(),
+		mailbox: MailboxSchema.optional().describe(
+			locatorDescription("uid and uidValidity"),
+		),
+		uidValidity: UidValiditySchema.optional(),
+		uid: UidSchema.optional(),
+	})
+	.superRefine(requireOneDraftLocator(["mailbox", "uid", "uidValidity"]));
+
+export const GetDraftSchema = DraftLocatorSchema.transform(
+	({ draftId, ...identity }): GetDraftInput =>
+		draftId === undefined ? GetMessageSchema.parse(identity) : { draftId },
+);
 
 export const CreateReplyDraftSchema = GetMessageSchema.extend({
 	...MediaInputFields,
@@ -93,4 +142,4 @@ export const CreateReplyDraftSchema = GetMessageSchema.extend({
 }).refine(withinMediaLimits, "Combined media exceeds 6 MiB or 20 parts.");
 
 export type CreateDraftInput = z.infer<typeof CreateDraftSchema>;
-export type EditDraftInput = z.infer<typeof EditDraftSchema>;
+export type EditDraftInput = DraftPatch & { uid: number; uidValidity: string };

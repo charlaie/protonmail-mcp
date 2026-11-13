@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { type GetMessageInput, GetMessageSchema } from "@/mail/identity.js";
-import { MessageBodySchema, type MessageContent } from "@/mail/message.js";
+import type { MessageContent } from "@/mail/message.js";
 import { ToolErrorSchema, toolError } from "@/shared/mail-error.js";
+import { MessageViewSchema, messageView, TextLimitSchema } from "./view.js";
 
 export const BATCH_READ_LIMITS = {
 	maxMessages: 20,
-	maxTextChars: 500_000,
-	maxBytes: 1_048_576,
+	maxTextChars: 32_000,
+	maxBytes: 131_072,
 };
 export const BatchGetMessagesSchema = z.object({
 	messages: z
@@ -21,13 +22,16 @@ export const BatchGetMessagesSchema = z.object({
 		.describe(
 			"Complete physical message references, read sequentially in request order, including duplicates.",
 		),
+	textLimit: TextLimitSchema.describe(
+		"Maximum body characters returned per item (UTF-16 units), default 4000, maximum 16000. Continue a partial body with get_message textOffset.",
+	),
 });
 const reference = { reference: GetMessageSchema };
 export const BatchReadItemSchema = z.discriminatedUnion("kind", [
 	z.object({
 		...reference,
 		kind: z.literal("found"),
-		message: MessageBodySchema,
+		message: MessageViewSchema,
 	}),
 	z.object({ ...reference, kind: z.literal("denied") }),
 	z.object({ ...reference, kind: z.literal("not_found") }),
@@ -55,7 +59,7 @@ export const BatchReadSchema = z.object({
 		exhausted: z.boolean(),
 	}),
 });
-export type BatchGetMessagesInput = z.infer<typeof BatchGetMessagesSchema>;
+export type BatchGetMessagesInput = z.input<typeof BatchGetMessagesSchema>;
 type BatchReadItem = z.infer<typeof BatchReadItemSchema>;
 type BatchRead = z.infer<typeof BatchReadSchema>;
 
@@ -102,7 +106,15 @@ export async function batchGetMessages(input: {
 	for (const [index, reference] of request.messages.entries()) {
 		let item: BatchReadItem;
 		try {
-			item = { reference, kind: "found", message: await input.read(reference) };
+			const message = await input.read(reference);
+			item = {
+				reference,
+				kind: "found",
+				message: messageView(message, {
+					textOffset: 0,
+					textLimit: request.textLimit,
+				}),
+			};
 		} catch (error) {
 			item = readFailure(reference, error);
 		}
@@ -112,7 +124,7 @@ export async function batchGetMessages(input: {
 		// Include references, metadata, outcomes and JSON escaping, not just body bytes.
 		if (
 			result.budget.returnedTextChars > BATCH_READ_LIMITS.maxTextChars ||
-			Buffer.byteLength(JSON.stringify(result, null, 2), "utf8") >
+			Buffer.byteLength(JSON.stringify(result), "utf8") >
 				BATCH_READ_LIMITS.maxBytes
 		) {
 			result.items[index] = { reference, kind: "budget_exhausted" };

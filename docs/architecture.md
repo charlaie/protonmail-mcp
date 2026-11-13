@@ -24,7 +24,7 @@ src/
 │   ├── access.ts                    Compose policy-authorized mail access
 │   ├── identity.ts                  Physical mailbox identity
 │   ├── message.ts                   Shared received-message contracts
-│   ├── reading/                     Ordered batch reads and aggregate output budgets
+│   ├── reading/                     Bounded read views, body pages, and batch budgets
 │   ├── mailboxes.ts                 Selectable special-mailbox resolution
 │   ├── drafts/
 │   │   ├── workflow.ts              Authorized creation, reply composition, and replay
@@ -90,7 +90,7 @@ Setup and runtime use `mail/mailboxes.ts` to resolve Drafts, Sent, Archive, and 
 
 Draft composition distinguishes creation from editing; an edit requires its parsed original. Composition produces MIME bytes without writing to IMAP. The draft service owns the journal claim and APPEND. `drafts/workflow.ts` coordinates mailbox authorization, reply-source reads, composition, and replay; MCP registrations only translate requests and responses.
 
-Search pagination lives in `bridge/imap/reading/`: an ephemeral authenticated cursor binds the received-date/UID position and initial UID ceiling to the query, account and policy. Mail access supplies the current policy fingerprint; MCP handlers only translate the page. No result snapshots are persisted. `mail/reading/batch.ts` owns ordered batch outcomes and output budgets and calls the canonical authorized single-message read path sequentially.
+Search pagination lives in `bridge/imap/reading/`: an ephemeral authenticated cursor binds the received-date/UID position and initial UID ceiling to the query, account and policy. Mail access supplies the current policy fingerprint; MCP handlers only translate the page. No result snapshots are persisted. `mail/reading/batch.ts` owns ordered batch outcomes and output budgets and calls the canonical authorized single-message read path sequentially. `mail/reading/view.ts` owns the model-facing message view: capped metadata and surrogate-safe body pages. Internal composition reads complete `MessageContent` instead.
 
 Message and draft reads share the 10 MiB size rule for advertised sizes and actual fetched bytes. Both authorize parsed sender addresses before returning message content, in addition to checking the IMAP envelope before fetching it.
 
@@ -116,3 +116,9 @@ Keep same-directory imports relative, such as `./model.js`. TypeScript resolves 
 `pnpm test` passes a quoted recursive pattern to Node so nested test files are discovered on every supported shell. Package exclusions keep tests, fixtures, and `testing/` directories out of the published runtime.
 
 TypeScript checks unchecked indexed access, missing return paths, and switch fallthrough in addition to strict mode. Tests must establish that a fetched array element exists before inspecting it.
+
+### Read response sizing
+
+`mail/reading/view.ts` owns text pages and bounded message metadata. `mail/reading/list-page.ts` owns count/byte paging of metadata arrays without shortening identifiers. MCP draft reads page their body with a revision guard, while internal draft snapshots retain complete content. `bridge/imap/reading/cache.ts` owns the bounded account-local parsed-content cache. It stores content rather than authorization; `readMessage` checks current mailbox identity, envelope and parsed-sender permissions before returning a hit. Composition and approval rechecks bypass the cache. Thread discovery has its own candidate/search budget, independent of the number of results requested, and reports whether discovery completed.
+
+`pnpm measure:tools` exercises the real `tools/list` protocol and reports serialized schema sizes under three grant sets. The budget check guards catalog growth; it does not claim to measure provider tokens. See [context-cost.md](context-cost.md) for host measurement limits.

@@ -15,7 +15,7 @@ export function textResponse(text: string) {
 /** Return a JSON object as a text response. */
 export function jsonResponse(value: object) {
 	return {
-		...textResponse(JSON.stringify(value, null, 2)),
+		...textResponse(JSON.stringify(value)),
 		structuredContent: value,
 	};
 }

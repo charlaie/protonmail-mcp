@@ -122,7 +122,7 @@ test("mixed outcomes preserve order and duplicates, use canonical parsed sender 
 	assert.equal(failed.error.code, "OPERATION_FAILED");
 	assert.equal(result.budget.exhausted, false);
 	assert.deepEqual(work(), { sessions: 10, peak: 1 });
-	assert.equal(fake.sourceFetches, 5);
+	assert.equal(fake.sourceFetches, 4);
 	assert.equal(fake.appends.length, 0);
 	assert.equal(fake.deletions, 0);
 	assert.equal(fake.moves.length, 0);
@@ -130,78 +130,99 @@ test("mixed outcomes preserve order and duplicates, use canonical parsed sender 
 	assert.equal(fake.downloads.length, 0);
 });
 
-test("character budget returns whole messages, marks the first over-budget and all unattempted items, and stops work", async (t) => {
+test("found items return bounded first pages that continue with get_message", async (t) => {
+	const { fake, mail } = await fixture(t);
+	fake.mailboxes.set("INBOX", [
+		fixtureMessage(1, { text: "a".repeat(20_000) }),
+		fixtureMessage(2, { text: "short" }),
+	]);
+	const result = await mail.batchGetMessages({
+		messages: [identity(1), identity(2)],
+	});
+	const [long, short] = result.items;
+	assert.ok(long?.kind === "found" && short?.kind === "found");
+	assert.equal(long.message.text, "a".repeat(4_000));
+	assert.deepEqual(long.message.textPage, {
+		offset: 0,
+		totalChars: 20_000,
+		nextOffset: 4_000,
+	});
+	assert.equal(short.message.text, "short");
+	assert.equal(short.message.textPage.nextOffset, null);
+	assert.equal(result.budget.returnedTextChars, 4_005);
+	assert.equal(result.budget.exhausted, false);
+	// Internal reads used by composition remain complete.
+	assert.equal((await mail.getMessage(identity(1))).text.length, 20_000);
+});
+
+test("character budget marks the first over-budget item and all unattempted items, and stops work", async (t) => {
 	const { fake, mail, work } = await fixture(t);
 	fake.mailboxes.set("INBOX", [
-		fixtureMessage(1, { text: "a".repeat(300_000) }),
-		fixtureMessage(2, { text: "b".repeat(300_000) }),
+		fixtureMessage(1, { text: "a".repeat(20_000) }),
+		fixtureMessage(2, { text: "b".repeat(20_000) }),
+		fixtureMessage(3),
+		fixtureMessage(4),
+	]);
+	const result = await mail.batchGetMessages({
+		messages: [identity(1), identity(2), identity(3), identity(4)],
+		textLimit: 16_000,
+	});
+	assert.deepEqual(
+		result.items.map(({ kind }) => kind),
+		["found", "found", "budget_exhausted", "budget_exhausted"],
+	);
+	assert.equal(result.budget.returnedTextChars, 32_000);
+	assert.equal(result.budget.exhausted, true);
+	assert.deepEqual(work(), { sessions: 3, peak: 1 });
+	assert.equal(fake.sourceFetches, 3);
+});
+
+test("byte budget includes JSON escaping independently of text characters", async (t) => {
+	const { fake, mail, work } = await fixture(t);
+	fake.mailboxes.set("INBOX", [
+		fixtureMessage(1, { text: "\u0001".repeat(20_000) }),
+		fixtureMessage(2, { text: "\u0001".repeat(20_000) }),
 		fixtureMessage(3),
 	]);
 	const result = await mail.batchGetMessages({
 		messages: [identity(1), identity(2), identity(3)],
+		textLimit: 16_000,
 	});
 	assert.deepEqual(
 		result.items.map(({ kind }) => kind),
 		["found", "budget_exhausted", "budget_exhausted"],
 	);
-	const first = result.items[0];
-	assert.ok(first?.kind === "found");
-	assert.equal(first.message.text.length, 300_000);
-	assert.equal(result.budget.returnedTextChars, 300_000);
-	assert.equal(result.budget.exhausted, true);
+	// Two pages fit the character budget; their escaped JSON does not fit the byte budget.
+	assert.equal(result.budget.returnedTextChars, 16_000);
 	assert.deepEqual(work(), { sessions: 2, peak: 1 });
-	assert.equal(fake.sourceFetches, 2);
 	assert.ok(
-		Buffer.byteLength(JSON.stringify(result, null, 2)) <=
-			BATCH_READ_LIMITS.maxBytes,
+		Buffer.byteLength(JSON.stringify(result)) <= BATCH_READ_LIMITS.maxBytes,
 	);
-	// No new limit on the existing single-message default.
-	assert.equal((await mail.getMessage(identity(2))).text.length, 300_000);
 });
 
-test("byte budget includes UTF-8, escaping, metadata and outcome envelopes independently of text characters", async (t) => {
-	for (const text of ["界".repeat(360_000), "\u0001".repeat(180_000)]) {
-		const { fake, mail, work } = await fixture(t);
-		fake.mailboxes.set("INBOX", [
-			fixtureMessage(1, { text }),
-			fixtureMessage(2),
-		]);
-		const result = await mail.batchGetMessages({
-			messages: [identity(1), identity(2)],
-		});
-		assert.deepEqual(
-			result.items.map(({ kind }) => kind),
-			["budget_exhausted", "budget_exhausted"],
-		);
-		assert.equal(result.budget.returnedTextChars, 0);
-		assert.equal(result.budget.exhausted, true);
-		assert.deepEqual(work(), { sessions: 1, peak: 1 });
-		assert.ok(
-			Buffer.byteLength(JSON.stringify(result, null, 2)) <=
-				BATCH_READ_LIMITS.maxBytes,
-		);
-	}
-});
-
-test("large metadata counts toward the byte budget even with a tiny body", async (t) => {
-	const { fake, mail, work } = await fixture(t);
-	const message = fixtureMessage(1);
+test("item metadata is capped and reports omitted list entries", async (t) => {
+	const { fake, mail } = await fixture(t);
+	const message = fixtureMessage(1, {
+		references: Array.from(
+			{ length: 200 },
+			(_, index) => `<ref-${index}@example.com>`,
+		),
+	});
 	assert.ok(message.envelope);
 	message.envelope.subject = "s".repeat(BATCH_READ_LIMITS.maxBytes);
-	fake.mailboxes.set("INBOX", [message, fixtureMessage(2)]);
-	const result = await mail.batchGetMessages({
-		messages: [identity(1), identity(2)],
-	});
-	assert.deepEqual(
-		result.items.map(({ kind }) => kind),
-		["budget_exhausted", "budget_exhausted"],
-	);
-	assert.equal(result.budget.returnedTextChars, 0);
-	assert.deepEqual(work(), { sessions: 1, peak: 1 });
-	assert.ok(
-		Buffer.byteLength(JSON.stringify(result, null, 2)) <=
-			BATCH_READ_LIMITS.maxBytes,
-	);
+	message.envelope.to = Array.from({ length: 100 }, (_, index) => ({
+		address: `recipient-${index}@example.com`,
+	}));
+	fake.mailboxes.set("INBOX", [message]);
+	const result = await mail.batchGetMessages({ messages: [identity(1)] });
+	const [item] = result.items;
+	assert.ok(item?.kind === "found");
+	assert.equal(item.message.subject.length, 1_000);
+	assert.equal(item.message.to.length, 20);
+	assert.equal(item.message.references.length, 10);
+	assert.equal(item.message.references.at(-1), "<ref-199@example.com>");
+	assert.deepEqual(item.message.omitted, { to: 80, references: 190 });
+	assert.ok(Buffer.byteLength(JSON.stringify(result)) < 16_384);
 });
 
 test("boundary rejects empty, oversized, incomplete and unbounded references before any IMAP work", async (t) => {
@@ -214,6 +235,13 @@ test("boundary rejects empty, oversized, incomplete and unbounded references bef
 		[{ ...identity(1), uidValidity: "7".repeat(21) }],
 	]) {
 		assert.equal(BatchGetMessagesSchema.safeParse({ messages }).success, false);
+	}
+	for (const textLimit of [1, 16_001]) {
+		assert.equal(
+			BatchGetMessagesSchema.safeParse({ messages: [identity(1)], textLimit })
+				.success,
+			false,
+		);
 	}
 	await assert.rejects(mail.batchGetMessages({ messages: [] }));
 	assert.equal(work().sessions, 0);

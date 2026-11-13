@@ -15,7 +15,10 @@ import {
 	fixtureMessage,
 	testConfig,
 } from "@/bridge/testing/fixtures.js";
-import { CreateDraftSchema, EditDraftSchema } from "@/mail/drafts/requests.js";
+import {
+	CreateDraftSchema,
+	EditDraftRequestSchema,
+} from "@/mail/drafts/requests.js";
 import {
 	allowAllWrites,
 	permissiveDraftChecks,
@@ -50,7 +53,7 @@ function inboxMessage(uid: number) {
 }
 
 function editInput(original: ReturnType<typeof fixtureMessage>, input: object) {
-	return EditDraftSchema.parse({
+	return EditDraftRequestSchema.parse({
 		operationId: randomUUID(),
 		expectedRevision: hashContent(original.source?.toString("base64")),
 		...input,
@@ -199,6 +202,7 @@ test("thread traversal excludes substring collisions and denied senders before i
 				uid: 1,
 				uidValidity: "7",
 				limit: 2,
+				includeText: true,
 			}),
 			mailboxes: ["INBOX", "Archive"],
 		},
@@ -209,8 +213,10 @@ test("thread traversal excludes substring collisions and denied senders before i
 		result.value.messages.map((message) => message.uid),
 		[1, 4],
 	);
-	assert.equal(result.value.limitReached, true);
-	assert.equal(client.searches.length, 1);
+	// Exactly two allowed members exist, so the limit omitted nothing.
+	assert.equal(result.value.limitReached, false);
+	// Without a third member, traversal must finish to prove nothing was omitted.
+	assert.equal(client.searches.length, 4);
 	assert.equal(client.sourceFetches, 2);
 });
 
@@ -424,12 +430,12 @@ test("thread body limits retain summaries and other available bodies", async () 
 		},
 		fixtureMessage(3, {
 			references: ["<message-1@example.com>"],
-			text: "x".repeat(500_001),
+			text: "x".repeat(32_001),
 		}),
 	]);
 	const result = await service(client).getThread(
 		{
-			...GetThreadSchema.parse(inboxMessage(1)),
+			...GetThreadSchema.parse({ ...inboxMessage(1), includeText: true }),
 			mailboxes: ["INBOX"],
 		},
 		accepts,

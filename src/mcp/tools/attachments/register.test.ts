@@ -207,3 +207,39 @@ test("wildcard attachment policy delivers arbitrary types with their declared MI
 	);
 	assert.equal(client.imap.downloads.length, 0);
 });
+
+test("attachment lists paginate exact part IDs without downloads", async (t) => {
+	const client = await fixture(t);
+	client.message.bodyStructure = {
+		type: "multipart/mixed",
+		childNodes: Array.from({ length: 45 }, (_, i) => ({
+			part: String(i + 1),
+			type: "application/pdf",
+			size: 100,
+			disposition: "attachment",
+			dispositionParameters: { filename: `file-${i}.pdf` },
+		})),
+	};
+	const ids: string[] = [];
+	let offset = 0;
+	do {
+		const response = await client.callTool("list_attachments", {
+			mailbox: attachmentIdentity.mailbox,
+			uid: 1,
+			uidValidity: "7",
+			offset,
+		});
+		assert.ok(isSpecType.CallToolResult(response));
+		const result = AttachmentListOutputSchema.parse(response.structuredContent);
+		assert.ok("attachments" in result);
+		assert.ok(result.attachments.length <= 20);
+		ids.push(...result.attachments.map((item) => item.attachmentId));
+		if (result.nextOffset === null) break;
+		offset = result.nextOffset;
+	} while (offset < 45);
+	assert.deepEqual(
+		ids,
+		Array.from({ length: 45 }, (_, i) => String(i + 1)),
+	);
+	assert.equal(client.imap.downloads.length, 0);
+});

@@ -172,33 +172,27 @@ test("stdio loads an explicit JSON config, advertises grants, and checks policy 
 		(tool) => tool.name === "edit_draft",
 	);
 	assert.ok(editDraft);
-	const editVariants = z
-		.array(z.object({ required: z.array(z.string()) }))
-		.parse(editDraft.inputSchema.anyOf);
-	assert.equal(editVariants.length, 2);
-	assert.ok(
-		editVariants.every(
-			(variant) =>
-				variant.required.includes("operationId") &&
-				variant.required.includes("expectedRevision"),
-		),
+	// Some hosts replace top-level unions with free text and drop variants.
+	for (const tool of listed.result.tools) {
+		assert.equal(tool.inputSchema.type, "object", tool.name);
+		for (const keyword of ["anyOf", "oneOf", "allOf"])
+			assert.equal(keyword in tool.inputSchema, false, tool.name);
+	}
+	const editInput = editDraft.inputSchema;
+	assert.deepEqual([...(editInput.required ?? [])].sort(), [
+		"expectedRevision",
+		"operationId",
+	]);
+	for (const field of ["draftId", "uid", "uidValidity", "text", "subject"])
+		assert.ok(editInput.properties?.[field], field);
+	const createMailbox = listed.result.tools.find(
+		(tool) => tool.name === "create_mailbox",
 	);
-	assert.ok(
-		editVariants.some((variant) => variant.required.includes("draftId")),
-	);
-	assert.ok(
-		editVariants.some(
-			(variant) =>
-				variant.required.includes("uid") &&
-				variant.required.includes("uidValidity"),
-		),
-	);
-	assert.ok(
-		editVariants.every(
-			(variant) =>
-				!variant.required.includes("text") &&
-				!variant.required.includes("subject"),
-		),
+	assert.deepEqual(
+		z
+			.object({ enum: z.array(z.string()) })
+			.parse(createMailbox?.inputSchema.properties?.kind).enum,
+		["folder", "label"],
 	);
 	assert.equal(editDraft.annotations?.idempotentHint, true);
 	const getDraft = listed.result.tools.find(

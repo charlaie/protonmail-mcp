@@ -282,9 +282,15 @@ export async function createMailAccess(
 		return imap.searchMessages(input, accepts, hashContent(policy));
 	}
 
-	async function getMessage(input: GetMessageInput) {
+	async function getMessage(
+		input: GetMessageInput,
+		options: { reuseContent?: boolean } = {},
+	) {
 		requireMailbox(input.mailbox);
-		return unwrapReadResult(await imap.getMessage(input, accepts), input);
+		return unwrapReadResult(
+			await imap.getMessage(input, accepts, options),
+			input,
+		);
 	}
 
 	async function getThread(input: GetThreadInput) {
@@ -379,7 +385,10 @@ export async function createMailAccess(
 		searchMessages,
 		getMessage,
 		batchGetMessages: (request: BatchGetMessagesInput) =>
-			batchGetMessages({ request, read: getMessage }),
+			batchGetMessages({
+				request,
+				read: (identity) => getMessage(identity, { reuseContent: true }),
+			}),
 		getThread,
 		listAttachments,
 		prepareAttachmentRead,

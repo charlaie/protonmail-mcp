@@ -236,3 +236,65 @@ test("malformed external aliases cannot collapse unrelated parents or attach the
 		);
 	}
 });
+
+test("thread discovery reaches recent generations beyond the response limit", async () => {
+	const client = new FakeImap();
+	client.mailboxes.set(
+		"INBOX",
+		Array.from({ length: 20 }, (_, i) =>
+			fixtureMessage(i + 1, {
+				references: i ? [`<message-${i}@example.com>`] : [],
+			}),
+		),
+	);
+	const result = await getThread(
+		client,
+		{
+			...GetThreadSchema.parse({
+				mailbox: "INBOX",
+				uid: 1,
+				uidValidity: "7",
+				limit: 3,
+			}),
+			mailboxes: ["INBOX"],
+		},
+		() => true,
+	);
+	assert.ok(result.kind === "found");
+	assert.deepEqual(
+		result.value.messages.map((message) => message.uid),
+		[1, 19, 20],
+	);
+	assert.equal(result.value.discoveryComplete, true);
+	assert.equal(result.value.limitReached, true);
+});
+
+test("thread discovery reports incomplete work when its search budget runs out", async () => {
+	const client = new FakeImap();
+	client.mailboxes.set(
+		"INBOX",
+		Array.from({ length: 110 }, (_, i) =>
+			fixtureMessage(i + 1, {
+				references: i ? [`<message-${i}@example.com>`] : [],
+			}),
+		),
+	);
+	const result = await getThread(
+		client,
+		{
+			...GetThreadSchema.parse({
+				mailbox: "INBOX",
+				uid: 1,
+				uidValidity: "7",
+				limit: 3,
+			}),
+			mailboxes: ["INBOX"],
+		},
+		() => true,
+	);
+	assert.ok(result.kind === "found");
+	assert.equal(result.value.discoveryComplete, false);
+	assert.equal(client.searches.length, 100);
+	assert.equal(result.value.messages.length, 3);
+	assert.equal(client.sourceFetches, 0);
+});

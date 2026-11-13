@@ -10,6 +10,20 @@ export function withinMessageReadLimit(size: number | undefined) {
 	);
 }
 
+export const OmittedEntriesSchema = z
+	.object({
+		from: z.number().int().positive(),
+		senderEmails: z.number().int().positive(),
+		to: z.number().int().positive(),
+		cc: z.number().int().positive(),
+		bcc: z.number().int().positive(),
+		replyTo: z.number().int().positive(),
+		references: z.number().int().positive(),
+	})
+	.partial()
+	.describe("Counts of list entries left out of this response.");
+export type OmittedEntries = z.infer<typeof OmittedEntriesSchema>;
+
 export const MessageSummarySchema = z.object({
 	uid: GetMessageSchema.shape.uid,
 	uidValidity: GetMessageSchema.shape.uidValidity,
@@ -21,6 +35,7 @@ export const MessageSummarySchema = z.object({
 	date: z.iso.datetime().optional(),
 	flags: z.array(z.string()),
 	size: z.number().optional(),
+	omitted: OmittedEntriesSchema.optional(),
 });
 export const MessageBodySchema = MessageSummarySchema.extend({
 	messageId: z.string().optional(),
@@ -38,6 +53,7 @@ export const MessageBodySchema = MessageSummarySchema.extend({
 		from: z.array(z.string()),
 		to: z.array(z.string()),
 		cc: z.array(z.string()),
+		bcc: z.array(z.string()),
 		replyTo: z.array(z.string()),
 	}),
 	text: z.string(),

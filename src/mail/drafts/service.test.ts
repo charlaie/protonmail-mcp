@@ -18,9 +18,13 @@ import { permissiveChecks } from "@/mail/sending/test-fixtures.js";
 import { createDraftStore } from "@/operations/sqlite/drafts.js";
 import { createSendStore } from "@/operations/sqlite/sending.js";
 import { hashContent } from "@/shared/content-hash.js";
-import { CreateDraftSchema, EditDraftSchema } from "./requests.js";
+import { CreateDraftSchema, EditDraftRequestSchema } from "./requests.js";
 import { createDraftService } from "./service.js";
-import { allowAllWrites, permissiveDraftChecks } from "./test-fixtures.js";
+import {
+	allowAllWrites,
+	permissiveDraftChecks,
+	physicalEdit,
+} from "./test-fixtures.js";
 
 const identity = { mailbox: "Drafts", uidValidity: "7", uid: 1 };
 async function fixture(t: TestContext, client = new FakeImap()) {
@@ -42,7 +46,7 @@ async function fixture(t: TestContext, client = new FakeImap()) {
 		);
 	const drafts = service();
 	const edit = async (patch: object = {}) =>
-		EditDraftSchema.parse({
+		EditDraftRequestSchema.parse({
 			operationId: randomUUID(),
 			uid: 1,
 			uidValidity: "7",
@@ -90,7 +94,7 @@ test("patch edit preserves omitted fields, exposes replacement revision, and rej
 	assert.equal(replacement.text.trim(), "New body");
 	assert.equal(replacement.revision, result.outcome.revision);
 	const cleared = await drafts.edit({
-		request: EditDraftSchema.parse({
+		request: physicalEdit({
 			operationId: randomUUID(),
 			...result.outcome.identity,
 			expectedRevision: replacement.revision,
@@ -437,7 +441,7 @@ test("content unavailable on an existing UID cannot complete either cleanup path
 	);
 	await assert.rejects(
 		drafts.edit({
-			request: EditDraftSchema.parse({
+			request: physicalEdit({
 				...record.outcome.identity,
 				operationId: randomUUID(),
 				expectedRevision: replacement.revision,

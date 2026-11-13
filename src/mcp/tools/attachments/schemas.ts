@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { GetAttachmentSchema } from "@/mail/attachments/requests.js";
 import { GetMessageSchema } from "@/mail/identity.js";
+import { NextOffsetSchema } from "@/mail/reading/list-page.js";
 import { ToolErrorSchema } from "@/shared/mail-error.js";
 
 const IdentitySchema = GetMessageSchema.extend({
@@ -14,6 +15,7 @@ const IdentitySchema = GetMessageSchema.extend({
 export const AttachmentListOutputSchema = z.union([
 	GetMessageSchema.extend({
 		untrusted: z.literal(true),
+		nextOffset: NextOffsetSchema,
 		attachments: z.array(
 			z.object({
 				attachmentId: z.string(),
